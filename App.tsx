@@ -2,11 +2,15 @@
 import React from 'react';
 import ChatWidget from './components/ChatWidget';
 import { Rocket, Zap, Shield, ChevronRight, Cpu, Layers, Globe, Sparkles } from 'lucide-react';
-
 const App: React.FC = () => {
   // Check if we are in widget mode (e.g. ?widget=true)
   const isWidget = new URLSearchParams(window.location.search).get('widget') === 'true';
-
+  React.useEffect(() => {
+    if (isWidget) {
+      document.body.style.backgroundColor = 'transparent';
+      document.documentElement.style.backgroundColor = 'transparent';
+    }
+  }, [isWidget]);
   if (isWidget) {
     return (
       <div className="min-h-screen bg-transparent">
@@ -14,7 +18,6 @@ const App: React.FC = () => {
       </div>
     );
   }
-
   return (
     <div className="min-h-screen bg-[#05070A] text-slate-200 overflow-x-hidden">
       {/* Navigation */}
@@ -37,7 +40,6 @@ const App: React.FC = () => {
           </button>
         </div>
       </nav>
-
       {/* Hero Section */}
       <section className="relative pt-40 pb-20 px-6 overflow-hidden">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[600px] bg-cyan-500/10 blur-[120px] -z-10 rounded-full"></div>
@@ -63,7 +65,6 @@ const App: React.FC = () => {
           </div>
         </div>
       </section>
-
       {/* Services Grid */}
       <section className="py-20 px-6 bg-slate-950/50">
         <div className="max-w-7xl mx-auto">
@@ -79,7 +80,6 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
-
           <div className="grid md:grid-cols-3 gap-8">
             <div className="glass-card p-8 rounded-3xl hover:bg-white/5 transition-all group border border-white/5">
               <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 flex items-center justify-center mb-6 group-hover:bg-cyan-500/20 transition-all">
@@ -90,7 +90,6 @@ const App: React.FC = () => {
                 Integramos modelos avanzados como Gemini para automatizar contenido, análisis de datos y atención al cliente premium.
               </p>
             </div>
-
             <div className="glass-card p-8 rounded-3xl hover:bg-white/5 transition-all group border border-white/5">
               <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center mb-6 group-hover:bg-blue-500/20 transition-all">
                 <Layers className="text-blue-400 w-8 h-8" />
@@ -100,7 +99,6 @@ const App: React.FC = () => {
                 Diseñamos flujos que conectan todas tus herramientas, eliminando tareas repetitivas y cuellos de botella.
               </p>
             </div>
-
             <div className="glass-card p-8 rounded-3xl hover:bg-white/5 transition-all group border border-white/5">
               <div className="w-14 h-14 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-6 group-hover:bg-purple-500/20 transition-all">
                 <Globe className="text-purple-400 w-8 h-8" />
@@ -113,7 +111,6 @@ const App: React.FC = () => {
           </div>
         </div>
       </section>
-
       {/* Trust Section */}
       <section className="py-20 px-6 border-t border-white/5">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center gap-12">
@@ -155,7 +152,6 @@ const App: React.FC = () => {
           </div>
         </div>
       </section>
-
       {/* Footer */}
       <footer className="py-12 border-t border-white/5 px-6">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
@@ -173,11 +169,9 @@ const App: React.FC = () => {
           </div>
         </div>
       </footer>
-
       {/* Chat Bot UI */}
       <ChatWidget />
     </div>
   );
 };
-
 export default App;
