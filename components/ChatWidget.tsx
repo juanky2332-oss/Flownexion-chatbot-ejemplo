@@ -4,6 +4,7 @@ import { MessageRole, ChatMessage } from '../types';
 import { chatWithGemini, generateOrEditImage } from '../services/geminiService';
 import { FLOWNEXION_IDENTITY, WELCOME_MESSAGE } from '../constants';
 import RealisticRobot from './RealisticRobot';
+
 const ChatWidget: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -12,6 +13,7 @@ const ChatWidget: React.FC = () => {
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (messages.length === 0) {
       setMessages([{
@@ -21,22 +23,32 @@ const ChatWidget: React.FC = () => {
         timestamp: new Date()
       }]);
     }
+
     const timer = setTimeout(() => setShowTooltip(false), 15000);
     return () => clearTimeout(timer);
   }, []);
+
+  // FIX: Ahora enviamos también 'showTooltip'. 
+  // Esto le dice a la web principal que reserve espacio para el mensaje flotante aunque el chat esté cerrado.
   useEffect(() => {
     window.parent.postMessage({
       type: 'FLOWNEXION_RESIZE',
-      isOpen: isOpen
+      isOpen: isOpen,
+      showTooltip: showTooltip, // Nuevo dato crítico
+      height: isOpen ? 650 : (showTooltip ? 180 : 100), // Sugerencia de altura explícita
+      width: isOpen ? 420 : 100
     }, '*');
-  }, [isOpen]);
+  }, [isOpen, showTooltip]);
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isLoading]);
+
   const handleSend = async () => {
     if (!inputValue.trim() && !attachedImage) return;
+
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: MessageRole.USER,
@@ -44,15 +56,18 @@ const ChatWidget: React.FC = () => {
       timestamp: new Date(),
       imageUrl: attachedImage || undefined
     };
+
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
+
     try {
       const isImageRequest =
         inputValue.toLowerCase().includes('genera') ||
         inputValue.toLowerCase().includes('dibuja') ||
         inputValue.toLowerCase().includes('imagen') ||
         attachedImage;
+
       if (isImageRequest) {
         const imageUrl = await generateOrEditImage(inputValue, attachedImage || undefined);
         const botMessage: ChatMessage = {
@@ -70,6 +85,7 @@ const ChatWidget: React.FC = () => {
           role: m.role === MessageRole.USER ? 'user' : 'model',
           parts: [{ text: m.content }]
         }));
+
         const response = await chatWithGemini(inputValue, chatHistory);
         const botMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
@@ -93,6 +109,7 @@ const ChatWidget: React.FC = () => {
       setIsLoading(false);
     }
   };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -103,12 +120,16 @@ const ChatWidget: React.FC = () => {
       reader.readAsDataURL(file);
     }
   };
+
   const isWidget = new URLSearchParams(window.location.search).get('widget') === 'true';
+
   return (
-    <div className={`fixed bottom-6 right-6 z-50 flex flex-col items-end ${isWidget ? 'bottom-0 right-0 p-8' : ''}`}>
+    // FIX: Añadimos 'pointer-events-none' al contenedor principal y 'pointer-events-auto' a los hijos interactivos.
+    // Esto evita que el área transparente "invisible" del widget bloquee clicks en la web de fondo si el iframe es grande.
+    <div className={`fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none ${isWidget ? 'bottom-0 right-0 p-8' : ''}`}>
       {/* Chat Window */}
       {isOpen && (
-        <div className={`mb-4 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500 border border-white/20 shadow-2xl ${isWidget
+        <div className={`pointer-events-auto mb-4 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500 border border-white/20 shadow-2xl ${isWidget
             ? 'w-full h-[600px] bg-slate-900 rounded-[2rem]'
             : 'w-[92vw] md:w-[420px] h-[650px] glass-card rounded-[3rem]'
           }`}>
@@ -136,6 +157,7 @@ const ChatWidget: React.FC = () => {
               </button>
             </div>
           </div>
+
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#020408]">
             {messages.map((msg) => (
               <div key={msg.id} className={`flex gap-3 ${msg.role === MessageRole.USER ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -182,6 +204,7 @@ const ChatWidget: React.FC = () => {
               </div>
             )}
           </div>
+
           <div className="p-7 bg-slate-900/90 border-t border-white/10 backdrop-blur-3xl">
             {attachedImage && (
               <div className="mb-4 relative inline-block animate-in fade-in slide-in-from-bottom-2">
@@ -216,8 +239,10 @@ const ChatWidget: React.FC = () => {
           </div>
         </div>
       )}
-      <div className="relative group">
+
+      <div className="relative group pointer-events-auto">
         {showTooltip && !isOpen && (
+          // FIX: Ajuste del tooltip para asegurar que no se corte por márgenes
           <div className="absolute bottom-24 right-0 mb-3 w-72 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="bg-white text-slate-900 text-xs font-bold px-6 py-5 rounded-[2rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] relative border border-cyan-100 leading-tight">
               ¡Hola! Soy <span className="text-cyan-600">Flo</span>. <br /> Pincha aquí y hablemos de optimización empresarial. 🚀✨
@@ -225,6 +250,7 @@ const ChatWidget: React.FC = () => {
             </div>
           </div>
         )}
+
         <button
           onClick={() => {
             setIsOpen(!isOpen);
@@ -256,4 +282,5 @@ const ChatWidget: React.FC = () => {
     </div>
   );
 };
+
 export default ChatWidget;
