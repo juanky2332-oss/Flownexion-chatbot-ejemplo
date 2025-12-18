@@ -24,11 +24,19 @@ const ChatWidget: React.FC = () => {
         timestamp: new Date()
       }]);
     }
-    
+
     // Auto-hide tooltip after some time, but show it prominently at first
     const timer = setTimeout(() => setShowTooltip(false), 15000);
     return () => clearTimeout(timer);
   }, []);
+
+  // Notify parent window (WordPress) when chat opens/closes to resize iframe
+  useEffect(() => {
+    window.parent.postMessage({
+      type: 'FLOWNEXION_RESIZE',
+      isOpen: isOpen
+    }, '*');
+  }, [isOpen]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -52,10 +60,10 @@ const ChatWidget: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const isImageRequest = 
-        inputValue.toLowerCase().includes('genera') || 
-        inputValue.toLowerCase().includes('dibuja') || 
-        inputValue.toLowerCase().includes('imagen') || 
+      const isImageRequest =
+        inputValue.toLowerCase().includes('genera') ||
+        inputValue.toLowerCase().includes('dibuja') ||
+        inputValue.toLowerCase().includes('imagen') ||
         attachedImage;
 
       if (isImageRequest) {
@@ -111,15 +119,21 @@ const ChatWidget: React.FC = () => {
     }
   };
 
+  // Check widget mode for styling adjustments
+  const isWidget = new URLSearchParams(window.location.search).get('widget') === 'true';
+
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+    <div className={`fixed bottom-6 right-6 z-50 flex flex-col items-end ${isWidget ? 'bottom-0 right-0 p-4' : ''}`}>
       {/* Chat Window */}
       {isOpen && (
-        <div className="mb-4 w-[92vw] md:w-[420px] h-[650px] glass-card rounded-[3rem] flex flex-col shadow-[0_40px_100px_-20px_rgba(0,0,0,0.7)] overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500 border border-white/20">
+        <div className={`mb-4 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500 border border-white/20 shadow-2xl ${isWidget
+            ? 'w-full h-[600px] bg-slate-900 rounded-[2rem]' // Solid bg for widget
+            : 'w-[92vw] md:w-[420px] h-[650px] glass-card rounded-[3rem]'
+          }`}>
           {/* Premium Header */}
           <div className="relative p-7 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-b border-white/10">
             <div className="absolute top-0 right-0 w-40 h-40 bg-cyan-500/5 blur-[80px] rounded-full"></div>
-            
+
             <div className="flex items-center justify-between relative z-10">
               <div className="flex items-center gap-4">
                 <div className="relative">
@@ -136,8 +150,8 @@ const ChatWidget: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsOpen(false)} 
+              <button
+                onClick={() => setIsOpen(false)}
                 className="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all border border-white/10"
               >
                 <X size={22} />
@@ -154,11 +168,10 @@ const ChatWidget: React.FC = () => {
                     <RealisticRobot size={28} />
                   </div>
                 )}
-                <div className={`max-w-[82%] rounded-[2rem] p-5 shadow-lg ${
-                  msg.role === MessageRole.USER 
-                    ? 'bg-gradient-to-br from-cyan-600 to-blue-700 text-white rounded-tr-none' 
-                    : 'bg-slate-900/80 text-slate-200 border border-white/5 rounded-tl-none'
-                }`}>
+                <div className={`max-w-[82%] rounded-[2rem] p-5 shadow-lg ${msg.role === MessageRole.USER
+                  ? 'bg-gradient-to-br from-cyan-600 to-blue-700 text-white rounded-tr-none'
+                  : 'bg-slate-900/80 text-slate-200 border border-white/5 rounded-tl-none'
+                  }`}>
                   {msg.imageUrl && (
                     <div className="mb-4 rounded-2xl overflow-hidden border border-white/10 shadow-inner">
                       <img src={msg.imageUrl} alt="AI Generated" className="w-full h-auto" />
@@ -170,10 +183,10 @@ const ChatWidget: React.FC = () => {
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-white/10 flex flex-wrap gap-2">
                       {msg.sources.map((source, idx) => (
-                        <a 
-                          key={idx} 
-                          href={source.uri} 
-                          target="_blank" 
+                        <a
+                          key={idx}
+                          href={source.uri}
+                          target="_blank"
                           rel="noopener noreferrer"
                           className="text-[10px] flex items-center gap-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 px-4 py-2 rounded-full transition-all border border-cyan-500/20 text-cyan-400 font-bold"
                         >
@@ -205,7 +218,7 @@ const ChatWidget: React.FC = () => {
             {attachedImage && (
               <div className="mb-4 relative inline-block animate-in fade-in slide-in-from-bottom-2">
                 <img src={attachedImage} className="h-24 w-24 object-cover rounded-[1.5rem] border-2 border-cyan-500 shadow-2xl shadow-cyan-500/20" />
-                <button 
+                <button
                   onClick={() => setAttachedImage(null)}
                   className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 shadow-xl transition-all"
                 >
@@ -228,7 +241,7 @@ const ChatWidget: React.FC = () => {
                   <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
                 </label>
               </div>
-              <button 
+              <button
                 onClick={handleSend}
                 disabled={(!inputValue.trim() && !attachedImage) || isLoading}
                 className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 p-4 rounded-[1.5rem] transition-all disabled:opacity-40 disabled:grayscale shadow-xl shadow-cyan-500/20 active:scale-95 flex items-center justify-center shrink-0"
@@ -249,7 +262,7 @@ const ChatWidget: React.FC = () => {
         {showTooltip && !isOpen && (
           <div className="absolute bottom-24 right-0 mb-3 w-72 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="bg-white text-slate-900 text-xs font-bold px-6 py-5 rounded-[2rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] relative border border-cyan-100 leading-tight">
-              ¡Hola! Soy <span className="text-cyan-600">Flo</span>. <br/> Pincha aquí y hablemos de optimización empresarial. 🚀✨
+              ¡Hola! Soy <span className="text-cyan-600">Flo</span>. <br /> Pincha aquí y hablemos de optimización empresarial. 🚀✨
               <div className="absolute bottom-[-10px] right-10 w-5 h-5 bg-white border-r border-b border-cyan-100 rotate-45"></div>
             </div>
           </div>
@@ -266,12 +279,12 @@ const ChatWidget: React.FC = () => {
         >
           <div className="relative flex items-center justify-center">
             {/* Robot stays visible but smaller when open */}
-            <RealisticRobot 
-              size={isOpen ? 65 : 85} 
-              isPointing={!isOpen} 
-              onlyHead={isOpen} 
+            <RealisticRobot
+              size={isOpen ? 65 : 85}
+              isPointing={!isOpen}
+              onlyHead={isOpen}
             />
-            
+
             {/* Small X indicator when open */}
             {isOpen && (
               <div className="absolute -top-1 -right-1 bg-slate-800 rounded-full p-1 border border-white/20 shadow-lg">
