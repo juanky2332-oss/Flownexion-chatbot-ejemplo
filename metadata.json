@@ -1,0 +1,8 @@
+{
+  "name": "Flownexion Corporate Chatbot Master",
+  "description": "A high-end AI chatbot architected for Flownexion, specializing in business automation and intelligent flows. Features search grounding, image generation, and multi-modal capabilities.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
