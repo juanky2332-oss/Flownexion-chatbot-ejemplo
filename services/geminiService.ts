@@ -1,73 +1,51 @@
+import { N8N_WEBHOOK_URL } from "../constants";
 
-import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
-import { SYSTEM_PROMPT } from "../constants";
-
-// Helper to get fresh AI client instance
-const getAIClient = () => {
-  // Always use process.env.API_KEY directly as per guidelines
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
-};
-
+// Función principal para hablar con el chat (ahora vía n8n)
 export const chatWithGemini = async (
   message: string, 
   history: { role: string; parts: { text: string }[] }[] = []
 ) => {
-  const ai = getAIClient();
-  
-  // Use Gemini 3 Flash for speed and search grounding
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: [...history, { role: 'user', parts: [{ text: message }] }],
-    config: {
-      systemInstruction: SYSTEM_PROMPT,
-      tools: [{ googleSearch: {} }],
-    },
-  });
+  try {
+    // Llamada a tu Webhook de n8n
+    const response = await fetch(N8N_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        chatInput: message, // n8n recibirá esto
+        history: history    // Enviamos el historial por si n8n lo usa
+      })
+    });
 
-  // response.text is a property, not a method
-  const text = response.text || "Lo siento, tuve un problema procesando tu solicitud.";
-  // Extract URLs from groundingChunks as required by guidelines
-  const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
-    ?.map((chunk: any) => chunk.web)
-    .filter((web: any) => web && web.uri);
+    if (!response.ok) {
+      throw new Error(`Error de conexión con n8n: ${response.status}`);
+    }
 
-  return { text, sources };
+    const data = await response.json();
+
+    // Adaptamos la respuesta de n8n al formato que espera tu chat
+    // Tu nodo final en n8n debe devolver un JSON con un campo "output" o "text"
+    const text = data.output || data.text || data.message || "Lo siento, no pude procesar la respuesta.";
+    
+    // Si tu n8n devuelve fuentes (opcional), las extraemos. Si no, array vacío.
+    const sources = data.sources || [];
+
+    return { text, sources };
+
+  } catch (error) {
+    console.error("Error en chatWithGemini (n8n):", error);
+    return { 
+      text: "Lo siento, hubo un error de conexión con mi servidor central (n8n).", 
+      sources: [] 
+    };
+  }
 };
 
+// Función de imagen (Desactivada temporalmente o redirigida a n8n si quieres)
 export const generateOrEditImage = async (prompt: string, base64Image?: string) => {
-  const ai = getAIClient();
-  
-  const contents: any = {
-    parts: [{ text: prompt }]
-  };
-
-  if (base64Image) {
-    contents.parts.unshift({
-      inlineData: {
-        data: base64Image.split(',')[1],
-        mimeType: 'image/png'
-      }
-    });
-  }
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
-    contents: contents,
-    config: {
-      imageConfig: {
-        aspectRatio: "1:1"
-      }
-    }
-  });
-
-  let imageUrl = '';
-  // Iterate through all parts to find the image part; do not assume the first part is an image
-  for (const part of response.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) {
-      imageUrl = `data:image/png;base64,${part.inlineData.data}`;
-      break;
-    }
-  }
-
-  return imageUrl;
+  // Si quieres que n8n también genere imágenes, la lógica sería similar a la de arriba.
+  // Por ahora, para que no rompa, devolvemos un mensaje de error controlado o una imagen placeholder.
+  console.warn("La generación de imágenes via n8n requiere configuración adicional.");
+  return "https://via.placeholder.com/512?text=Imagen+via+n8n+Pendiente";
 };
