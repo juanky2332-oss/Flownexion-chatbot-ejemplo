@@ -1,51 +1,57 @@
+// services/geminiService.ts
+
+// 1. Importamos la URL desde constants.tsx
 import { N8N_WEBHOOK_URL } from "../constants";
 
-// Función principal para hablar con el chat (ahora vía n8n)
 export const chatWithGemini = async (
   message: string, 
   history: { role: string; parts: { text: string }[] }[] = []
 ) => {
   try {
-    // Llamada a tu Webhook de n8n
+    console.log("🚀 Intentando conectar con n8n en:", N8N_WEBHOOK_URL); // Log para depurar
+
+    // 2. Hacemos la llamada al Webhook
     const response = await fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        chatInput: message, // n8n recibirá esto
-        history: history    // Enviamos el historial por si n8n lo usa
+        chatInput: message, // Enviamos el mensaje
+        history: history    // Enviamos el historial
       })
     });
 
+    // 3. Verificamos si la red respondió bien
     if (!response.ok) {
-      throw new Error(`Error de conexión con n8n: ${response.status}`);
+      const errorText = await response.text();
+      console.error("❌ Error HTTP del servidor:", response.status, errorText);
+      throw new Error(`Error ${response.status}: ${errorText}`);
     }
 
+    // 4. Procesamos el JSON de respuesta
     const data = await response.json();
+    console.log("✅ Respuesta recibida de n8n:", data);
 
-    // Adaptamos la respuesta de n8n al formato que espera tu chat
-    // Tu nodo final en n8n debe devolver un JSON con un campo "output" o "text"
-    const text = data.output || data.text || data.message || "Lo siento, no pude procesar la respuesta.";
+    // 5. Buscamos el texto en cualquier propiedad posible (output, text, response...)
+    const text = data.output || data.text || data.response || data.message || "Recibí tu mensaje, pero n8n no devolvió texto legible.";
     
-    // Si tu n8n devuelve fuentes (opcional), las extraemos. Si no, array vacío.
-    const sources = data.sources || [];
-
-    return { text, sources };
-
-  } catch (error) {
-    console.error("Error en chatWithGemini (n8n):", error);
+    // 6. Devolvemos el resultado al chat
     return { 
-      text: "Lo siento, hubo un error de conexión con mi servidor central (n8n).", 
+      text: text, 
+      sources: data.sources || [] 
+    };
+
+  } catch (error: any) {
+    console.error("❌ ERROR CRÍTICO EN CLIENTE:", error);
+    return { 
+      text: `Error de conexión: ${error.message}. (Revisa la consola con F12)`, 
       sources: [] 
     };
   }
 };
 
-// Función de imagen (Desactivada temporalmente o redirigida a n8n si quieres)
+// Mantenemos esta función para que no rompa el import, aunque por ahora no haga nada real
 export const generateOrEditImage = async (prompt: string, base64Image?: string) => {
-  // Si quieres que n8n también genere imágenes, la lógica sería similar a la de arriba.
-  // Por ahora, para que no rompa, devolvemos un mensaje de error controlado o una imagen placeholder.
-  console.warn("La generación de imágenes via n8n requiere configuración adicional.");
-  return "https://via.placeholder.com/512?text=Imagen+via+n8n+Pendiente";
+  return "https://via.placeholder.com/150?text=Imagen+Desactivada";
 };
