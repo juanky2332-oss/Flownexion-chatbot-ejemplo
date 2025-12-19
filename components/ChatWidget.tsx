@@ -28,14 +28,28 @@ const ChatWidget: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // FIX: Ahora enviamos también 'showTooltip'. 
-  // Esto le dice a la web principal que reserve espacio para el mensaje flotante aunque el chat esté cerrado.
+  // --- NUEVA FUNCIÓN: Escuchar orden externa para abrir el chat ---
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Si recibimos la señal 'OPEN_CHAT_EXTERNAL', abrimos el chat
+      if (event.data === 'OPEN_CHAT_EXTERNAL') {
+        setIsOpen(true);
+        setShowTooltip(false);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+  // -------------------------------------------------------------
+
+  // Comunicación con la ventana padre (iframe resizing)
   useEffect(() => {
     window.parent.postMessage({
       type: 'FLOWNEXION_RESIZE',
       isOpen: isOpen,
-      showTooltip: showTooltip, // Nuevo dato crítico
-      height: isOpen ? 650 : (showTooltip ? 180 : 100), // Sugerencia de altura explícita
+      showTooltip: showTooltip,
+      height: isOpen ? 650 : (showTooltip ? 180 : 100),
       width: isOpen ? 420 : 100
     }, '*');
   }, [isOpen, showTooltip]);
@@ -124,8 +138,6 @@ const ChatWidget: React.FC = () => {
   const isWidget = new URLSearchParams(window.location.search).get('widget') === 'true';
 
   return (
-    // FIX: Añadimos 'pointer-events-none' al contenedor principal y 'pointer-events-auto' a los hijos interactivos.
-    // Esto evita que el área transparente "invisible" del widget bloquee clicks en la web de fondo si el iframe es grande.
     <div className={`fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none ${isWidget ? 'bottom-0 right-0 p-8' : ''}`}>
       {/* Chat Window */}
       {isOpen && (
@@ -242,7 +254,6 @@ const ChatWidget: React.FC = () => {
 
       <div className="relative group pointer-events-auto">
         {showTooltip && !isOpen && (
-          // FIX: Ajuste del tooltip para asegurar que no se corte por márgenes
           <div className="absolute bottom-24 right-0 mb-3 w-72 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="bg-white text-slate-900 text-xs font-bold px-6 py-5 rounded-[2rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] relative border border-cyan-100 leading-tight">
               ¡Hola! Soy <span className="text-cyan-600">Flo</span>. <br /> Pincha aquí y hablemos de optimización empresarial. 🚀✨
