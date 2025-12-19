@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 export const FLOWNEXION_IDENTITY = {
@@ -9,6 +8,9 @@ export const FLOWNEXION_IDENTITY = {
   secondaryColor: "#0070FF",
   darkBg: "#05070A",
 };
+
+// AÑADIDA TU URL DE N8N AQUÍ
+export const N8N_WEBHOOK_URL = "https://personal-n8n.t9gkry.easypanel.host/webhook/031ab1e6-d64e-41f0-b03e-f5c0681a6491";
 
 export const SYSTEM_PROMPT = `
 Eres Flo, el Asistente Maestro e Ingeniero Senior de Automatización de Flownexion. 
@@ -38,4 +40,4 @@ ESTRUCTURA DE RESPUESTA:
 - Usa emojis de forma profesional y estratégica (🚀, 🤖, ⚡, 🔗).
 `;
 
-export const WELCOME_MESSAGE = "¡Hola! Soy **Flo**. ¿Qué es lo que necesitas hoy? Estoy aquí para ayudarte a optimizar cualquier proceso de tu negocio con inteligencia artificial. 🚀";
+export const WELCOME_MESSAGE = "¡Hola! Soy **Flo**. ¿Qué es lo que necesitas hoy? ";
