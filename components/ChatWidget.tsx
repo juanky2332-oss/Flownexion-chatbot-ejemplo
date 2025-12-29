@@ -14,7 +14,18 @@ const ChatWidget: React.FC = () => {
   const [showTooltip, setShowTooltip] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // --- MEMORIA: ID de Sesión Único ---
+  const [sessionId, setSessionId] = useState<string>('');
+
   useEffect(() => {
+    // Generar o recuperar ID de sesion
+    let storedSessionId = localStorage.getItem('chat_session_id');
+    if (!storedSessionId) {
+      storedSessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      localStorage.setItem('chat_session_id', storedSessionId);
+    }
+    setSessionId(storedSessionId);
+
     if (messages.length === 0) {
       setMessages([{
         id: 'welcome',
@@ -27,23 +38,21 @@ const ChatWidget: React.FC = () => {
     const timer = setTimeout(() => setShowTooltip(false), 15000);
     return () => clearTimeout(timer);
   }, []);
+  // -----------------------------------
 
-  // --- NUEVA FUNCIÓN: Escuchar orden externa para abrir el chat ---
+  // Escuchar orden externa
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // Si recibimos la señal 'OPEN_CHAT_EXTERNAL', abrimos el chat
       if (event.data === 'OPEN_CHAT_EXTERNAL') {
         setIsOpen(true);
         setShowTooltip(false);
       }
     };
-
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
-  // -------------------------------------------------------------
 
-  // Comunicación con la ventana padre (iframe resizing)
+  // Iframe resizing
   useEffect(() => {
     window.parent.postMessage({
       type: 'FLOWNEXION_RESIZE',
@@ -100,7 +109,9 @@ const ChatWidget: React.FC = () => {
           parts: [{ text: m.content }]
         }));
 
-        const response = await chatWithGemini(inputValue, chatHistory);
+        // ENVIAMOS EL SESSION ID AQUI
+        const response = await chatWithGemini(inputValue, chatHistory, sessionId);
+        
         const botMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: MessageRole.BOT,
@@ -115,7 +126,7 @@ const ChatWidget: React.FC = () => {
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: MessageRole.BOT,
-        content: "Vaya, parece que mis circuitos han tenido un pequeño glitch. ¿Podemos intentarlo de nuevo? 🤖⚡",
+        content: "Vaya, parece que mis circuitos han tenido un pequeño glitch. 🤖⚡",
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -135,13 +146,12 @@ const ChatWidget: React.FC = () => {
     }
   };
 
-  // Función mejorada para renderizar Markdown: Enlaces, Negritas y Saltos de línea
+  // --- RENDERIZADO MEJORADO: Negritas, Enlaces y Saltos ---
   const renderMessageContent = (text: string) => {
-    // Regex combinada: Enlaces OR Negritas OR Saltos de línea
     const parts = text.split(/(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|\n)/g);
 
     return parts.map((part, index) => {
-      // 1. Enlaces: [Texto](URL)
+      // Enlace [Texto](URL)
       const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       if (linkMatch) {
         return (
@@ -157,30 +167,30 @@ const ChatWidget: React.FC = () => {
         );
       }
 
-      // 2. Negritas: **Texto**
+      // Negrita **Texto**
       const boldMatch = part.match(/^\*\*([^*]+)\*\*$/);
       if (boldMatch) {
          return <strong key={index} className="text-white font-extrabold">{boldMatch[1]}</strong>;
       }
 
-      // 3. Saltos de línea
+      // Salto de linea
       if (part === '\n') {
         return <br key={index} />;
       }
 
-      // 4. Texto normal
+      // Texto normal
       if (part) {
         return <span key={index}>{part}</span>;
       }
       return null;
     });
   };
+  // --------------------------------------------------------
 
   const isWidget = new URLSearchParams(window.location.search).get('widget') === 'true';
 
   return (
     <div className={`fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none ${isWidget ? 'bottom-0 right-0 p-8' : ''}`}>
-      {/* Chat Window */}
       {isOpen && (
         <div className={`pointer-events-auto mb-4 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500 border border-white/20 shadow-2xl ${isWidget
             ? 'w-full h-[600px] bg-slate-900 rounded-[2rem]'
@@ -260,7 +270,7 @@ const ChatWidget: React.FC = () => {
 
           <div className="p-7 bg-slate-900/90 border-t border-white/10 backdrop-blur-3xl">
             {attachedImage && (
-              <div className="mb-4 relative inline-block animate-in fade-in slide-in-from-bottom-2">
+               <div className="mb-4 relative inline-block animate-in fade-in slide-in-from-bottom-2">
                 <img src={attachedImage} className="h-24 w-24 object-cover rounded-[1.5rem] border-2 border-cyan-500 shadow-2xl shadow-cyan-500/20" />
                 <button onClick={() => setAttachedImage(null)} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 shadow-xl transition-all">
                   <X size={14} />
