@@ -135,32 +135,44 @@ const ChatWidget: React.FC = () => {
     }
   };
 
-  // Función para detectar enlaces Markdown [Texto](URL) y convertirlos en HTML
+  // Función mejorada para renderizar Markdown: Enlaces, Negritas y Saltos de línea
   const renderMessageContent = (text: string) => {
-    // Regex para capturar [Texto](URL)
-    const markdownRegex = /(\[[^\]]+\]\([^)]+\))/g;
-    
-    return text.split(markdownRegex).map((part, index) => {
-      // Comprobamos si la parte es un enlace Markdown
-      const match = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-      
-      if (match) {
-        const linkText = match[1];
-        const linkUrl = match[2];
+    // Regex combinada: Enlaces OR Negritas OR Saltos de línea
+    const parts = text.split(/(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|\n)/g);
+
+    return parts.map((part, index) => {
+      // 1. Enlaces: [Texto](URL)
+      const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (linkMatch) {
         return (
           <a
             key={index}
-            href={linkUrl}
+            href={linkMatch[2]}
             target="_blank"
             rel="noopener noreferrer"
             className="text-cyan-400 hover:underline break-all font-bold"
           >
-            {linkText}
+            {linkMatch[1]}
           </a>
         );
       }
-      // Devolvemos texto normal si no es un enlace
-      return part;
+
+      // 2. Negritas: **Texto**
+      const boldMatch = part.match(/^\*\*([^*]+)\*\*$/);
+      if (boldMatch) {
+         return <strong key={index} className="text-white font-extrabold">{boldMatch[1]}</strong>;
+      }
+
+      // 3. Saltos de línea
+      if (part === '\n') {
+        return <br key={index} />;
+      }
+
+      // 4. Texto normal
+      if (part) {
+        return <span key={index}>{part}</span>;
+      }
+      return null;
     });
   };
 
