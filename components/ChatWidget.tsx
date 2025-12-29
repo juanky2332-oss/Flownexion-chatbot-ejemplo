@@ -135,23 +135,31 @@ const ChatWidget: React.FC = () => {
     }
   };
 
-  // Función para detectar enlaces y convertirlos en elementos clicables
+  // Función para detectar enlaces Markdown [Texto](URL) y convertirlos en HTML
   const renderMessageContent = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    return text.split(urlRegex).map((part, index) => {
-      if (part.match(urlRegex)) {
+    // Regex para capturar [Texto](URL)
+    const markdownRegex = /(\[[^\]]+\]\([^)]+\))/g;
+    
+    return text.split(markdownRegex).map((part, index) => {
+      // Comprobamos si la parte es un enlace Markdown
+      const match = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      
+      if (match) {
+        const linkText = match[1];
+        const linkUrl = match[2];
         return (
           <a
             key={index}
-            href={part}
+            href={linkUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="text-cyan-400 hover:underline break-all font-bold"
           >
-            {part}
+            {linkText}
           </a>
         );
       }
+      // Devolvemos texto normal si no es un enlace
       return part;
     });
   };
