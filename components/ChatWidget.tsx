@@ -135,6 +135,27 @@ const ChatWidget: React.FC = () => {
     }
   };
 
+  // Función para detectar enlaces y convertirlos en elementos clicables
+  const renderMessageContent = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    return text.split(urlRegex).map((part, index) => {
+      if (part.match(urlRegex)) {
+        return (
+          <a
+            key={index}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-cyan-400 hover:underline break-all font-bold"
+          >
+            {part}
+          </a>
+        );
+      }
+      return part;
+    });
+  };
+
   const isWidget = new URLSearchParams(window.location.search).get('widget') === 'true';
 
   return (
@@ -188,7 +209,7 @@ const ChatWidget: React.FC = () => {
                     </div>
                   )}
                   <div className="text-[14px] leading-relaxed prose prose-invert max-w-none">
-                    {msg.content}
+                    {renderMessageContent(msg.content)}
                   </div>
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-white/10 flex flex-wrap gap-2">
