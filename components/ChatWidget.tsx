@@ -249,7 +249,8 @@ export default function ChatWidget({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={logoUrl} alt={companyName} className="h-10 w-10 object-contain" />
         ) : (
-          <RealisticRobot size={42} onlyHead />
+          /* Mismo robot y mismo movimiento (isPointing) que el del centro */
+          <RealisticRobot size={52} isPointing />
         )}
       </button>
     </div>
