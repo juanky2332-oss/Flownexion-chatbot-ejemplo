@@ -1,348 +1,257 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Sparkles, Link as LinkIcon, Paperclip } from 'lucide-react';
-import { MessageRole, ChatMessage } from '../types';
-import { chatWithGemini, generateOrEditImage } from '../services/geminiService';
-import { FLOWNEXION_IDENTITY, WELCOME_MESSAGE } from '../constants';
-import RealisticRobot from './RealisticRobot';
+"use client";
 
-const ChatWidget: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [attachedImage, setAttachedImage] = useState<string | null>(null);
-  const [showTooltip, setShowTooltip] = useState(true);
+// ─────────────────────────────────────────────────────────────
+// Widget de chat embebible de ESGAS — "Carlos, Asesor Técnico".
+// Botón flotante + ventana de chat. Habla con /api/chat.
+//
+// NO importa lib/prestashop ni usa la API key: todo pasa por /api/chat.
+// ─────────────────────────────────────────────────────────────
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Message, Product } from "@/lib/types";
+import ChatBubble, { type ChatMessage } from "./ChatBubble";
+import RealisticRobot from "./RealisticRobot";
+
+export interface ChatWidgetProps {
+  /**
+   * URL de un logo personalizado. Si se deja vacío se usa el robot de
+   * marca de ESGAS (el mismo logo de la página).
+   */
+  logoUrl?: string;
+  /** Color principal de la marca. */
+  primaryColor?: string;
+  /** Endpoint del chat. Por defecto /api/chat. */
+  webhookUrl?: string;
+  /** Nombre de la empresa. */
+  companyName?: string;
+  /** Si true, el widget arranca abierto (útil para la demo de la home). */
+  startOpen?: boolean;
+}
+
+const WELCOME =
+  "¡Hola! 👋 Soy **Carlos**, tu asesor técnico de ESGAS, distribuidor oficial **NTN/SNR**.\n\nDime qué rodamiento o suministro necesitas y te ayudo a encontrarlo al mejor precio. ¿En qué estás trabajando?";
+
+function uid() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2);
+}
+
+export default function ChatWidget({
+  logoUrl,
+  primaryColor = "#0066cc",
+  webhookUrl = "/api/chat",
+  companyName = "ESGAS",
+  startOpen = false,
+}: ChatWidgetProps) {
+  const [open, setOpen] = useState(startOpen);
+  const [sessionId, setSessionId] = useState("");
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { id: "welcome", role: "assistant", content: WELCOME },
+  ]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // --- MEMORIA: ID de Sesión Único ---
-  const [sessionId, setSessionId] = useState<string>('');
-
+  // Genera el sessionId al montar (memoria del componente, no localStorage).
   useEffect(() => {
-    // Generar o recuperar ID de sesion
-    let storedSessionId = localStorage.getItem('chat_session_id');
-    if (!storedSessionId) {
-      storedSessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
-      localStorage.setItem('chat_session_id', storedSessionId);
-    }
-    setSessionId(storedSessionId);
-
-    if (messages.length === 0) {
-      setMessages([{
-        id: 'welcome',
-        role: MessageRole.BOT,
-        content: WELCOME_MESSAGE,
-        timestamp: new Date()
-      }]);
-    }
-
-    const timer = setTimeout(() => setShowTooltip(false), 15000);
-    return () => clearTimeout(timer);
-  }, []);
-  // -----------------------------------
-
-  // Escuchar orden externa
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data === 'OPEN_CHAT_EXTERNAL') {
-        setIsOpen(true);
-        setShowTooltip(false);
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    setSessionId(uid());
   }, []);
 
-  // Iframe resizing
+  // Auto-scroll al último mensaje.
   useEffect(() => {
-    window.parent.postMessage({
-      type: 'FLOWNEXION_RESIZE',
-      isOpen: isOpen,
-      showTooltip: showTooltip,
-      height: isOpen ? 650 : (showTooltip ? 180 : 100),
-      width: isOpen ? 420 : 100
-    }, '*');
-  }, [isOpen, showTooltip]);
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [messages, loading, open]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isLoading]);
+    if (open) inputRef.current?.focus();
+  }, [open]);
 
-  const handleSend = async () => {
-    if (!inputValue.trim() && !attachedImage) return;
+  // Si vivimos dentro de un iframe (embed en Prestashop), avisamos al
+  // contenedor para que redimensione el iframe según abierto/cerrado.
+  useEffect(() => {
+    if (typeof window === "undefined" || window.parent === window) return;
+    window.parent.postMessage({ type: "esgas-chat", open }, "*");
+  }, [open]);
 
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: MessageRole.USER,
-      content: inputValue,
-      timestamp: new Date(),
-      imageUrl: attachedImage || undefined
-    };
+  const send = useCallback(async () => {
+    const text = input.trim();
+    if (!text || loading) return;
 
-    setMessages(prev => [...prev, userMessage]);
-    setInputValue('');
-    setIsLoading(true);
+    const userMsg: ChatMessage = { id: uid(), role: "user", content: text };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    setLoading(true);
+
+    // Historial (sin el mensaje de bienvenida) limitado a 10 turnos / 20 mensajes.
+    const history: Message[] = [...messages, userMsg]
+      .filter((m) => m.id !== "welcome")
+      .slice(-20)
+      .map((m) => ({ role: m.role, content: m.content }));
 
     try {
-      const isImageRequest =
-        inputValue.toLowerCase().includes('genera') ||
-        inputValue.toLowerCase().includes('dibuja') ||
-        inputValue.toLowerCase().includes('imagen') ||
-        attachedImage;
+      const res = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, sessionId, history }),
+      });
+      const data: { output?: string; products?: Product[] } = await res
+        .json()
+        .catch(() => ({}));
 
-      if (isImageRequest) {
-        const imageUrl = await generateOrEditImage(inputValue, attachedImage || undefined);
-        const botMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: MessageRole.BOT,
-          content: "¡Listo! He transformado tu idea en este flujo visual. 🎨✨",
-          timestamp: new Date(),
-          imageUrl: imageUrl,
-          isImageAction: true
-        };
-        setMessages(prev => [...prev, botMessage]);
-        setAttachedImage(null);
-      } else {
-        const chatHistory = messages.slice(-6).map(m => ({
-          role: m.role === MessageRole.USER ? 'user' : 'model',
-          parts: [{ text: m.content }]
-        }));
-
-        // ENVIAMOS EL SESSION ID AQUI
-        const response = await chatWithGemini(inputValue, chatHistory, sessionId);
-        
-        const botMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: MessageRole.BOT,
-          content: response.text,
-          timestamp: new Date(),
-          sources: response.sources
-        };
-        setMessages(prev => [...prev, botMessage]);
-      }
-    } catch (error) {
-      console.error(error);
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: MessageRole.BOT,
-        content: "Vaya, parece que mis circuitos han tenido un pequeño glitch. 🤖⚡",
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          role: "assistant",
+          content:
+            data.output ??
+            "Lo siento, no he podido procesar tu consulta. Inténtalo de nuevo.",
+          products: data.products,
+        },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          role: "assistant",
+          content:
+            "Ha habido un problema de conexión. ¿Puedes intentarlo de nuevo?",
+        },
+      ]);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
+    }
+  }, [input, loading, messages, sessionId, webhookUrl]);
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
     }
   };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAttachedImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // --- RENDERIZADO MEJORADO: Negritas, Enlaces y Saltos ---
-  const renderMessageContent = (text: string) => {
-    const parts = text.split(/(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|\n)/g);
-
-    return parts.map((part, index) => {
-      // Enlace [Texto](URL)
-      const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-      if (linkMatch) {
-        return (
-          <a
-            key={index}
-            href={linkMatch[2]}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-cyan-400 hover:underline break-all font-bold"
-          >
-            {linkMatch[1]}
-          </a>
-        );
-      }
-
-      // Negrita **Texto**
-      const boldMatch = part.match(/^\*\*([^*]+)\*\*$/);
-      if (boldMatch) {
-         return <strong key={index} className="text-white font-extrabold">{boldMatch[1]}</strong>;
-      }
-
-      // Salto de linea
-      if (part === '\n') {
-        return <br key={index} />;
-      }
-
-      // Texto normal
-      if (part) {
-        return <span key={index}>{part}</span>;
-      }
-      return null;
-    });
-  };
-  // --------------------------------------------------------
-
-  const isWidget = new URLSearchParams(window.location.search).get('widget') === 'true';
 
   return (
-    <div className={`fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none ${isWidget ? 'bottom-0 right-0 p-8' : ''}`}>
-      {isOpen && (
-        <div className={`pointer-events-auto mb-4 flex flex-col overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-12 duration-500 border border-white/20 shadow-2xl ${isWidget
-            ? 'w-full h-[600px] bg-slate-900 rounded-[2rem]'
-            : 'w-[92vw] md:w-[420px] h-[650px] glass-card rounded-[3rem]'
-          }`}>
+    <div className="fixed bottom-4 right-4 z-[2147483000] flex flex-col items-end font-sans">
+      {/* Ventana de chat */}
+      {open && (
+        <div
+          className="mb-3 flex h-[560px] w-[380px] max-w-[calc(100vw-2rem)] origin-bottom-right animate-scale-in flex-col overflow-hidden rounded-2xl bg-gray-50 shadow-2xl ring-1 ring-black/5 max-[420px]:h-[80vh]"
+          role="dialog"
+          aria-label={`Chat con Carlos de ${companyName}`}
+        >
           {/* Header */}
-          <div className="relative p-7 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border-b border-white/10">
-            <div className="absolute top-0 right-0 w-40 h-40 bg-cyan-500/5 blur-[80px] rounded-full"></div>
-            <div className="flex items-center justify-between relative z-10">
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <div className="w-16 h-16 rounded-[1.5rem] bg-white/5 flex items-center justify-center border border-white/20 shadow-2xl backdrop-blur-xl">
-                    <RealisticRobot size={58} />
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 border-4 border-slate-900 rounded-full shadow-lg"></div>
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-white text-xl tracking-tight leading-none">Flo</h3>
-                  <p className="text-[11px] text-cyan-400 font-bold uppercase tracking-widest mt-1 flex items-center gap-1">
-                    <Sparkles size={12} fill="currentColor" />
-                    Flownexion AI
-                  </p>
-                </div>
-              </div>
-              <button onClick={() => setIsOpen(false)} className="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all border border-white/10">
-                <X size={22} />
-              </button>
+          <div
+            className="flex items-center gap-3 px-4 py-3 text-white"
+            style={{ backgroundColor: primaryColor }}
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/15 ring-2 ring-white/30">
+              {logoUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={logoUrl} alt={companyName} className="h-8 w-8 object-contain" />
+              ) : (
+                <RealisticRobot size={34} onlyHead />
+              )}
             </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold">
+                Carlos · Asesor Técnico {companyName}
+              </p>
+              <p className="flex items-center gap-1.5 text-xs text-white/90">
+                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-green-400" />
+                En línea
+              </p>
+            </div>
+            <button
+              onClick={() => setOpen(false)}
+              aria-label="Cerrar chat"
+              className="rounded-full p-1.5 text-white/80 transition hover:bg-white/20 hover:text-white"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#020408]">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex gap-3 ${msg.role === MessageRole.USER ? 'flex-row-reverse' : 'flex-row'}`}>
-                {msg.role === MessageRole.BOT && (
-                  <div className="w-9 h-9 rounded-xl bg-slate-900 border border-white/10 flex items-center justify-center shrink-0 mt-1 shadow-md">
-                    <RealisticRobot size={28} />
-                  </div>
-                )}
-                <div className={`max-w-[82%] rounded-[2rem] p-5 shadow-lg ${msg.role === MessageRole.USER
-                  ? 'bg-gradient-to-br from-cyan-600 to-blue-700 text-white rounded-tr-none'
-                  : 'bg-slate-900/80 text-slate-200 border border-white/5 rounded-tl-none'
-                  }`}>
-                  {msg.imageUrl && (
-                    <div className="mb-4 rounded-2xl overflow-hidden border border-white/10 shadow-inner">
-                      <img src={msg.imageUrl} alt="AI Generated" className="w-full h-auto" />
-                    </div>
-                  )}
-                  <div className="text-[14px] leading-relaxed prose prose-invert max-w-none">
-                    {renderMessageContent(msg.content)}
-                  </div>
-                  {msg.sources && msg.sources.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-white/10 flex flex-wrap gap-2">
-                      {msg.sources.map((source, idx) => (
-                        <a key={idx} href={source.uri} target="_blank" rel="noopener noreferrer" className="text-[10px] flex items-center gap-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 px-4 py-2 rounded-full transition-all border border-cyan-500/20 text-cyan-400 font-bold">
-                          <LinkIcon size={12} />
-                          <span className="truncate max-w-[120px]">{source.title}</span>
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+          {/* Mensajes */}
+          <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
+            {messages.map((m) => (
+              <ChatBubble key={m.id} message={m} primaryColor={primaryColor} />
             ))}
-            {isLoading && (
-              <div className="flex flex-row gap-3">
-                <div className="w-9 h-9 rounded-xl bg-slate-900 border border-white/10 flex items-center justify-center shrink-0 shadow-md">
-                  <RealisticRobot size={28} />
-                </div>
-                <div className="bg-slate-900/80 rounded-[1.5rem] rounded-tl-none px-6 py-4 border border-white/5 flex gap-2 items-center shadow-xl">
-                  <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                  <div className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+
+            {loading && (
+              <div className="flex justify-start">
+                <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-gray-100 bg-white px-4 py-3 shadow-sm">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="h-2 w-2 animate-typing-bounce rounded-full bg-gray-400"
+                      style={{ animationDelay: `${i * 0.15}s` }}
+                    />
+                  ))}
                 </div>
               </div>
             )}
           </div>
 
-          <div className="p-7 bg-slate-900/90 border-t border-white/10 backdrop-blur-3xl">
-            {attachedImage && (
-               <div className="mb-4 relative inline-block animate-in fade-in slide-in-from-bottom-2">
-                <img src={attachedImage} className="h-24 w-24 object-cover rounded-[1.5rem] border-2 border-cyan-500 shadow-2xl shadow-cyan-500/20" />
-                <button onClick={() => setAttachedImage(null)} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1.5 hover:bg-red-600 shadow-xl transition-all">
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-            <div className="flex items-center gap-4">
-              <div className="relative flex-1 group">
-                <input
-                  type="text"
-                  placeholder="¿En qué puedo ayudarte hoy?"
-                  className="w-full bg-slate-950 border border-white/10 rounded-[1.5rem] px-6 py-4 pr-14 text-[14px] focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-all text-white placeholder-slate-600"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                />
-                <label className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-cyan-400 cursor-pointer p-1.5 transition-colors">
-                  <Paperclip size={22} />
-                  <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
-                </label>
-              </div>
-              <button onClick={handleSend} disabled={(!inputValue.trim() && !attachedImage) || isLoading} className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 p-4 rounded-[1.5rem] transition-all disabled:opacity-40 disabled:grayscale shadow-xl shadow-cyan-500/20 active:scale-95 flex items-center justify-center shrink-0">
-                <Send size={26} fill="currentColor" />
+          {/* Input */}
+          <div className="border-t border-gray-200 bg-white p-3">
+            <div className="flex items-end gap-2">
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder="Escribe tu consulta técnica…"
+                disabled={loading}
+                className="flex-1 rounded-full border border-gray-300 px-4 py-2.5 text-sm outline-none transition focus:border-transparent focus:ring-2 disabled:opacity-60"
+                style={{ ["--tw-ring-color" as any]: primaryColor }}
+              />
+              <button
+                onClick={send}
+                disabled={loading || !input.trim()}
+                aria-label="Enviar mensaje"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m22 2-7 20-4-9-9-4Z" />
+                  <path d="M22 2 11 13" />
+                </svg>
               </button>
             </div>
-            <div className="mt-4 text-center">
-              <p className="text-[9px] text-slate-600 uppercase tracking-[0.3em] font-black">Powered by Flownexion Core AI</p>
-            </div>
+            <p className="mt-1.5 text-center text-[10px] text-gray-400">
+              {companyName} · Distribuidor oficial NTN/SNR
+            </p>
           </div>
         </div>
       )}
 
-      <div className="relative group pointer-events-auto">
-        {showTooltip && !isOpen && (
-          <div className="absolute bottom-24 right-0 mb-3 w-72 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="bg-white text-slate-900 text-xs font-bold px-6 py-5 rounded-[2rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] relative border border-cyan-100 leading-tight">
-              ¡Hola! Soy <span className="text-cyan-600">Flo</span>. <br /> Pincha aquí y hablemos de optimización empresarial. 🚀✨
-              <div className="absolute bottom-[-10px] right-10 w-5 h-5 bg-white border-r border-b border-cyan-100 rotate-45"></div>
-            </div>
-          </div>
+      {/* Botón flotante */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label={open ? "Cerrar chat" : "Abrir chat con Carlos"}
+        className="flex h-16 w-16 items-center justify-center rounded-full text-white shadow-xl ring-4 ring-white/40 transition-transform duration-200 hover:scale-105 active:scale-95"
+        style={{ backgroundColor: primaryColor }}
+      >
+        {open ? (
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        ) : logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logoUrl} alt={companyName} className="h-10 w-10 object-contain" />
+        ) : (
+          <RealisticRobot size={42} onlyHead />
         )}
-
-        <button
-          onClick={() => {
-            setIsOpen(!isOpen);
-            setShowTooltip(false);
-          }}
-          className={`relative flex items-center justify-center w-20 h-20 rounded-full shadow-[0_20px_60px_-15px_rgba(0,209,255,0.4)] transition-all duration-700 transform ${isOpen ? 'scale-90 bg-slate-900 border-white/20 shadow-none' : 'hover:scale-110 bg-gradient-to-br from-slate-900 to-slate-800 border-white/10'}`}
-          style={{ border: '2px solid' }}
-        >
-          <div className="relative flex items-center justify-center">
-            <RealisticRobot
-              size={isOpen ? 65 : 70}
-              isPointing={!isOpen}
-              onlyHead={isOpen}
-            />
-            {isOpen && (
-              <div className="absolute -top-1 -right-1 bg-slate-800 rounded-full p-1 border border-white/20 shadow-lg">
-                <X className="text-white w-4 h-4" />
-              </div>
-            )}
-            {!isOpen && (
-              <>
-                <div className="absolute -inset-4 bg-cyan-400 rounded-full animate-ping opacity-10"></div>
-                <div className="absolute -inset-2 bg-cyan-400 rounded-full animate-pulse opacity-5"></div>
-              </>
-            )}
-          </div>
-        </button>
-      </div>
+      </button>
     </div>
   );
-};
-
-export default ChatWidget;
+}
