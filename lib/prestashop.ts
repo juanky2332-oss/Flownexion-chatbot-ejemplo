@@ -1,9 +1,6 @@
 // ─────────────────────────────────────────────────────────────
 // Cliente de la API Webservice de Prestashop.
-//
-// ⚠️ SOLO SERVER-SIDE. Este módulo lee PRESTASHOP_API_KEY de las
-// variables de entorno y NUNCA debe importarse desde /components o
-// /public. Únicamente lo usan las rutas /app/api/*.ts.
+// ⚠️ SOLO SERVER-SIDE.
 // ─────────────────────────────────────────────────────────────
 
 import "server-only";
@@ -29,22 +26,20 @@ function demoLinks(reference: string) {
 }
 
 const DEMO_SEED: Array<Omit<Product, "link" | "cartLink" | "checkoutLink"> & { stock: number }> = [
-  { id: 1001, name: "SNR 6205LLU", reference: "6205LLU", price: 6.5, description: "Rodamiento rígido de bolas, Ø interior 25 mm, sellado de goma estanco.", stock: 120 },
-  { id: 1002, name: "SNR 6205 ZZ", reference: "6205ZZ", price: 5.8, description: "Rodamiento rígido de bolas, Ø interior 25 mm, protección metálica.", stock: 75 },
-  { id: 1003, name: "SNR 6205 ZZ C3", reference: "6205ZZCM", price: 6.1, description: "Rodamiento rígido de bolas, Ø interior 25 mm, protección metálica, juego C3.", stock: 50 },
-  { id: 1004, name: "SNR 6206LLU", reference: "6206LLU", price: 8.2, description: "Rodamiento rígido de bolas, Ø interior 30 mm, sellado de goma.", stock: 85 },
-  { id: 1005, name: "SNR 6305LLU C3", reference: "6305LLU/C3", price: 9.9, description: "Serie 63, Ø 25 mm, sellado de goma, juego C3.", stock: 40 },
-  { id: 1006, name: "SNR 32008X", reference: "32008X", price: 12.5, description: "Rodillos cónicos, Ø interior 40 mm.", stock: 30 },
+  { id: 1001, name: "SNR 6205LLU", reference: "6205LLU", price: 6.5, description: "Ø 25 mm, sellado goma estanco.", stock: 120 },
+  { id: 1002, name: "SNR 6205 ZZ", reference: "6205ZZ", price: 5.8, description: "Ø 25 mm, protección metálica.", stock: 75 },
+  { id: 1003, name: "SNR 6205 ZZ C3", reference: "6205ZZCM", price: 6.1, description: "Ø 25 mm, protección metálica, juego C3.", stock: 50 },
+  { id: 1004, name: "SNR 6206LLU", reference: "6206LLU", price: 8.2, description: "Ø 30 mm, sellado goma.", stock: 85 },
+  { id: 1005, name: "SNR 6305LLU C3", reference: "6305LLU/C3", price: 9.9, description: "Ø 25 mm, goma, juego C3.", stock: 40 },
+  { id: 1006, name: "SNR 32008X", reference: "32008X", price: 12.5, description: "Rodillos cónicos, Ø 40 mm.", stock: 30 },
 ];
 
 const DEMO_CATALOG: Array<Product & { stock: number }> = DEMO_SEED.map((p) => ({
-  ...p,
-  ...demoLinks(p.reference),
+  ...p, ...demoLinks(p.reference),
 }));
 
 function stripStock(p: Product & { stock: number }): Product {
-  const { stock, ...rest } = p;
-  return rest;
+  const { stock, ...rest } = p; return rest;
 }
 
 function demoSearch(query: string): Product[] {
@@ -52,73 +47,52 @@ function demoSearch(query: string): Product[] {
   if (!q) return DEMO_CATALOG.slice(0, 5).map(stripStock);
   const norm = (s: string) => s.toLowerCase().replace(/[^0-9a-z]/g, "");
   const qNorm = norm(q);
-  const matches = DEMO_CATALOG.filter(
-    (p) =>
-      p.name.toLowerCase().includes(q) ||
-      norm(p.name).includes(qNorm) ||
-      p.reference.toLowerCase().includes(q)
+  const matches = DEMO_CATALOG.filter((p) =>
+    p.name.toLowerCase().includes(q) || norm(p.name).includes(qNorm)
   );
   return (matches.length > 0 ? matches : DEMO_CATALOG.slice(0, 3)).map(stripStock);
 }
 
 function assertConfig() {
   if (DEMO_MODE) return;
-  if (!BASE_URL || !API_KEY) {
-    throw new Error("Faltan PRESTASHOP_BASE_URL o PRESTASHOP_API_KEY.");
-  }
+  if (!BASE_URL || !API_KEY) throw new Error("Faltan PRESTASHOP_BASE_URL o PRESTASHOP_API_KEY.");
 }
 
+const PS_HEADERS = { Accept: "application/json" };
+
 /**
- * Construye una URL de la API de Prestashop.
- *
- * IMPORTANTE: los parámetros filter[*] DEBEN tener los corchetes LITERALES
- * en la URL para que PHP los interprete como arrays. URLSearchParams codifica
- * los corchetes como %5B y %5D, lo que rompe los filtros de PS WS.
- * Por eso los filtros se añaden manualmente al string de la URL.
+ * Construye URL de PS WS.
+ * filter[*] se añaden con corchetes LITERALES — PHP los necesita literales,
+ * URLSearchParams los codificaría como %5B%5D y el filtrado no funcionaría.
  */
-function buildUrl(
-  resource: string,
-  opts: {
-    display?: string;
-    limit?: string;
-    sort?: string;
-    filters?: Record<string, string>; // filter[name], filter[id], etc.
-  } = {}
-): string {
-  // Parámetros seguros (sin corchetes) vía URLSearchParams
-  const base = new URL(`${BASE_URL}/api/${resource}`);
-  base.searchParams.set("ws_key", API_KEY);
-  base.searchParams.set("output_format", "JSON");
-  base.searchParams.set("display", opts.display ?? "full");
-  if (opts.limit) base.searchParams.set("limit", opts.limit);
-  if (opts.sort) base.searchParams.set("sort", opts.sort);
+function buildUrl(resource: string, opts: {
+  display?: string;
+  limit?: string;
+  filters?: Record<string, string>;
+} = {}): string {
+  const url = new URL(`${BASE_URL}/api/${resource}`);
+  url.searchParams.set("ws_key", API_KEY);
+  url.searchParams.set("output_format", "JSON");
+  url.searchParams.set("display", opts.display ?? "full");
+  if (opts.limit) url.searchParams.set("limit", opts.limit);
 
-  let url = base.toString();
-
-  // Filtros: añadidos con corchetes LITERALES (PHP los parsea como arrays)
+  let str = url.toString();
   if (opts.filters) {
-    for (const [key, value] of Object.entries(opts.filters)) {
-      url += `&${key}=${encodeURIComponent(value)}`;
+    for (const [k, v] of Object.entries(opts.filters)) {
+      str += `&${k}=${encodeURIComponent(v)}`;
     }
   }
-
-  return url;
+  return str;
 }
 
 function plainText(field: unknown): string {
   if (field == null) return "";
   if (typeof field === "string") return field;
   if (typeof field === "number") return String(field);
-  if (Array.isArray(field)) {
-    const first = field[0] as { value?: string } | undefined;
-    return first?.value ?? "";
-  }
+  if (Array.isArray(field)) return (field[0] as { value?: string })?.value ?? "";
   if (typeof field === "object") {
-    const obj = field as { value?: string; language?: Array<{ value?: string }> };
-    if (obj.language && Array.isArray(obj.language)) {
-      return obj.language[0]?.value ?? "";
-    }
-    if (typeof obj.value === "string") return obj.value;
+    const o = field as { value?: string; language?: Array<{ value?: string }> };
+    return o.language?.[0]?.value ?? o.value ?? "";
   }
   return "";
 }
@@ -133,7 +107,6 @@ function buildLinks(id: number) {
 
 function normalizeProduct(raw: any): Product {
   const id = Number(raw?.id ?? 0);
-  const { link, cartLink, checkoutLink } = buildLinks(id);
   const price = Number.parseFloat(raw?.price ?? "0") || 0;
   return {
     id,
@@ -141,54 +114,94 @@ function normalizeProduct(raw: any): Product {
     reference: plainText(raw?.name) || plainText(raw?.reference),
     price: Math.round(price * 100) / 100,
     description: plainText(raw?.description_short).replace(/<[^>]*>/g, "").trim(),
-    link,
-    cartLink,
-    checkoutLink,
+    ...buildLinks(id),
   };
 }
 
+// ── Caché en memoria de IDs+nombres ──────────────────────────────────────────
+// filter[name] NO funciona en este PS (campo multilingüe, no filtrable por WS).
+// Solución: traer todos los IDs+nombres sin filtro, filtrar en JS, luego
+// pedir detalles por filter[id] (campo directo, sí funciona).
+let _nameCache: Array<{ id: number; name: string }> | null = null;
+let _nameCacheTs = 0;
+const NAME_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
+async function getAllNames(): Promise<Array<{ id: number; name: string }>> {
+  if (_nameCache && Date.now() - _nameCacheTs < NAME_CACHE_TTL) return _nameCache;
+
+  // Sin limit = todos los productos (5353 en este catálogo)
+  const url = buildUrl("products", { display: "[id,name]" });
+  try {
+    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    const list = (data?.products ?? []).map((p: any) => ({
+      id: Number(p.id),
+      name: plainText(p.name),
+    }));
+    _nameCache = list;
+    _nameCacheTs = Date.now();
+    return list;
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Busca productos por nombre en cascada.
- * Los filtros usan corchetes literales para que PS WS los interprete correctamente.
+ * Busca productos en dos pasos:
+ * 1. Carga todos los IDs+nombres (caché 5 min) y filtra en memoria
+ * 2. Obtiene detalles completos de los matches usando filter[id]
  */
 export async function searchProducts(query: string): Promise<Product[]> {
   if (DEMO_MODE) return demoSearch(query);
   assertConfig();
+
   const safeQuery = query.trim().slice(0, 120);
   if (!safeQuery) return [];
 
-  const normQuery = safeQuery.replace(/[\s\-\/\.]/g, "");
-  const baseNum = safeQuery.match(/^(\d+)/)?.[1] ?? "";
+  const qLow = safeQuery.toLowerCase();
+  const qNorm = qLow.replace(/[\s\-\/\.]/g, "");
 
-  const strategies: Array<Record<string, string>> = [
-    { "filter[name]": `%${safeQuery}%` },
-  ];
-  if (normQuery !== safeQuery) {
-    strategies.push({ "filter[name]": `%${normQuery}%` });
-  }
-  if (baseNum && baseNum !== safeQuery && baseNum !== normQuery) {
-    strategies.push({ "filter[name]": `%${baseNum}%` });
-  }
+  // Paso 1: filtrado en memoria
+  const allNames = await getAllNames();
+  if (allNames.length === 0) return [];
 
-  for (const filters of strategies) {
-    try {
-      const url = buildUrl("products", { display: "full", limit: "10", filters });
-      const res = await fetch(url, {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-      if (!res.ok) continue;
-      const data = await res.json().catch(() => ({}));
-      const list = data?.products;
-      if (Array.isArray(list) && list.length > 0) {
-        return list.map(normalizeProduct).filter((p) => p.id > 0);
-      }
-    } catch {
-      continue;
+  const matched = allNames.filter((p) => {
+    const nl = p.name.toLowerCase();
+    const nn = nl.replace(/[\s\-\/\.]/g, "");
+    return nl.includes(qLow) || nn.includes(qNorm);
+  }).slice(0, 5);
+
+  if (matched.length === 0) return [];
+
+  // Paso 2: detalles completos por filter[id]=[id1|id2|...] — campo directo, funciona
+  const ids = matched.map((p) => p.id).join("|");
+  const detailUrl = buildUrl("products", {
+    display: "full",
+    limit: "5",
+    filters: { "filter[id]": `[${ids}]` },
+  });
+
+  try {
+    const res = await fetch(detailUrl, { headers: PS_HEADERS, cache: "no-store" });
+    if (!res.ok) {
+      return matched.map((p) => ({
+        id: p.id, name: p.name, reference: p.name,
+        price: 0, description: "", ...buildLinks(p.id),
+      }));
     }
+    const data = await res.json().catch(() => ({}));
+    const products = (data?.products ?? []).map(normalizeProduct).filter((p: Product) => p.id > 0);
+    return products.length > 0 ? products : matched.map((p) => ({
+      id: p.id, name: p.name, reference: p.name,
+      price: 0, description: "", ...buildLinks(p.id),
+    }));
+  } catch {
+    return matched.map((p) => ({
+      id: p.id, name: p.name, reference: p.name,
+      price: 0, description: "", ...buildLinks(p.id),
+    }));
   }
-
-  return [];
 }
 
 export async function getStock(idProduct: number): Promise<StockInfo> {
@@ -204,24 +217,14 @@ export async function getStock(idProduct: number): Promise<StockInfo> {
     filters: { "filter[id_product]": String(idProduct) },
   });
 
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    throw new Error(`Prestashop stock_availables respondió ${res.status}`);
-  }
+  const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+  if (!res.ok) throw new Error(`stock_availables respondió ${res.status}`);
 
   const data = await res.json().catch(() => ({}));
   const list = data?.stock_availables;
-  let quantity = 0;
-  if (Array.isArray(list) && list.length > 0) {
-    quantity = list.reduce(
-      (sum: number, s: any) => sum + (Number(s?.quantity) || 0),
-      0
-    );
-  }
+  const quantity = Array.isArray(list)
+    ? list.reduce((s: number, x: any) => s + (Number(x?.quantity) || 0), 0)
+    : 0;
 
   return { id_product: idProduct, quantity, available: quantity > 0 };
 }
