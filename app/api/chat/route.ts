@@ -71,12 +71,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ output, products }, { headers });
   } catch (err) {
     console.error("[/api/chat] error:", err);
-    return NextResponse.json(
-      {
-        output:
-          "Ups, ha habido un problema técnico procesando tu consulta. ¿Puedes intentarlo de nuevo en un momento?",
-      },
-      { status: 500, headers }
-    );
+    const msg = err instanceof Error ? err.message : "";
+    // Mensaje más útil según la causa (texto plano, sin filtrar secretos).
+    let output =
+      "Ups, ha habido un problema técnico procesando tu consulta. ¿Puedes intentarlo de nuevo en un momento?";
+    if (/OPENAI_API_KEY/i.test(msg)) {
+      output =
+        "El asistente aún no está configurado: falta la clave de OpenAI (OPENAI_API_KEY) en el servidor.";
+    } else if (/401|invalid.*api key|incorrect api key/i.test(msg)) {
+      output = "La clave de OpenAI configurada no es válida. Revisa OPENAI_API_KEY.";
+    } else if (/429|quota|insufficient/i.test(msg)) {
+      output = "La cuenta de OpenAI no tiene saldo/cuota disponible en este momento.";
+    }
+    return NextResponse.json({ output }, { status: 500, headers });
   }
 }

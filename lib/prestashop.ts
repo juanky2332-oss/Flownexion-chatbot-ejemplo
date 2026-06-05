@@ -12,7 +12,116 @@ import type { Product, StockInfo } from "./types";
 const BASE_URL = process.env.PRESTASHOP_BASE_URL ?? "";
 const API_KEY = process.env.PRESTASHOP_API_KEY ?? "";
 
+// Modo demo: si no hay ws_key configurada, o se fuerza con PRESTASHOP_DEMO,
+// el chatbot funciona con un catálogo de ejemplo (sin tienda real). Cuando se
+// configuren PRESTASHOP_BASE_URL + PRESTASHOP_API_KEY reales, pasa a datos
+// en vivo automáticamente.
+const DEMO_MODE =
+  !API_KEY ||
+  process.env.PRESTASHOP_DEMO === "1" ||
+  process.env.PRESTASHOP_DEMO === "true";
+
+const STORE_URL = BASE_URL || "https://esgas.nodoflow.com";
+
+// ───── Catálogo de demostración (rodamientos NTN/SNR habituales) ─────
+const DEMO_CATALOG: Array<Product & { stock: number }> = [
+  {
+    id: 1001,
+    name: "Rodamiento NTN 6205LLU",
+    reference: "6205LLU",
+    price: 6.5,
+    description:
+      "Rodamiento rígido de bolas, Ø interior 25 mm, sellado de goma estanco (LLU = 2RS).",
+    link: `${STORE_URL}/index.php?controller=search&s=6205LLU`,
+    cartLink: `${STORE_URL}/index.php?controller=search&s=6205LLU`,
+    stock: 120,
+  },
+  {
+    id: 1002,
+    name: "Rodamiento NTN 6206LLU",
+    reference: "6206LLU",
+    price: 8.2,
+    description: "Rodamiento rígido de bolas, Ø interior 30 mm, sellado de goma estanco.",
+    link: `${STORE_URL}/index.php?controller=search&s=6206LLU`,
+    cartLink: `${STORE_URL}/index.php?controller=search&s=6206LLU`,
+    stock: 85,
+  },
+  {
+    id: 1003,
+    name: "Rodamiento NTN 6203LLU",
+    reference: "6203LLU",
+    price: 4.2,
+    description: "Rodamiento rígido de bolas, Ø interior 17 mm, sellado de goma estanco.",
+    link: `${STORE_URL}/index.php?controller=search&s=6203LLU`,
+    cartLink: `${STORE_URL}/index.php?controller=search&s=6203LLU`,
+    stock: 150,
+  },
+  {
+    id: 1004,
+    name: "Rodamiento NTN 6004LLB",
+    reference: "6004LLB",
+    price: 4.8,
+    description:
+      "Rodamiento rígido de bolas, Ø interior 20 mm, sellado de goma de bajo rozamiento (LLB).",
+    link: `${STORE_URL}/index.php?controller=search&s=6004LLB`,
+    cartLink: `${STORE_URL}/index.php?controller=search&s=6004LLB`,
+    stock: 200,
+  },
+  {
+    id: 1005,
+    name: "Rodamiento NTN 6305LLU C3",
+    reference: "6305LLU/C3",
+    price: 9.9,
+    description:
+      "Rodamiento rígido de bolas serie 63 (carga reforzada), Ø interior 25 mm, sellado de goma, juego radial ampliado C3.",
+    link: `${STORE_URL}/index.php?controller=search&s=6305LLU`,
+    cartLink: `${STORE_URL}/index.php?controller=search&s=6305LLU`,
+    stock: 40,
+  },
+  {
+    id: 1006,
+    name: "Rodamiento de rodillos cónicos NTN 32008X",
+    reference: "32008X",
+    price: 12.5,
+    description:
+      "Rodamiento de rodillos cónicos, Ø interior 40 mm, soporta cargas combinadas radiales y axiales.",
+    link: `${STORE_URL}/index.php?controller=search&s=32008X`,
+    cartLink: `${STORE_URL}/index.php?controller=search&s=32008X`,
+    stock: 30,
+  },
+  {
+    id: 1007,
+    name: "Soporte con rodamiento SNR UC205",
+    reference: "UC205",
+    price: 7.8,
+    description:
+      "Rodamiento de inserción con prisionero, Ø interior 25 mm, para soportes de pie/brida.",
+    link: `${STORE_URL}/index.php?controller=search&s=UC205`,
+    cartLink: `${STORE_URL}/index.php?controller=search&s=UC205`,
+    stock: 60,
+  },
+];
+
+function stripStock(p: Product & { stock: number }): Product {
+  const { stock, ...rest } = p;
+  return rest;
+}
+
+function demoSearch(query: string): Product[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return DEMO_CATALOG.slice(0, 5).map(stripStock);
+  const norm = (s: string) => s.toLowerCase().replace(/[^0-9a-z]/g, "");
+  const matches = DEMO_CATALOG.filter(
+    (p) =>
+      p.reference.toLowerCase().includes(q) ||
+      p.name.toLowerCase().includes(q) ||
+      norm(p.reference).includes(norm(q))
+  );
+  return (matches.length > 0 ? matches : DEMO_CATALOG.slice(0, 3)).map(stripStock);
+}
+
 function assertConfig() {
+  if (DEMO_MODE) return; // en demo no se exige configuración real
   if (!BASE_URL || !API_KEY) {
     throw new Error(
       "Faltan PRESTASHOP_BASE_URL o PRESTASHOP_API_KEY en las variables de entorno."
@@ -78,6 +187,7 @@ function normalizeProduct(raw: any): Product {
  * Busca productos por nombre. Devuelve un array limpio (sin exponer la ws_key).
  */
 export async function searchProducts(query: string): Promise<Product[]> {
+  if (DEMO_MODE) return demoSearch(query);
   assertConfig();
   const safeQuery = query.trim().slice(0, 120);
   if (!safeQuery) return [];
@@ -108,6 +218,11 @@ export async function searchProducts(query: string): Promise<Product[]> {
  * Consulta el stock real de un producto. Devuelve { quantity, available }.
  */
 export async function getStock(idProduct: number): Promise<StockInfo> {
+  if (DEMO_MODE) {
+    const found = DEMO_CATALOG.find((p) => p.id === idProduct);
+    const quantity = found?.stock ?? 0;
+    return { id_product: idProduct, quantity, available: quantity > 0 };
+  }
   assertConfig();
   const url = buildUrl("stock_availables", {
     "filter[id_product]": String(idProduct),
