@@ -14,7 +14,7 @@ export async function GET() {
   const rawBase = process.env.PRESTASHOP_BASE_URL ?? null;
   const key = process.env.PRESTASHOP_API_KEY ?? null;
 
-  // Normalizar BASE_URL: eliminar /api al final (igual que en prestashop.ts)
+  // Normalizar BASE_URL: eliminar /api al final
   const base = rawBase
     ? rawBase.replace(/\/api\/?$/, "").replace(/\/$/, "")
     : null;
@@ -22,49 +22,109 @@ export async function GET() {
   const env = {
     OPENAI_API_KEY: Boolean(process.env.OPENAI_API_KEY),
     PRESTASHOP_BASE_URL: rawBase ?? null,
-    PRESTASHOP_BASE_URL_normalizado: base ?? null,
     PRESTASHOP_API_KEY: Boolean(key),
-    ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS ?? null,
   };
 
-  // ── Comprobación de Prestashop ──
+  // ── Comprobación de Prestashop + muestra de catálogo ──
   let prestashop: {
     tested: boolean;
     ok: boolean;
     status: number | null;
     hint: string;
-    url_probada: string | null;
+    total_productos: number | null;
+    catalog_sample: Array<{ id: number; reference: string; name: string }> | null;
   } = {
     tested: false,
     ok: false,
     status: null,
     hint: "Faltan PRESTASHOP_BASE_URL o PRESTASHOP_API_KEY en Vercel.",
-    url_probada: null,
+    total_productos: null,
+    catalog_sample: null,
   };
 
   if (base && key) {
     try {
-      const url = new URL(`${base}/api/products`);
-      url.searchParams.set("ws_key", key);
-      url.searchParams.set("output_format", "JSON");
-      url.searchParams.set("limit", "1");
-      const testUrl = url.toString();
-      const res = await fetch(testUrl, { cache: "no-store" });
-      const status = res.status;
+      // 1. Ping básico con limit=1
+      const pingUrl = new URL(`${base}/api/products`);
+      pingUrl.searchParams.set("ws_key", key);
+      pingUrl.searchParams.set("output_format", "JSON");
+      pingUrl.searchParams.set("display", "[id]");
+      pingUrl.searchParams.set("limit", "1");
+
+      const pingRes = await fetch(pingUrl.toString(), { cache: "no-store" });
+      const status = pingRes.status;
       let hint = "";
       if (status === 200) hint = "✓ OK: ws_key correcta y webservice activo.";
-      else if (status === 401) hint = "❌ 401: ws_key incorrecta o sin permiso sobre 'products'. Revisa la API Key en PrestaShop → Parámetros avanzados → Webservice.";
-      else if (status === 403) hint = "❌ 403: ws_key sin permisos. Activa los permisos GET en PrestaShop → Webservice.";
-      else if (status === 404) hint = "❌ 404: webservice desactivado o URL incorrecta. Activa el webservice en PrestaShop → Parámetros avanzados → Webservice.";
-      else hint = `❌ HTTP ${status}: revisa URL y permisos del webservice.`;
-      prestashop = { tested: true, ok: res.ok, status, hint, url_probada: testUrl.replace(key, "***") };
+      else if (status === 401) hint = "❌ 401: ws_key incorrecta o sin permiso sobre 'products'.";
+      else if (status === 403) hint = "❌ 403: ws_key sin permisos GET sobre 'products'.";
+      else if (status === 404) hint = "❌ 404: webservice desactivado o URL incorrecta.";
+      else hint = `❌ HTTP ${status}`;
+
+      prestashop.tested = true;
+      prestashop.ok = pingRes.ok;
+      prestashop.status = status;
+      prestashop.hint = hint;
+
+      // 2. Si OK, obtener muestra de 5 productos con id+reference+name
+      if (pingRes.ok) {
+        try {
+          const sampleUrl = new URL(`${base}/api/products`);
+          sampleUrl.searchParams.set("ws_key", key);
+          sampleUrl.searchParams.set("output_format", "JSON");
+          sampleUrl.searchParams.set("display", "[id,reference,name]");
+          sampleUrl.searchParams.set("limit", "5");
+
+          const sampleRes = await fetch(sampleUrl.toString(), { cache: "no-store" });
+          if (sampleRes.ok) {
+            const data = await sampleRes.json().catch(() => ({}));
+            const products = data?.products ?? [];
+
+            // Contar total de productos
+            const countUrl = new URL(`${base}/api/products`);
+            countUrl.searchParams.set("ws_key", key);
+            countUrl.searchParams.set("output_format", "JSON");
+            countUrl.searchParams.set("display", "[id]");
+            const countRes = await fetch(countUrl.toString(), { cache: "no-store" });
+            if (countRes.ok) {
+              const countData = await countRes.json().catch(() => ({}));
+              prestashop.total_productos = Array.isArray(countData?.products)
+                ? countData.products.length
+                : null;
+            }
+
+            const plainText = (field: unknown): string => {
+              if (field == null) return "";
+              if (typeof field === "string") return field;
+              if (Array.isArray(field)) {
+                const first = field[0] as { value?: string } | undefined;
+                return first?.value ?? "";
+              }
+              if (typeof field === "object") {
+                const obj = field as { language?: Array<{ value?: string }> };
+                if (obj.language && Array.isArray(obj.language)) {
+                  return obj.language[0]?.value ?? "";
+                }
+              }
+              return String(field);
+            };
+
+            prestashop.catalog_sample = products.map((p: any) => ({
+              id: Number(p.id),
+              reference: plainText(p.reference),
+              name: plainText(p.name),
+            }));
+          }
+        } catch {
+          // muestra de catálogo opcional — no falla el health
+        }
+      }
     } catch (e) {
       prestashop = {
+        ...prestashop,
         tested: true,
         ok: false,
         status: null,
         hint: `❌ No se pudo conectar: ${e instanceof Error ? e.message : "error de red"}`,
-        url_probada: `${base}/api/products?ws_key=***&...`,
       };
     }
   }
