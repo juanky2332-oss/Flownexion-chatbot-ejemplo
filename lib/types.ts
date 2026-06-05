@@ -16,8 +16,12 @@ export interface Product {
   reference: string;
   price: number;
   description?: string;
+  /** URL de la ficha del producto. */
   link: string;
+  /** URL para añadir el producto al carrito. */
   cartLink: string;
+  /** URL del checkout / pago de la tienda. */
+  checkoutLink: string;
   imageUrl?: string;
 }
 

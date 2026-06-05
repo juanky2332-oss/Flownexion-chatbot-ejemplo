@@ -21,86 +21,37 @@ const DEMO_MODE =
   process.env.PRESTASHOP_DEMO === "1" ||
   process.env.PRESTASHOP_DEMO === "true";
 
-const STORE_URL = BASE_URL || "https://esgas.nodoflow.com";
+const STORE_URL = (BASE_URL || "https://esgas.nodoflow.com").replace(/\/+$/, "");
+
+/** URL del checkout / pago de la tienda (común a todos los productos). */
+const CHECKOUT_LINK = `${STORE_URL}/index.php?controller=order`;
+
+/**
+ * En demo no hay IDs reales, así que enlazamos a la BÚSQUEDA real de la tienda
+ * por referencia (incluimos `s` para PS 1.7+ y `search_query` para 1.6), que sí
+ * existe y lleva al cliente al producto real si está publicado.
+ */
+function demoLinks(reference: string) {
+  const ref = encodeURIComponent(reference);
+  const search = `${STORE_URL}/index.php?controller=search&s=${ref}&search_query=${ref}`;
+  return { link: search, cartLink: search, checkoutLink: CHECKOUT_LINK };
+}
 
 // ───── Catálogo de demostración (rodamientos NTN/SNR habituales) ─────
-const DEMO_CATALOG: Array<Product & { stock: number }> = [
-  {
-    id: 1001,
-    name: "Rodamiento NTN 6205LLU",
-    reference: "6205LLU",
-    price: 6.5,
-    description:
-      "Rodamiento rígido de bolas, Ø interior 25 mm, sellado de goma estanco (LLU = 2RS).",
-    link: `${STORE_URL}/index.php?controller=search&s=6205LLU`,
-    cartLink: `${STORE_URL}/index.php?controller=search&s=6205LLU`,
-    stock: 120,
-  },
-  {
-    id: 1002,
-    name: "Rodamiento NTN 6206LLU",
-    reference: "6206LLU",
-    price: 8.2,
-    description: "Rodamiento rígido de bolas, Ø interior 30 mm, sellado de goma estanco.",
-    link: `${STORE_URL}/index.php?controller=search&s=6206LLU`,
-    cartLink: `${STORE_URL}/index.php?controller=search&s=6206LLU`,
-    stock: 85,
-  },
-  {
-    id: 1003,
-    name: "Rodamiento NTN 6203LLU",
-    reference: "6203LLU",
-    price: 4.2,
-    description: "Rodamiento rígido de bolas, Ø interior 17 mm, sellado de goma estanco.",
-    link: `${STORE_URL}/index.php?controller=search&s=6203LLU`,
-    cartLink: `${STORE_URL}/index.php?controller=search&s=6203LLU`,
-    stock: 150,
-  },
-  {
-    id: 1004,
-    name: "Rodamiento NTN 6004LLB",
-    reference: "6004LLB",
-    price: 4.8,
-    description:
-      "Rodamiento rígido de bolas, Ø interior 20 mm, sellado de goma de bajo rozamiento (LLB).",
-    link: `${STORE_URL}/index.php?controller=search&s=6004LLB`,
-    cartLink: `${STORE_URL}/index.php?controller=search&s=6004LLB`,
-    stock: 200,
-  },
-  {
-    id: 1005,
-    name: "Rodamiento NTN 6305LLU C3",
-    reference: "6305LLU/C3",
-    price: 9.9,
-    description:
-      "Rodamiento rígido de bolas serie 63 (carga reforzada), Ø interior 25 mm, sellado de goma, juego radial ampliado C3.",
-    link: `${STORE_URL}/index.php?controller=search&s=6305LLU`,
-    cartLink: `${STORE_URL}/index.php?controller=search&s=6305LLU`,
-    stock: 40,
-  },
-  {
-    id: 1006,
-    name: "Rodamiento de rodillos cónicos NTN 32008X",
-    reference: "32008X",
-    price: 12.5,
-    description:
-      "Rodamiento de rodillos cónicos, Ø interior 40 mm, soporta cargas combinadas radiales y axiales.",
-    link: `${STORE_URL}/index.php?controller=search&s=32008X`,
-    cartLink: `${STORE_URL}/index.php?controller=search&s=32008X`,
-    stock: 30,
-  },
-  {
-    id: 1007,
-    name: "Soporte con rodamiento SNR UC205",
-    reference: "UC205",
-    price: 7.8,
-    description:
-      "Rodamiento de inserción con prisionero, Ø interior 25 mm, para soportes de pie/brida.",
-    link: `${STORE_URL}/index.php?controller=search&s=UC205`,
-    cartLink: `${STORE_URL}/index.php?controller=search&s=UC205`,
-    stock: 60,
-  },
+const DEMO_SEED: Array<Omit<Product, "link" | "cartLink" | "checkoutLink"> & { stock: number }> = [
+  { id: 1001, name: "Rodamiento NTN 6205LLU", reference: "6205LLU", price: 6.5, description: "Rodamiento rígido de bolas, Ø interior 25 mm, sellado de goma estanco (LLU = 2RS).", stock: 120 },
+  { id: 1002, name: "Rodamiento NTN 6206LLU", reference: "6206LLU", price: 8.2, description: "Rodamiento rígido de bolas, Ø interior 30 mm, sellado de goma estanco.", stock: 85 },
+  { id: 1003, name: "Rodamiento NTN 6203LLU", reference: "6203LLU", price: 4.2, description: "Rodamiento rígido de bolas, Ø interior 17 mm, sellado de goma estanco.", stock: 150 },
+  { id: 1004, name: "Rodamiento NTN 6004LLB", reference: "6004LLB", price: 4.8, description: "Rodamiento rígido de bolas, Ø interior 20 mm, sellado de goma de bajo rozamiento (LLB).", stock: 200 },
+  { id: 1005, name: "Rodamiento NTN 6305LLU C3", reference: "6305LLU/C3", price: 9.9, description: "Rodamiento rígido de bolas serie 63 (carga reforzada), Ø interior 25 mm, sellado de goma, juego radial ampliado C3.", stock: 40 },
+  { id: 1006, name: "Rodamiento de rodillos cónicos NTN 32008X", reference: "32008X", price: 12.5, description: "Rodamiento de rodillos cónicos, Ø interior 40 mm, soporta cargas combinadas radiales y axiales.", stock: 30 },
+  { id: 1007, name: "Soporte con rodamiento SNR UC205", reference: "UC205", price: 7.8, description: "Rodamiento de inserción con prisionero, Ø interior 25 mm, para soportes de pie/brida.", stock: 60 },
 ];
+
+const DEMO_CATALOG: Array<Product & { stock: number }> = DEMO_SEED.map((p) => ({
+  ...p,
+  ...demoLinks(p.reference),
+}));
 
 function stripStock(p: Product & { stock: number }): Product {
   const { stock, ...rest } = p;
@@ -162,15 +113,16 @@ function plainText(field: unknown): string {
 
 function buildLinks(id: number) {
   return {
-    link: `${BASE_URL}/index.php?controller=product&id_product=${id}`,
-    cartLink: `${BASE_URL}/index.php?controller=cart&add=1&id_product=${id}&qty=1`,
+    link: `${STORE_URL}/index.php?controller=product&id_product=${id}`,
+    cartLink: `${STORE_URL}/index.php?controller=cart&add=1&id_product=${id}&qty=1`,
+    checkoutLink: CHECKOUT_LINK,
   };
 }
 
 /** Normaliza un producto crudo de Prestashop a nuestro tipo limpio. */
 function normalizeProduct(raw: any): Product {
   const id = Number(raw?.id ?? 0);
-  const { link, cartLink } = buildLinks(id);
+  const { link, cartLink, checkoutLink } = buildLinks(id);
   const price = Number.parseFloat(raw?.price ?? "0") || 0;
   return {
     id,
@@ -180,6 +132,7 @@ function normalizeProduct(raw: any): Product {
     description: plainText(raw?.description_short).replace(/<[^>]*>/g, "").trim(),
     link,
     cartLink,
+    checkoutLink,
   };
 }
 
