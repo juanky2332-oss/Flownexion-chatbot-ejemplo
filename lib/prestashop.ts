@@ -21,7 +21,7 @@ const DEMO_MODE =
   process.env.PRESTASHOP_DEMO === "1" ||
   process.env.PRESTASHOP_DEMO === "true";
 
-const STORE_URL = (BASE_URL || "https://esgas.nodoflow.com").replace(/\/+$/, "");
+const STORE_URL = (BASE_URL || "https://b2b.esgas.es").replace(/\/+$/, "");
 
 /** URL del checkout / pago de la tienda (común a todos los productos). */
 const CHECKOUT_LINK = `${STORE_URL}/index.php?controller=order`;
@@ -44,8 +44,10 @@ const DEMO_SEED: Array<Omit<Product, "link" | "cartLink" | "checkoutLink"> & { s
   { id: 1003, name: "Rodamiento NTN 6203LLU", reference: "6203LLU", price: 4.2, description: "Rodamiento rígido de bolas, Ø interior 17 mm, sellado de goma estanco.", stock: 150 },
   { id: 1004, name: "Rodamiento NTN 6004LLB", reference: "6004LLB", price: 4.8, description: "Rodamiento rígido de bolas, Ø interior 20 mm, sellado de goma de bajo rozamiento (LLB).", stock: 200 },
   { id: 1005, name: "Rodamiento NTN 6305LLU C3", reference: "6305LLU/C3", price: 9.9, description: "Rodamiento rígido de bolas serie 63 (carga reforzada), Ø interior 25 mm, sellado de goma, juego radial ampliado C3.", stock: 40 },
-  { id: 1006, name: "Rodamiento de rodillos cónicos NTN 32008X", reference: "32008X", price: 12.5, description: "Rodamiento de rodillos cónicos, Ø interior 40 mm, soporta cargas combinadas radiales y axiales.", stock: 30 },
-  { id: 1007, name: "Soporte con rodamiento SNR UC205", reference: "UC205", price: 7.8, description: "Rodamiento de inserción con prisionero, Ø interior 25 mm, para soportes de pie/brida.", stock: 60 },
+  { id: 1006, name: "Rodamiento NTN 6205ZZ", reference: "6205ZZ", price: 5.8, description: "Rodamiento rígido de bolas, Ø interior 25 mm, protección metálica por ambos lados.", stock: 75 },
+  { id: 1007, name: "Rodamiento NTN 6205ZZ C3", reference: "6205ZZCM", price: 6.1, description: "Rodamiento rígido de bolas, Ø interior 25 mm, protección metálica, juego radial ampliado C3.", stock: 50 },
+  { id: 1008, name: "Rodamiento de rodillos cónicos NTN 32008X", reference: "32008X", price: 12.5, description: "Rodamiento de rodillos cónicos, Ø interior 40 mm, soporta cargas combinadas radiales y axiales.", stock: 30 },
+  { id: 1009, name: "Soporte con rodamiento SNR UC205", reference: "UC205", price: 7.8, description: "Rodamiento de inserción con prisionero, Ø interior 25 mm, para soportes de pie/brida.", stock: 60 },
 ];
 
 const DEMO_CATALOG: Array<Product & { stock: number }> = DEMO_SEED.map((p) => ({
@@ -137,7 +139,8 @@ function normalizeProduct(raw: any): Product {
 }
 
 /**
- * Busca productos por nombre. Devuelve un array limpio (sin exponer la ws_key).
+ * Busca productos por referencia y nombre en cascada.
+ * Estrategia: referencia exacta → referencia contiene → nombre contiene.
  */
 export async function searchProducts(query: string): Promise<Product[]> {
   if (DEMO_MODE) return demoSearch(query);
@@ -145,26 +148,34 @@ export async function searchProducts(query: string): Promise<Product[]> {
   const safeQuery = query.trim().slice(0, 120);
   if (!safeQuery) return [];
 
-  const url = buildUrl("products", {
-    "filter[name]": `[${safeQuery}]%`,
-    limit: "10",
-  });
+  // Búsqueda en cascada: se devuelve en cuanto una estrategia encuentra resultados.
+  const strategies = [
+    // 1. Referencia exacta (más preciso)
+    buildUrl("products", { "filter[reference]": safeQuery, limit: "10" }),
+    // 2. Referencia contiene el query
+    buildUrl("products", { "filter[reference]": `%${safeQuery}%`, limit: "10" }),
+    // 3. Nombre contiene el query
+    buildUrl("products", { "filter[name]": `%${safeQuery}%`, limit: "10" }),
+  ];
 
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    // No filtramos por nombre devuelto vacío: Prestashop a veces responde 200 sin productos.
-    throw new Error(`Prestashop products respondió ${res.status}`);
+  for (const url of strategies) {
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!res.ok) continue;
+      const data = await res.json().catch(() => ({}));
+      const list = data?.products;
+      if (Array.isArray(list) && list.length > 0) {
+        return list.map(normalizeProduct).filter((p) => p.id > 0);
+      }
+    } catch {
+      continue;
+    }
   }
 
-  const data = await res.json().catch(() => ({}));
-  const list = data?.products;
-  if (!Array.isArray(list)) return [];
-
-  return list.map(normalizeProduct).filter((p) => p.id > 0);
+  return [];
 }
 
 /**
