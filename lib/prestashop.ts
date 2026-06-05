@@ -10,15 +10,12 @@ import "server-only";
 import type { Product, StockInfo } from "./types";
 
 // Normalizar BASE_URL: acepta con o sin /api al final.
-// "https://b2b.esgas.es"     → "https://b2b.esgas.es"
-// "https://b2b.esgas.es/api" → "https://b2b.esgas.es"  ✓
 const BASE_URL = (process.env.PRESTASHOP_BASE_URL ?? "")
   .replace(/\/api\/?$/, "")
   .replace(/\/$/, "");
 const API_KEY = process.env.PRESTASHOP_API_KEY ?? "";
 
-// Modo demo: si no hay ws_key configurada, o se fuerza con PRESTASHOP_DEMO,
-// el chatbot funciona con un catálogo de ejemplo (sin tienda real).
+// Modo demo: si no hay ws_key configurada, o se fuerza con PRESTASHOP_DEMO.
 const DEMO_MODE =
   !API_KEY ||
   process.env.PRESTASHOP_DEMO === "1" ||
@@ -26,7 +23,6 @@ const DEMO_MODE =
 
 const STORE_URL = (BASE_URL || "https://b2b.esgas.es").replace(/\/+$/, "");
 
-/** URL del checkout / pago de la tienda (común a todos los productos). */
 const CHECKOUT_LINK = `${STORE_URL}/index.php?controller=order`;
 
 function demoLinks(reference: string) {
@@ -35,18 +31,17 @@ function demoLinks(reference: string) {
   return { link: search, cartLink: search, checkoutLink: CHECKOUT_LINK };
 }
 
-// ───── Catálogo de demostración (rodamientos NTN/SNR habituales) ─────
+// ───── Catálogo de demostración ─────
 const DEMO_SEED: Array<Omit<Product, "link" | "cartLink" | "checkoutLink"> & { stock: number }> = [
-  { id: 1001, name: "Rodamiento NTN 6205LLU", reference: "6205LLU", price: 6.5, description: "Rodamiento rígido de bolas, Ø interior 25 mm, sellado de goma estanco (LLU = 2RS).", stock: 120 },
-  { id: 1002, name: "Rodamiento NTN 6206LLU", reference: "6206LLU", price: 8.2, description: "Rodamiento rígido de bolas, Ø interior 30 mm, sellado de goma estanco.", stock: 85 },
-  { id: 1003, name: "Rodamiento NTN 6203LLU", reference: "6203LLU", price: 4.2, description: "Rodamiento rígido de bolas, Ø interior 17 mm, sellado de goma estanco.", stock: 150 },
-  { id: 1004, name: "Rodamiento NTN 6004LLB", reference: "6004LLB", price: 4.8, description: "Rodamiento rígido de bolas, Ø interior 20 mm, sellado de goma de bajo rozamiento (LLB).", stock: 200 },
-  { id: 1005, name: "Rodamiento NTN 6305LLU C3", reference: "6305LLU/C3", price: 9.9, description: "Rodamiento rígido de bolas serie 63, Ø interior 25 mm, sellado de goma, juego radial ampliado C3.", stock: 40 },
-  { id: 1006, name: "Rodamiento NTN 6205ZZ", reference: "6205ZZ", price: 5.8, description: "Rodamiento rígido de bolas, Ø interior 25 mm, protección metálica por ambos lados.", stock: 75 },
-  { id: 1007, name: "Rodamiento NTN 6205ZZ C3", reference: "6205ZZCM", price: 6.1, description: "Rodamiento rígido de bolas, Ø interior 25 mm, protección metálica, juego radial ampliado C3.", stock: 50 },
-  { id: 1008, name: "Rodamiento NTN 6206ZZ", reference: "6206ZZ", price: 7.3, description: "Rodamiento rígido de bolas, Ø interior 30 mm, protección metálica.", stock: 60 },
-  { id: 1009, name: "Rodamiento de rodillos cónicos NTN 32008X", reference: "32008X", price: 12.5, description: "Rodamiento de rodillos cónicos, Ø interior 40 mm, cargas combinadas.", stock: 30 },
-  { id: 1010, name: "Soporte con rodamiento SNR UC205", reference: "UC205", price: 7.8, description: "Rodamiento de inserción con prisionero, Ø interior 25 mm.", stock: 60 },
+  { id: 1001, name: "SNR 6205LLU", reference: "6205LLU", price: 6.5, description: "Rodamiento rígido de bolas, Ø interior 25 mm, sellado de goma estanco.", stock: 120 },
+  { id: 1002, name: "SNR 6205 ZZ", reference: "6205ZZ", price: 5.8, description: "Rodamiento rígido de bolas, Ø interior 25 mm, protección metálica.", stock: 75 },
+  { id: 1003, name: "SNR 6205 ZZ C3", reference: "6205ZZCM", price: 6.1, description: "Rodamiento rígido de bolas, Ø interior 25 mm, protección metálica, juego C3.", stock: 50 },
+  { id: 1004, name: "SNR 6206LLU", reference: "6206LLU", price: 8.2, description: "Rodamiento rígido de bolas, Ø interior 30 mm, sellado de goma.", stock: 85 },
+  { id: 1005, name: "SNR 6206 ZZ", reference: "6206ZZ", price: 7.3, description: "Rodamiento rígido de bolas, Ø interior 30 mm, protección metálica.", stock: 60 },
+  { id: 1006, name: "SNR 6305LLU C3", reference: "6305LLU/C3", price: 9.9, description: "Rodamiento rígido serie 63, Ø 25 mm, sellado de goma, juego C3.", stock: 40 },
+  { id: 1007, name: "SNR 6203LLU", reference: "6203LLU", price: 4.2, description: "Rodamiento rígido de bolas, Ø interior 17 mm, sellado de goma.", stock: 150 },
+  { id: 1008, name: "SNR 32008X", reference: "32008X", price: 12.5, description: "Rodamiento de rodillos cónicos, Ø interior 40 mm.", stock: 30 },
+  { id: 1009, name: "SNR UC205", reference: "UC205", price: 7.8, description: "Rodamiento de inserción, Ø interior 25 mm.", stock: 60 },
 ];
 
 const DEMO_CATALOG: Array<Product & { stock: number }> = DEMO_SEED.map((p) => ({
@@ -66,10 +61,10 @@ function demoSearch(query: string): Product[] {
   const qNorm = norm(q);
   const matches = DEMO_CATALOG.filter(
     (p) =>
-      p.reference.toLowerCase().includes(q) ||
       p.name.toLowerCase().includes(q) ||
-      norm(p.reference).includes(qNorm) ||
-      qNorm.includes(norm(p.reference))
+      norm(p.name).includes(qNorm) ||
+      p.reference.toLowerCase().includes(q) ||
+      norm(p.reference).includes(qNorm)
   );
   return (matches.length > 0 ? matches : DEMO_CATALOG.slice(0, 3)).map(stripStock);
 }
@@ -77,13 +72,10 @@ function demoSearch(query: string): Product[] {
 function assertConfig() {
   if (DEMO_MODE) return;
   if (!BASE_URL || !API_KEY) {
-    throw new Error(
-      "Faltan PRESTASHOP_BASE_URL o PRESTASHOP_API_KEY en las variables de entorno."
-    );
+    throw new Error("Faltan PRESTASHOP_BASE_URL o PRESTASHOP_API_KEY.");
   }
 }
 
-/** Construye una URL de la API añadiendo la ws_key de forma segura (server-side). */
 function buildUrl(resource: string, params: Record<string, string>): string {
   const url = new URL(`${BASE_URL}/api/${resource}`);
   url.searchParams.set("ws_key", API_KEY);
@@ -95,7 +87,6 @@ function buildUrl(resource: string, params: Record<string, string>): string {
   return url.toString();
 }
 
-/** El valor de un campo Prestashop puede venir como string o como {language:[{value}]}. */
 function plainText(field: unknown): string {
   if (field == null) return "";
   if (typeof field === "string") return field;
@@ -122,7 +113,6 @@ function buildLinks(id: number) {
   };
 }
 
-/** Normaliza un producto crudo de Prestashop a nuestro tipo limpio. */
 function normalizeProduct(raw: any): Product {
   const id = Number(raw?.id ?? 0);
   const { link, cartLink, checkoutLink } = buildLinks(id);
@@ -130,7 +120,7 @@ function normalizeProduct(raw: any): Product {
   return {
     id,
     name: plainText(raw?.name) || `Producto ${id}`,
-    reference: plainText(raw?.reference),
+    reference: plainText(raw?.name) || plainText(raw?.reference), // usar name como referencia visible
     price: Math.round(price * 100) / 100,
     description: plainText(raw?.description_short).replace(/<[^>]*>/g, "").trim(),
     link,
@@ -140,8 +130,16 @@ function normalizeProduct(raw: any): Product {
 }
 
 /**
- * Busca productos en cascada: referencia exacta → ref normalizada →
- * ref contiene → nombre contiene.
+ * Busca productos por nombre en cascada.
+ *
+ * IMPORTANTE: en este catálogo el campo "reference" contiene códigos de barras
+ * EAN (ej: "3413520106263"). La referencia del rodamiento está en el campo
+ * "name" (ej: "SNR 6205 ZZ C3"). Por eso todas las búsquedas usan filter[name].
+ *
+ * Estrategias (se devuelve al primer hit):
+ *   1. nombre contiene query exacto:      %6205 ZZ C3%
+ *   2. nombre contiene query sin espacios: %6205ZZC3%
+ *   3. nombre contiene número base:        %6205%   ← devuelve todas las variantes
  */
 export async function searchProducts(query: string): Promise<Product[]> {
   if (DEMO_MODE) return demoSearch(query);
@@ -149,35 +147,28 @@ export async function searchProducts(query: string): Promise<Product[]> {
   const safeQuery = query.trim().slice(0, 120);
   if (!safeQuery) return [];
 
-  // Normalizar query: quitar espacios, guiones, barras, puntos.
-  // "6205 ZZ C3" → "6205ZZC3"  |  "6205-2RS" → "62052RS"
+  // Quitar espacios/guiones/barras: "6205 ZZ C3" → "6205ZZC3"
   const normQuery = safeQuery.replace(/[\s\-\/\.]/g, "");
 
-  // Extraer solo la parte numérica base para último recurso ("6205ZZC3" → "6205")
+  // Solo la parte numérica base: "6205ZZC3" → "6205"
   const baseNum = safeQuery.match(/^(\d+)/)?.[1] ?? "";
 
+  // Estrategias en cascada sobre filter[name]
   const strategies: string[] = [
-    // 1. Referencia exacta tal cual el usuario escribió
-    buildUrl("products", { "filter[reference]": safeQuery, limit: "10" }),
+    buildUrl("products", { "filter[name]": `%${safeQuery}%`, limit: "10" }),
   ];
 
-  // 2. Referencia sin espacios/guiones (caso más frecuente en NTN: "6205ZZCM")
   if (normQuery !== safeQuery) {
-    strategies.push(buildUrl("products", { "filter[reference]": normQuery, limit: "10" }));
+    strategies.push(
+      buildUrl("products", { "filter[name]": `%${normQuery}%`, limit: "10" })
+    );
   }
 
-  // 3 y 4. Búsqueda parcial (contiene) con ambas variantes
-  strategies.push(buildUrl("products", { "filter[reference]": `%${safeQuery}%`, limit: "10" }));
-  if (normQuery !== safeQuery) {
-    strategies.push(buildUrl("products", { "filter[reference]": `%${normQuery}%`, limit: "10" }));
-  }
-
-  // 5. Nombre contiene query original
-  strategies.push(buildUrl("products", { "filter[name]": `%${safeQuery}%`, limit: "10" }));
-
-  // 6. Último recurso: solo el número base (devuelve todos los 6205-xxx)
+  // Último recurso: solo el número base → devuelve TODAS las variantes (6205LLU, 6205ZZ, etc.)
   if (baseNum && baseNum !== safeQuery && baseNum !== normQuery) {
-    strategies.push(buildUrl("products", { "filter[reference]": `%${baseNum}%`, limit: "10" }));
+    strategies.push(
+      buildUrl("products", { "filter[name]": `%${baseNum}%`, limit: "10" })
+    );
   }
 
   for (const url of strategies) {
@@ -201,7 +192,7 @@ export async function searchProducts(query: string): Promise<Product[]> {
 }
 
 /**
- * Consulta el stock real de un producto. Devuelve { quantity, available }.
+ * Consulta el stock real de un producto.
  */
 export async function getStock(idProduct: number): Promise<StockInfo> {
   if (DEMO_MODE) {
