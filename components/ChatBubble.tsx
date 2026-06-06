@@ -20,11 +20,13 @@ export interface ChatMessage {
 interface ChatBubbleProps {
   message: ChatMessage;
   primaryColor?: string;
+  onAddedToCart?: (product: Product, qty: number, isCheckout: boolean) => void;
 }
 
 export default function ChatBubble({
   message,
   primaryColor = "#0066cc",
+  onAddedToCart,
 }: ChatBubbleProps) {
   const isUser = message.role === "user";
 
@@ -79,7 +81,12 @@ export default function ChatBubble({
         {message.products && message.products.length > 0 && (
           <div className="mt-1">
             {message.products.map((p) => (
-              <ProductCard key={p.id} product={p} primaryColor={primaryColor} />
+              <ProductCard
+                key={p.id}
+                product={p}
+                primaryColor={primaryColor}
+                onAddedToCart={onAddedToCart}
+              />
             ))}
           </div>
         )}

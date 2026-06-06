@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────
 // API principal del chatbot: agente IA "Carlos".
 // POST /api/chat
-// Body: { message: string, sessionId: string, history: Message[] }
+// Body: { message, sessionId, history, customerDiscount?, cart? }
 // Respuesta: { output: string, products?: Product[] }
 //
 // CORS restringido a ALLOWED_ORIGINS. Rate limit 30 req/min por IP.
@@ -15,7 +15,7 @@ import {
   getClientIp,
   isRateLimited,
 } from "@/lib/http";
-import type { ChatRequest, Message } from "@/lib/types";
+import type { ChatRequest, Message, CartItem } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +28,6 @@ export function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const headers = corsHeaders(req);
 
-  // Rate limiting por IP (cabeceras de Vercel).
   const ip = getClientIp(req);
   if (isRateLimited(ip)) {
     return NextResponse.json(
@@ -66,13 +65,28 @@ export async function POST(req: NextRequest) {
         .slice(-20)
     : [];
 
+  const customerDiscount =
+    typeof body?.customerDiscount === "number" &&
+    body.customerDiscount > 0 &&
+    body.customerDiscount < 100
+      ? body.customerDiscount
+      : undefined;
+
+  const cart: CartItem[] | undefined = Array.isArray(body?.cart)
+    ? (body.cart as CartItem[]).slice(0, 20)
+    : undefined;
+
   try {
-    const { output, products } = await runAgent(message, history);
+    const { output, products } = await runAgent(
+      message,
+      history,
+      customerDiscount,
+      cart
+    );
     return NextResponse.json({ output, products }, { headers });
   } catch (err) {
     console.error("[/api/chat] error:", err);
     const msg = err instanceof Error ? err.message : "";
-    // Mensaje más útil según la causa (texto plano, sin filtrar secretos).
     let output =
       "Ups, ha habido un problema técnico procesando tu consulta. ¿Puedes intentarlo de nuevo en un momento?";
     if (/OPENAI_API_KEY/i.test(msg)) {

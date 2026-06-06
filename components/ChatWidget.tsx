@@ -1,21 +1,18 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────
-// Widget de chat embebible de ESGAS — "Carlos, Asesor Técnico".
-// Botón flotante + ventana de chat. Habla con /api/chat.
-//
-// NO importa lib/prestashop ni usa la API key: todo pasa por /api/chat.
+// Widget de chat embebible — "Carlos, Asesor Técnico" de ESGAS.
+// Gestiona el estado del carrito virtual y la memoria de conversación.
 // ─────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Message, Product } from "@/lib/types";
+import type { Message, Product, CartItem } from "@/lib/types";
 import ChatBubble, { type ChatMessage } from "./ChatBubble";
 import RealisticRobot from "./RealisticRobot";
 
 export interface ChatWidgetProps {
   /**
-   * URL de un logo personalizado. Si se deja vacío se usa el robot de
-   * marca de ESGAS (el mismo logo de la página).
+   * URL de un logo personalizado. Si se deja vacío se usa el robot de ESGAS.
    */
   logoUrl?: string;
   /** Color principal de la marca. */
@@ -26,6 +23,8 @@ export interface ChatWidgetProps {
   companyName?: string;
   /** Si true, el widget arranca abierto (útil para la demo de la home). */
   startOpen?: boolean;
+  /** Porcentaje de descuento del cliente (0-99). Opcional. */
+  customerDiscount?: number;
 }
 
 const WELCOME =
@@ -38,12 +37,38 @@ function uid() {
   return Math.random().toString(36).slice(2);
 }
 
+function buildCheckoutSummary(
+  cartMap: Map<number, CartItem>,
+  newProduct: Product,
+  newQty: number
+): string {
+  // Incluye el nuevo artículo en el resumen
+  const updatedMap = new Map(cartMap);
+  updatedMap.set(newProduct.id, { product: newProduct, qty: newQty });
+
+  const items = Array.from(updatedMap.values());
+  const total = items.reduce(
+    (sum, item) => sum + item.product.price * item.qty,
+    0
+  );
+
+  const lines = items
+    .map(
+      (item) =>
+        `- **${item.qty} uds** × ${item.product.name} (Ref: ${item.product.reference}) — **${(item.product.price * item.qty).toFixed(2)} €**`
+    )
+    .join("\n");
+
+  return `🛒 **Resumen de tu cesta:**\n\n${lines}\n\n💰 **Total estimado: ${total.toFixed(2)} €**\n\n[👉 Ir a pagar](${newProduct.checkoutLink})\n\n¡Tu pedido está listo en la tienda! Estoy aquí para cualquier cambio que necesites. 😊`;
+}
+
 export default function ChatWidget({
   logoUrl,
   primaryColor = "#0066cc",
   webhookUrl = "/api/chat",
   companyName = "ESGAS",
   startOpen = false,
+  customerDiscount,
 }: ChatWidgetProps) {
   const [open, setOpen] = useState(startOpen);
   const [sessionId, setSessionId] = useState("");
@@ -52,16 +77,16 @@ export default function ChatWidget({
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: "welcome", role: "assistant", content: WELCOME },
   ]);
+  /** Carrito virtual: registra lo que el cliente ha añadido en esta sesión. */
+  const [cartMap, setCartMap] = useState<Map<number, CartItem>>(new Map());
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Genera el sessionId al montar (memoria del componente, no localStorage).
   useEffect(() => {
     setSessionId(uid());
   }, []);
 
-  // Auto-scroll al último mensaje.
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
@@ -73,12 +98,40 @@ export default function ChatWidget({
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  // Si vivimos dentro de un iframe (embed en Prestashop), avisamos al
-  // contenedor para que redimensione el iframe según abierto/cerrado.
   useEffect(() => {
     if (typeof window === "undefined" || window.parent === window) return;
     window.parent.postMessage({ type: "esgas-chat", open }, "*");
   }, [open]);
+
+  /** Unidades totales en el carrito virtual. */
+  const totalCartUnits = Array.from(cartMap.values()).reduce(
+    (s, item) => s + item.qty,
+    0
+  );
+
+  /**
+   * Llamado cuando el cliente pulsa "Añadir al carrito" o "Añadir y pagar".
+   * Actualiza el carrito virtual e inyecta el resumen si es checkout.
+   */
+  const handleAddedToCart = useCallback(
+    (product: Product, qty: number, isCheckout: boolean) => {
+      setCartMap((prev) => {
+        const next = new Map(prev);
+        // Sobrescribe la entrada: refleja la última intención del cliente.
+        next.set(product.id, { product, qty });
+        return next;
+      });
+
+      if (isCheckout) {
+        const summary = buildCheckoutSummary(cartMap, product, qty);
+        setMessages((prev) => [
+          ...prev,
+          { id: uid(), role: "assistant", content: summary },
+        ]);
+      }
+    },
+    [cartMap]
+  );
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -89,17 +142,24 @@ export default function ChatWidget({
     setInput("");
     setLoading(true);
 
-    // Historial (sin el mensaje de bienvenida) limitado a 10 turnos / 20 mensajes.
     const history: Message[] = [...messages, userMsg]
       .filter((m) => m.id !== "welcome")
       .slice(-20)
       .map((m) => ({ role: m.role, content: m.content }));
 
+    const cart: CartItem[] = Array.from(cartMap.values());
+
     try {
       const res = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, sessionId, history }),
+        body: JSON.stringify({
+          message: text,
+          sessionId,
+          history,
+          ...(customerDiscount ? { customerDiscount } : {}),
+          ...(cart.length > 0 ? { cart } : {}),
+        }),
       });
       const data: { output?: string; products?: Product[] } = await res
         .json()
@@ -129,7 +189,7 @@ export default function ChatWidget({
     } finally {
       setLoading(false);
     }
-  }, [input, loading, messages, sessionId, webhookUrl]);
+  }, [input, loading, messages, sessionId, webhookUrl, customerDiscount, cartMap]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -143,7 +203,7 @@ export default function ChatWidget({
       {/* Ventana de chat */}
       {open && (
         <div
-          className="mb-3 flex h-[560px] w-[380px] max-w-[calc(100vw-2rem)] origin-bottom-right animate-scale-in flex-col overflow-hidden rounded-2xl bg-gray-50 shadow-2xl ring-1 ring-black/5 max-[420px]:h-[80vh]"
+          className="mb-3 flex h-[580px] w-[400px] max-w-[calc(100vw-2rem)] origin-bottom-right animate-scale-in flex-col overflow-hidden rounded-2xl bg-gray-50 shadow-2xl ring-1 ring-black/5 max-[420px]:h-[80vh]"
           role="dialog"
           aria-label={`Chat con Carlos de ${companyName}`}
         >
@@ -154,7 +214,7 @@ export default function ChatWidget({
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/15 ring-2 ring-white/30">
               {logoUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
+                // eslint-disable-next-line @next/next/no-img-element
                 <img src={logoUrl} alt={companyName} className="h-8 w-8 object-contain" />
               ) : (
                 <RealisticRobot size={34} onlyHead />
@@ -169,6 +229,17 @@ export default function ChatWidget({
                 En línea
               </p>
             </div>
+
+            {/* Badge del carrito en el header */}
+            {totalCartUnits > 0 && (
+              <div
+                title={`${totalCartUnits} uds en tu cesta`}
+                className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold"
+              >
+                🛒 {totalCartUnits} uds
+              </div>
+            )}
+
             <button
               onClick={() => setOpen(false)}
               aria-label="Cerrar chat"
@@ -183,7 +254,12 @@ export default function ChatWidget({
           {/* Mensajes */}
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
             {messages.map((m) => (
-              <ChatBubble key={m.id} message={m} primaryColor={primaryColor} />
+              <ChatBubble
+                key={m.id}
+                message={m}
+                primaryColor={primaryColor}
+                onAddedToCart={handleAddedToCart}
+              />
             ))}
 
             {loading && (
@@ -238,7 +314,7 @@ export default function ChatWidget({
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? "Cerrar chat" : "Abrir chat con Carlos"}
-        className="flex h-16 w-16 items-center justify-center rounded-full text-white shadow-xl ring-4 ring-white/40 transition-transform duration-200 hover:scale-105 active:scale-95"
+        className="relative flex h-16 w-16 items-center justify-center rounded-full text-white shadow-xl ring-4 ring-white/40 transition-transform duration-200 hover:scale-105 active:scale-95"
         style={{ backgroundColor: primaryColor }}
       >
         {open ? (
@@ -249,8 +325,14 @@ export default function ChatWidget({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={logoUrl} alt={companyName} className="h-10 w-10 object-contain" />
         ) : (
-          /* Mismo robot y mismo movimiento (isPointing) que el del centro */
           <RealisticRobot size={52} isPointing />
+        )}
+
+        {/* Badge de unidades en el botón flotante (cuando está cerrado) */}
+        {!open && totalCartUnits > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-white">
+            {totalCartUnits > 99 ? "99+" : totalCartUnits}
+          </span>
         )}
       </button>
     </div>
