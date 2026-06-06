@@ -47,8 +47,7 @@ const DEMO_CATALOG: Array<Product & { stock: number }> = DEMO_SEED.map((p) => ({
 }));
 
 function stripStock(p: Product & { stock: number }): Product {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { stock, ...rest } = p;
+  const { stock: _stock, ...rest } = p;
   return rest;
 }
 
