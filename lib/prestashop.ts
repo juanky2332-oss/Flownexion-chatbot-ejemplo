@@ -1,7 +1,5 @@
-// ─────────────────────────────────────────────────────────────
 // Cliente de la API Webservice de Prestashop.
-// ⚠️ SOLO SERVER-SIDE.
-// ─────────────────────────────────────────────────────────────
+// Solo server-side.
 
 import "server-only";
 import type { Product, StockInfo } from "./types";
@@ -25,13 +23,23 @@ function demoLinks(reference: string) {
   return { link: search, cartLink: search, checkoutLink: CHECKOUT_LINK };
 }
 
-const DEMO_SEED: Array<Omit<Product, "link" | "cartLink" | "checkoutLink"> & { stock: number }> = [
-  { id: 1001, name: "SNR 6205LLU", reference: "6205LLU", price: 6.5, description: "Ø 25 mm, sellado goma estanco.", stock: 120 },
-  { id: 1002, name: "SNR 6205 ZZ", reference: "6205ZZ", price: 5.8, description: "Ø 25 mm, protección metálica.", stock: 75 },
-  { id: 1003, name: "SNR 6205 ZZ C3", reference: "6205ZZCM", price: 6.1, description: "Ø 25 mm, protección metálica, juego C3.", stock: 50 },
-  { id: 1004, name: "SNR 6206LLU", reference: "6206LLU", price: 8.2, description: "Ø 30 mm, sellado goma.", stock: 85 },
-  { id: 1005, name: "SNR 6305LLU C3", reference: "6305LLU/C3", price: 9.9, description: "Ø 25 mm, goma, juego C3.", stock: 40 },
-  { id: 1006, name: "SNR 32008X", reference: "32008X", price: 12.5, description: "Rodillos cónicos, Ø 40 mm.", stock: 30 },
+type DemoSeedItem = Omit<Product, "link" | "cartLink" | "checkoutLink"> & { stock: number };
+
+const DEMO_SEED: DemoSeedItem[] = [
+  // Serie 6201 - Ø12 mm (con y sin stock para test de ambos escenarios)
+  { id: 1001, name: "SNR 6201 ZZ",    reference: "6201ZZ",    price: 7.62,  description: "Ø12 mm, proteccion metalica.",           stock: 0  },
+  { id: 1002, name: "SNR 6201 ZZ C3", reference: "6201ZZC3",  price: 7.62,  description: "Ø12 mm, proteccion metalica, juego C3.", stock: 0  },
+  { id: 1003, name: "SNR 6201 LLU",   reference: "6201LLU",   price: 8.10,  description: "Ø12 mm, sellado goma estanco.",           stock: 35 },
+  // Serie 6205 - Ø25 mm
+  { id: 1004, name: "SNR 6205 LLU",   reference: "6205LLU",   price: 6.50,  description: "Ø25 mm, sellado goma estanco.",           stock: 120 },
+  { id: 1005, name: "SNR 6205 ZZ",    reference: "6205ZZ",    price: 5.80,  description: "Ø25 mm, proteccion metalica.",            stock: 75  },
+  { id: 1006, name: "SNR 6205 ZZ C3", reference: "6205ZZCM",  price: 6.10,  description: "Ø25 mm, proteccion metalica, juego C3.", stock: 50  },
+  // Serie 6206 - Ø30 mm
+  { id: 1007, name: "SNR 6206 LLU",   reference: "6206LLU",   price: 8.20,  description: "Ø30 mm, sellado goma.",                  stock: 85  },
+  // Serie 6305 - Ø25 mm pesada
+  { id: 1008, name: "SNR 6305 LLU C3",reference: "6305LLU/C3",price: 9.90,  description: "Ø25 mm, goma, juego C3.",                stock: 40  },
+  // Conicos
+  { id: 1009, name: "SNR 32008X",     reference: "32008X",    price: 12.50, description: "Rodillos conicos, Ø40 mm.",              stock: 30  },
 ];
 
 const DEMO_CATALOG: Array<Product & { stock: number }> = DEMO_SEED.map((p) => ({
@@ -39,7 +47,9 @@ const DEMO_CATALOG: Array<Product & { stock: number }> = DEMO_SEED.map((p) => ({
 }));
 
 function stripStock(p: Product & { stock: number }): Product {
-  const { stock, ...rest } = p; return rest;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { stock, ...rest } = p;
+  return rest;
 }
 
 function demoSearch(query: string): Product[] {
@@ -48,7 +58,9 @@ function demoSearch(query: string): Product[] {
   const norm = (s: string) => s.toLowerCase().replace(/[^0-9a-z]/g, "");
   const qNorm = norm(q);
   const matches = DEMO_CATALOG.filter((p) =>
-    p.name.toLowerCase().includes(q) || norm(p.name).includes(qNorm)
+    p.name.toLowerCase().includes(q) ||
+    norm(p.name).includes(qNorm) ||
+    norm(p.reference).includes(qNorm)
   );
   return (matches.length > 0 ? matches : DEMO_CATALOG.slice(0, 3)).map(stripStock);
 }
@@ -60,11 +72,6 @@ function assertConfig() {
 
 const PS_HEADERS = { Accept: "application/json" };
 
-/**
- * Construye URL de PS WS.
- * filter[*] se añaden con corchetes LITERALES — PHP los necesita literales,
- * URLSearchParams los codificaría como %5B%5D y el filtrado no funcionaría.
- */
 function buildUrl(resource: string, opts: {
   display?: string;
   limit?: string;
@@ -118,18 +125,13 @@ function normalizeProduct(raw: any): Product {
   };
 }
 
-// ── Caché en memoria de IDs+nombres ──────────────────────────────────────────
-// filter[name] NO funciona en este PS (campo multilingüe, no filtrable por WS).
-// Solución: traer todos los IDs+nombres sin filtro, filtrar en JS, luego
-// pedir detalles por filter[id] (campo directo, sí funciona).
 let _nameCache: Array<{ id: number; name: string }> | null = null;
 let _nameCacheTs = 0;
-const NAME_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+const NAME_CACHE_TTL = 5 * 60 * 1000;
 
 async function getAllNames(): Promise<Array<{ id: number; name: string }>> {
   if (_nameCache && Date.now() - _nameCacheTs < NAME_CACHE_TTL) return _nameCache;
 
-  // Sin limit = todos los productos (5353 en este catálogo)
   const url = buildUrl("products", { display: "[id,name]" });
   try {
     const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
@@ -147,11 +149,6 @@ async function getAllNames(): Promise<Array<{ id: number; name: string }>> {
   }
 }
 
-/**
- * Busca productos en dos pasos:
- * 1. Carga todos los IDs+nombres (caché 5 min) y filtra en memoria
- * 2. Obtiene detalles completos de los matches usando filter[id]
- */
 export async function searchProducts(query: string): Promise<Product[]> {
   if (DEMO_MODE) return demoSearch(query);
   assertConfig();
@@ -162,7 +159,6 @@ export async function searchProducts(query: string): Promise<Product[]> {
   const qLow = safeQuery.toLowerCase();
   const qNorm = qLow.replace(/[\s\-\/\.]/g, "");
 
-  // Paso 1: filtrado en memoria
   const allNames = await getAllNames();
   if (allNames.length === 0) return [];
 
@@ -174,7 +170,6 @@ export async function searchProducts(query: string): Promise<Product[]> {
 
   if (matched.length === 0) return [];
 
-  // Paso 2: detalles completos por filter[id]=[id1|id2|...] — campo directo, funciona
   const ids = matched.map((p) => p.id).join("|");
   const detailUrl = buildUrl("products", {
     display: "full",
@@ -218,7 +213,7 @@ export async function getStock(idProduct: number): Promise<StockInfo> {
   });
 
   const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
-  if (!res.ok) throw new Error(`stock_availables respondió ${res.status}`);
+  if (!res.ok) throw new Error(`stock_availables respondio ${res.status}`);
 
   const data = await res.json().catch(() => ({}));
   const list = data?.stock_availables;
