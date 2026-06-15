@@ -55,6 +55,7 @@ export interface PSCustomer {
   firstName: string;
   lastName: string;
   email: string;
+  secureKey: string;
 }
 
 /** Body de entrada de /api/chat */

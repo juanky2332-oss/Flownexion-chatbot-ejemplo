@@ -12,7 +12,11 @@ export function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const headers = corsHeaders(req);
 
-  let body: { items?: { productId: number; qty: number }[]; customerId?: number };
+  let body: {
+    items?: { productId: number; qty: number }[];
+    customerId?: number;
+    customerSecureKey?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -27,6 +31,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await psCreateCart(items, body?.customerId);
+  const result = await psCreateCart(items, body?.customerId, body?.customerSecureKey);
   return NextResponse.json(result, { headers });
 }

@@ -222,7 +222,7 @@ export async function psGetCustomer(email: string): Promise<PSCustomer | null> {
   try {
     const enc = email.trim().toLowerCase();
     const url = buildUrl("customers", {
-      display: "[id,id_default_group,firstname,lastname,email]",
+      display: "[id,id_default_group,firstname,lastname,email,secure_key]",
       filters: { "filter[email]": `[${enc}]` },
     });
     const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
@@ -236,6 +236,7 @@ export async function psGetCustomer(email: string): Promise<PSCustomer | null> {
       firstName: c.firstname,
       lastName: c.lastname,
       email: c.email,
+      secureKey: String(c.secure_key ?? ""),
     };
   } catch {
     return null;
@@ -347,9 +348,10 @@ function xmlField(xml: string, tag: string): string {
 
 export async function psCreateCart(
   items: { productId: number; qty: number }[],
-  customerId?: number
+  customerId?: number,
+  customerSecureKey?: string
 ): Promise<CartResult> {
-  // Links de fallback: URL directa de PS para añadir uno a uno (si el WS falla)
+  // Fallback: URLs directas de PS para añadir uno a uno
   const itemAddUrls = items.map(
     (i) =>
       `${STORE_URL}/index.php?controller=cart&add=1&id_product=${i.productId}&id_product_attribute=0&qty=${i.qty}&action=add`
@@ -372,6 +374,8 @@ export async function psCreateCart(
       .join("");
 
     const customerXml = customerId ? `<id_customer>${customerId}</id_customer>` : "";
+    // Incluir secure_key del cliente en el carrito — necesaria para la recovery URL
+    const secureKeyXml = customerSecureKey ? `<secure_key>${customerSecureKey}</secure_key>` : "";
 
     const xml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
@@ -380,6 +384,7 @@ export async function psCreateCart(
       `<id_currency>1</id_currency>` +
       `<id_lang>1</id_lang>` +
       customerXml +
+      secureKeyXml +
       `<associations><cart_rows>${rows}</cart_rows></associations>` +
       `</cart>` +
       `</prestashop>`;
@@ -391,7 +396,6 @@ export async function psCreateCart(
       body: xml,
     });
 
-    // Leer cuerpo como texto (PS puede devolver XML o JSON según versión)
     const body = await res.text().catch(() => "");
 
     if (!res.ok) {
@@ -400,49 +404,32 @@ export async function psCreateCart(
     }
 
     let cartId = "";
-    let secureKey = "";
 
-    // Intentar JSON primero
+    // Parsear JSON
     if (body.trimStart().startsWith("{")) {
       try {
         const json = JSON.parse(body);
         cartId = String(json?.cart?.id ?? "");
-        secureKey = String(json?.cart?.secure_key ?? "");
       } catch { /* ignorar */ }
     }
 
-    // Si no salió JSON, parsear XML con regex
-    if (!cartId) {
-      cartId = xmlField(body, "id");
-      secureKey = xmlField(body, "secure_key");
-    }
+    // Parsear XML como fallback
+    if (!cartId) cartId = xmlField(body, "id");
 
-    // Último recurso: header Location devuelto por PS en el 201
+    // Último recurso: header Location
     if (!cartId) {
       const loc = res.headers.get("location") ?? "";
       cartId = loc.match(/\/carts\/(\d+)/)?.[1] ?? "";
     }
 
     if (!cartId) {
-      console.error("[psCreateCart] No se pudo extraer cart ID. Body:", body.slice(0, 400));
+      console.error("[psCreateCart] No cart ID en respuesta:", body.slice(0, 400));
       return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
     }
 
-    // El POST no devuelve secure_key → hacer GET para obtenerla
-    if (!secureKey) {
-      try {
-        const getUrl = buildUrl(`carts/${cartId}`, { display: "[id,secure_key]" });
-        const getRes = await fetch(getUrl, { headers: PS_HEADERS, cache: "no-store" });
-        if (getRes.ok) {
-          const getData = await getRes.json().catch(() => ({}));
-          secureKey = String(getData?.cart?.secure_key ?? "");
-        }
-      } catch { /* si falla el GET, seguimos sin secure_key */ }
-    }
-
-    // Recovery URL: carga este carrito exacto en la sesión del navegador
-    const cartUrl = secureKey
-      ? `${STORE_URL}/index.php?controller=order&recover_cart=${cartId}&token_cart=${secureKey}`
+    // Recovery URL: usa la secure_key del cliente (que metimos en el XML del carrito)
+    const cartUrl = customerSecureKey
+      ? `${STORE_URL}/index.php?controller=order&recover_cart=${cartId}&token_cart=${customerSecureKey}`
       : CART_PAGE_URL;
 
     return { cartId, cartUrl, itemAddUrls };

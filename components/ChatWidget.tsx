@@ -134,6 +134,7 @@ export default function ChatWidget({
           body: JSON.stringify({
             items: allItems,
             ...(customer?.id ? { customerId: customer.id } : {}),
+            ...(customer?.secureKey ? { customerSecureKey: customer.secureKey } : {}),
           }),
         });
         const data: { cartId?: string; cartUrl?: string; itemAddUrls?: string[] } =
