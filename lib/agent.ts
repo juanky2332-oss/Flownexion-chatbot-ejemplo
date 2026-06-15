@@ -218,10 +218,11 @@ function trimHistory(history: Message[]): Message[] {
 async function runTool(
   name: string,
   args: any,
-  collected: Product[]
+  collected: Product[],
+  groupId?: number
 ): Promise<string> {
   if (name === "search_products") {
-    const products = await searchProducts(String(args?.query ?? ""));
+    const products = await searchProducts(String(args?.query ?? ""), groupId);
     for (const p of products.slice(0, 3)) {
       if (!collected.some((c) => c.id === p.id)) collected.push(p);
     }
@@ -251,7 +252,8 @@ export async function runAgent(
   message: string,
   history: Message[],
   customerDiscount?: number,
-  cart?: CartItem[]
+  cart?: CartItem[],
+  customerGroupId?: number
 ): Promise<{ output: string; products: Product[] }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -260,6 +262,7 @@ export async function runAgent(
 
   const openai = new OpenAI({ apiKey });
   const collected: Product[] = [];
+  const groupId = customerGroupId;
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: buildSystemPrompt(customerDiscount, cart) },
@@ -302,7 +305,7 @@ export async function runAgent(
       }
       let result: string;
       try {
-        result = await runTool(call.function.name, parsedArgs, collected);
+        result = await runTool(call.function.name, parsedArgs, collected, groupId);
       } catch (err) {
         result = JSON.stringify({
           error: err instanceof Error ? err.message : "Error en la herramienta",

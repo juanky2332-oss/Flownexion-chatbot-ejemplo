@@ -76,12 +76,18 @@ export async function POST(req: NextRequest) {
     ? (body.cart as CartItem[]).slice(0, 20)
     : undefined;
 
+  const customerGroupId =
+    typeof body?.customerGroupId === "number" && body.customerGroupId > 0
+      ? body.customerGroupId
+      : undefined;
+
   try {
     const { output, products } = await runAgent(
       message,
       history,
       customerDiscount,
-      cart
+      cart,
+      customerGroupId
     );
     return NextResponse.json({ output, products }, { headers });
   } catch (err) {

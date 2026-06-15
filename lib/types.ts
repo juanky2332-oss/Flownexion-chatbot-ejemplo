@@ -1,6 +1,4 @@
-// ─────────────────────────────────────────────────────────────
 // Tipos compartidos del chatbot ESGAS
-// ─────────────────────────────────────────────────────────────
 
 export type Role = "user" | "assistant" | "system";
 
@@ -15,10 +13,14 @@ export interface Product {
   name: string;
   reference: string;
   price: number;
+  /** Precio base de catálogo antes del descuento B2B */
+  originalPrice?: number;
+  /** Fracción de descuento aplicada (0-1). Ej: 0.824 = 82.4% */
+  discountPct?: number | null;
   description?: string;
   /** URL de la ficha del producto en la tienda. */
   link: string;
-  /** URL para añadir el producto al carrito (base qty=1). */
+  /** URL para añadir el producto al carrito (base qty=1, back=/carrito). */
   cartLink: string;
   /** URL del proceso de pago. */
   checkoutLink: string;
@@ -46,6 +48,15 @@ export interface StockInfo {
   available: boolean;
 }
 
+/** Cliente B2B identificado en PrestaShop */
+export interface PSCustomer {
+  id: number;
+  groupId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+}
+
 /** Body de entrada de /api/chat */
 export interface ChatRequest {
   message: string;
@@ -53,6 +64,8 @@ export interface ChatRequest {
   history: Message[];
   /** Porcentaje de descuento del cliente (0-99). */
   customerDiscount?: number;
+  /** ID de grupo PS del cliente para precios B2B. */
+  customerGroupId?: number;
   /** Estado actual del carrito virtual del chatbot. */
   cart?: CartItem[];
 }

@@ -2,7 +2,7 @@
 // Solo server-side.
 
 import "server-only";
-import type { Product, StockInfo } from "./types";
+import type { Product, StockInfo, PSCustomer } from "./types";
 
 const BASE_URL = (process.env.PRESTASHOP_BASE_URL ?? "")
   .replace(/\/api\/?$/, "")
@@ -15,31 +15,30 @@ const DEMO_MODE =
   process.env.PRESTASHOP_DEMO === "true";
 
 const STORE_URL = (BASE_URL || "https://b2b.esgas.es").replace(/\/+$/, "");
-const CHECKOUT_LINK = `${STORE_URL}/index.php?controller=order`;
+const CHECKOUT_URL = `${STORE_URL}/index.php?controller=order`;
+const CART_PAGE_URL = `${STORE_URL}/carrito?action=show`;
+
+// back param: tras añadir al carrito, PS redirige a la página del carrito (no al homepage)
+const CART_BACK = encodeURIComponent("/carrito?action=show");
 
 function demoLinks(reference: string) {
   const ref = encodeURIComponent(reference);
   const search = `${STORE_URL}/index.php?controller=search&s=${ref}&search_query=${ref}`;
-  return { link: search, cartLink: search, checkoutLink: CHECKOUT_LINK };
+  return { link: search, cartLink: search, checkoutLink: CHECKOUT_URL };
 }
 
 type DemoSeedItem = Omit<Product, "link" | "cartLink" | "checkoutLink"> & { stock: number };
 
 const DEMO_SEED: DemoSeedItem[] = [
-  // Serie 6201 - Ø12 mm (con y sin stock para test de ambos escenarios)
-  { id: 1001, name: "SNR 6201 ZZ",    reference: "6201ZZ",    price: 7.62,  description: "Ø12 mm, proteccion metalica.",           stock: 0  },
-  { id: 1002, name: "SNR 6201 ZZ C3", reference: "6201ZZC3",  price: 7.62,  description: "Ø12 mm, proteccion metalica, juego C3.", stock: 0  },
-  { id: 1003, name: "SNR 6201 LLU",   reference: "6201LLU",   price: 8.10,  description: "Ø12 mm, sellado goma estanco.",           stock: 35 },
-  // Serie 6205 - Ø25 mm
-  { id: 1004, name: "SNR 6205 LLU",   reference: "6205LLU",   price: 6.50,  description: "Ø25 mm, sellado goma estanco.",           stock: 120 },
-  { id: 1005, name: "SNR 6205 ZZ",    reference: "6205ZZ",    price: 5.80,  description: "Ø25 mm, proteccion metalica.",            stock: 75  },
-  { id: 1006, name: "SNR 6205 ZZ C3", reference: "6205ZZCM",  price: 6.10,  description: "Ø25 mm, proteccion metalica, juego C3.", stock: 50  },
-  // Serie 6206 - Ø30 mm
-  { id: 1007, name: "SNR 6206 LLU",   reference: "6206LLU",   price: 8.20,  description: "Ø30 mm, sellado goma.",                  stock: 85  },
-  // Serie 6305 - Ø25 mm pesada
-  { id: 1008, name: "SNR 6305 LLU C3",reference: "6305LLU/C3",price: 9.90,  description: "Ø25 mm, goma, juego C3.",                stock: 40  },
-  // Conicos
-  { id: 1009, name: "SNR 32008X",     reference: "32008X",    price: 12.50, description: "Rodillos conicos, Ø40 mm.",              stock: 30  },
+  { id: 1001, name: "SNR 6201 ZZ",     reference: "6201ZZ",    price: 7.62,  description: "Ø12 mm, proteccion metalica.",           stock: 0   },
+  { id: 1002, name: "SNR 6201 ZZ C3",  reference: "6201ZZC3",  price: 7.62,  description: "Ø12 mm, proteccion metalica, juego C3.", stock: 0   },
+  { id: 1003, name: "SNR 6201 LLU",    reference: "6201LLU",   price: 8.10,  description: "Ø12 mm, sellado goma estanco.",          stock: 35  },
+  { id: 1004, name: "SNR 6205 LLU",    reference: "6205LLU",   price: 6.50,  description: "Ø25 mm, sellado goma estanco.",          stock: 120 },
+  { id: 1005, name: "SNR 6205 ZZ",     reference: "6205ZZ",    price: 5.80,  description: "Ø25 mm, proteccion metalica.",           stock: 75  },
+  { id: 1006, name: "SNR 6205 ZZ C3",  reference: "6205ZZCM",  price: 6.10,  description: "Ø25 mm, proteccion metalica, juego C3.", stock: 50  },
+  { id: 1007, name: "SNR 6206 LLU",    reference: "6206LLU",   price: 8.20,  description: "Ø30 mm, sellado goma.",                  stock: 85  },
+  { id: 1008, name: "SNR 6305 LLU C3", reference: "6305LLU/C3",price: 9.90,  description: "Ø25 mm, goma, juego C3.",               stock: 40  },
+  { id: 1009, name: "SNR 32008X",      reference: "32008X",    price: 12.50, description: "Rodillos conicos, Ø40 mm.",             stock: 30  },
 ];
 
 const DEMO_CATALOG: Array<Product & { stock: number }> = DEMO_SEED.map((p) => ({
@@ -56,10 +55,11 @@ function demoSearch(query: string): Product[] {
   if (!q) return DEMO_CATALOG.slice(0, 5).map(stripStock);
   const norm = (s: string) => s.toLowerCase().replace(/[^0-9a-z]/g, "");
   const qNorm = norm(q);
-  const matches = DEMO_CATALOG.filter((p) =>
-    p.name.toLowerCase().includes(q) ||
-    norm(p.name).includes(qNorm) ||
-    norm(p.reference).includes(qNorm)
+  const matches = DEMO_CATALOG.filter(
+    (p) =>
+      p.name.toLowerCase().includes(q) ||
+      norm(p.name).includes(qNorm) ||
+      norm(p.reference).includes(qNorm)
   );
   return (matches.length > 0 ? matches : DEMO_CATALOG.slice(0, 3)).map(stripStock);
 }
@@ -71,11 +71,14 @@ function assertConfig() {
 
 const PS_HEADERS = { Accept: "application/json" };
 
-function buildUrl(resource: string, opts: {
-  display?: string;
-  limit?: string;
-  filters?: Record<string, string>;
-} = {}): string {
+function buildUrl(
+  resource: string,
+  opts: {
+    display?: string;
+    limit?: string;
+    filters?: Record<string, string>;
+  } = {}
+): string {
   const url = new URL(`${BASE_URL}/api/${resource}`);
   url.searchParams.set("ws_key", API_KEY);
   url.searchParams.set("output_format", "JSON");
@@ -106,18 +109,19 @@ function plainText(field: unknown): string {
 function buildLinks(id: number) {
   return {
     link: `${STORE_URL}/index.php?controller=product&id_product=${id}`,
-    cartLink: `${STORE_URL}/index.php?controller=cart&add=1&id_product=${id}&qty=1`,
-    checkoutLink: CHECKOUT_LINK,
+    // back param makes PS redirect to cart page (not homepage) after adding
+    cartLink: `${STORE_URL}/index.php?controller=cart&add=1&id_product=${id}&id_product_attribute=0&qty=1&action=add&back=${CART_BACK}`,
+    checkoutLink: CHECKOUT_URL,
   };
 }
 
-function normalizeProduct(raw: any): Product {
+function normalizeProduct(raw: any, basePrice?: number): Product {
   const id = Number(raw?.id ?? 0);
-  const price = Number.parseFloat(raw?.price ?? "0") || 0;
+  const price = basePrice ?? (Number.parseFloat(raw?.price ?? "0") || 0);
   return {
     id,
     name: plainText(raw?.name) || `Producto ${id}`,
-    reference: plainText(raw?.name) || plainText(raw?.reference),
+    reference: plainText(raw?.reference) || plainText(raw?.name),
     price: Math.round(price * 100) / 100,
     description: plainText(raw?.description_short).replace(/<[^>]*>/g, "").trim(),
     ...buildLinks(id),
@@ -148,7 +152,100 @@ async function getAllNames(): Promise<Array<{ id: number; name: string }>> {
   }
 }
 
-export async function searchProducts(query: string): Promise<Product[]> {
+// ─── B2B: precios específicos por grupo ──────────────────────────────────────
+
+async function psGetBestSpecificPrice(
+  productId: number,
+  basePrice: number,
+  groupId?: number
+): Promise<{ price: number; discountPct: number | null }> {
+  if (!productId || basePrice <= 0) return { price: basePrice, discountPct: null };
+  try {
+    const url = buildUrl("specific_prices", {
+      display: "full",
+      filters: { "filter[id_product]": `[${productId}]` },
+    });
+    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    if (!res.ok) return { price: basePrice, discountPct: null };
+
+    const data = await res.json().catch(() => ({}));
+    const prices: any[] = (data?.specific_prices ?? []).filter((sp: any) => {
+      const spCustomer = Number(sp.id_customer ?? 0);
+      const spGroup = Number(sp.id_group ?? 0);
+      const fromQty = Number(sp.from_quantity ?? 1);
+      if (spCustomer !== 0) return false;
+      if (fromQty > 1) return false;
+      return spGroup === 0 || (groupId !== undefined && spGroup === groupId);
+    });
+
+    if (!prices.length) return { price: basePrice, discountPct: null };
+
+    prices.sort((a: any, b: any) => {
+      const aGroup = Number(a.id_group ?? 0);
+      const bGroup = Number(b.id_group ?? 0);
+      if (groupId !== undefined) {
+        if (aGroup === groupId && bGroup !== groupId) return -1;
+        if (bGroup === groupId && aGroup !== groupId) return 1;
+      }
+      return parseFloat(b.reduction) - parseFloat(a.reduction);
+    });
+
+    const best = prices[0];
+    const fixedPrice = parseFloat(best.price ?? "0");
+    if (fixedPrice > 0) {
+      const pct = basePrice > 0 ? 1 - fixedPrice / basePrice : null;
+      return {
+        price: Math.round(fixedPrice * 100) / 100,
+        discountPct: pct !== null && pct > 0 ? pct : null,
+      };
+    }
+    if (best.reduction_type === "percentage") {
+      const pct = parseFloat(best.reduction);
+      return {
+        price: Math.round(basePrice * (1 - pct) * 100) / 100,
+        discountPct: pct,
+      };
+    }
+    if (best.reduction_type === "amount") {
+      const amt = parseFloat(best.reduction);
+      const finalPrice = Math.max(0, Math.round((basePrice - amt) * 100) / 100);
+      const pct = basePrice > 0 ? (basePrice - finalPrice) / basePrice : null;
+      return { price: finalPrice, discountPct: pct && pct > 0 ? pct : null };
+    }
+    return { price: basePrice, discountPct: null };
+  } catch {
+    return { price: basePrice, discountPct: null };
+  }
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+export async function psGetCustomer(email: string): Promise<PSCustomer | null> {
+  if (DEMO_MODE || !email.trim()) return null;
+  try {
+    const enc = email.trim().toLowerCase();
+    const url = buildUrl("customers", {
+      display: "[id,id_default_group,firstname,lastname,email]",
+      filters: { "filter[email]": `[${enc}]` },
+    });
+    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    const c = data?.customers?.[0];
+    if (!c) return null;
+    return {
+      id: Number(c.id),
+      groupId: Number(c.id_default_group),
+      firstName: c.firstname,
+      lastName: c.lastname,
+      email: c.email,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function searchProducts(query: string, groupId?: number): Promise<Product[]> {
   if (DEMO_MODE) return demoSearch(query);
   assertConfig();
 
@@ -161,11 +258,13 @@ export async function searchProducts(query: string): Promise<Product[]> {
   const allNames = await getAllNames();
   if (allNames.length === 0) return [];
 
-  const matched = allNames.filter((p) => {
-    const nl = p.name.toLowerCase();
-    const nn = nl.replace(/[\s\-\/\.]/g, "");
-    return nl.includes(qLow) || nn.includes(qNorm);
-  }).slice(0, 5);
+  const matched = allNames
+    .filter((p) => {
+      const nl = p.name.toLowerCase();
+      const nn = nl.replace(/[\s\-\/\.]/g, "");
+      return nl.includes(qLow) || nn.includes(qNorm);
+    })
+    .slice(0, 5);
 
   if (matched.length === 0) return [];
 
@@ -176,26 +275,38 @@ export async function searchProducts(query: string): Promise<Product[]> {
     filters: { "filter[id]": `[${ids}]` },
   });
 
+  let rawProducts: any[] = [];
   try {
     const res = await fetch(detailUrl, { headers: PS_HEADERS, cache: "no-store" });
-    if (!res.ok) {
-      return matched.map((p) => ({
-        id: p.id, name: p.name, reference: p.name,
-        price: 0, description: "", ...buildLinks(p.id),
-      }));
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      rawProducts = data?.products ?? [];
     }
-    const data = await res.json().catch(() => ({}));
-    const products = (data?.products ?? []).map(normalizeProduct).filter((p: Product) => p.id > 0);
-    return products.length > 0 ? products : matched.map((p) => ({
-      id: p.id, name: p.name, reference: p.name,
-      price: 0, description: "", ...buildLinks(p.id),
-    }));
-  } catch {
-    return matched.map((p) => ({
-      id: p.id, name: p.name, reference: p.name,
-      price: 0, description: "", ...buildLinks(p.id),
-    }));
-  }
+  } catch { /* ignorar */ }
+
+  // Enriquecer con precios B2B si hay groupId
+  const products = await Promise.all(
+    (rawProducts.length > 0 ? rawProducts : matched.map((p) => ({ id: p.id, name: p.name }))).map(
+      async (raw: any) => {
+        const basePrice = Number.parseFloat(raw?.price ?? "0") || 0;
+        const product = normalizeProduct(raw, basePrice);
+        if (groupId !== undefined && basePrice > 0) {
+          const { price: discountedPrice, discountPct } = await psGetBestSpecificPrice(
+            product.id, basePrice, groupId
+          );
+          return {
+            ...product,
+            price: discountedPrice,
+            originalPrice: basePrice,
+            discountPct,
+          };
+        }
+        return product;
+      }
+    )
+  );
+
+  return products.filter((p) => p.id > 0).slice(0, 3);
 }
 
 export async function getStock(idProduct: number): Promise<StockInfo> {
@@ -222,3 +333,79 @@ export async function getStock(idProduct: number): Promise<StockInfo> {
 
   return { id_product: idProduct, quantity, available: quantity > 0 };
 }
+
+// ─── Carrito via WS API ───────────────────────────────────────────────────────
+
+export interface CartResult {
+  cartId: string;
+  cartUrl: string;
+  itemAddUrls: string[];
+}
+
+export async function psCreateCart(
+  items: { productId: number; qty: number }[],
+  customerId?: number
+): Promise<CartResult> {
+  const itemAddUrls = items.map(
+    (i) =>
+      `${STORE_URL}/index.php?controller=cart&add=1&id_product=${i.productId}&id_product_attribute=0&qty=${i.qty}&action=add&back=${CART_BACK}`
+  );
+
+  if (DEMO_MODE || !items.length) {
+    return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+  }
+
+  try {
+    const rows = items
+      .map(
+        (i) => `
+        <cart_row>
+          <id_product>${i.productId}</id_product>
+          <id_product_attribute>0</id_product_attribute>
+          <id_address_delivery>0</id_address_delivery>
+          <quantity>${i.qty}</quantity>
+        </cart_row>`
+      )
+      .join("");
+
+    const customerXml = customerId ? `<id_customer>${customerId}</id_customer>` : "";
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
+  <cart>
+    <id_currency>1</id_currency>
+    <id_lang>1</id_lang>
+    ${customerXml}
+    <associations>
+      <cart_rows>${rows}</cart_rows>
+    </associations>
+  </cart>
+</prestashop>`;
+
+    const postUrl = buildUrl("carts");
+    const res = await fetch(postUrl, {
+      method: "POST",
+      headers: { ...PS_HEADERS, "Content-Type": "application/xml" },
+      body: xml,
+    });
+
+    if (!res.ok) return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+
+    const data = await res.json().catch(() => ({}));
+    const cartId = String(data?.cart?.id ?? "");
+    const secureKey: string = data?.cart?.secure_key ?? "";
+
+    if (!cartId) return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+
+    // recovery URL carga este carrito exacto en la sesión del cliente
+    const cartUrl = secureKey
+      ? `${STORE_URL}/index.php?controller=order&recover_cart=${cartId}&token_cart=${secureKey}`
+      : CART_PAGE_URL;
+
+    return { cartId, cartUrl, itemAddUrls };
+  } catch {
+    return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+  }
+}
+
+export { CART_PAGE_URL };

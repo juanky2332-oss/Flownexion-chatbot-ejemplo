@@ -1,65 +1,28 @@
 "use client";
 
-// ─────────────────────────────────────────────────────────────
-// Widget de chat embebible — "Carlos, Asesor Técnico" de ESGAS.
-// Gestiona el estado del carrito virtual y la memoria de conversación.
-// ─────────────────────────────────────────────────────────────
-
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Message, Product, CartItem } from "@/lib/types";
+import type { Message, Product, CartItem, PSCustomer } from "@/lib/types";
 import ChatBubble, { type ChatMessage } from "./ChatBubble";
 import RealisticRobot from "./RealisticRobot";
 
 export interface ChatWidgetProps {
-  /**
-   * URL de un logo personalizado. Si se deja vacío se usa el robot de ESGAS.
-   */
   logoUrl?: string;
-  /** Color principal de la marca. */
   primaryColor?: string;
-  /** Endpoint del chat. Por defecto /api/chat. */
   webhookUrl?: string;
-  /** Nombre de la empresa. */
   companyName?: string;
-  /** Si true, el widget arranca abierto (útil para la demo de la home). */
   startOpen?: boolean;
-  /** Porcentaje de descuento del cliente (0-99). Opcional. */
   customerDiscount?: number;
 }
 
 const WELCOME =
   "¡Hola! 👋 Soy **Carlos**, tu asesor técnico de ESGAS, distribuidor oficial **NTN/SNR**.\n\nDime qué rodamiento o suministro necesitas y te ayudo a encontrarlo al mejor precio. ¿En qué estás trabajando?";
 
+const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
+const SHIPPING_THRESHOLD = 80;
+
 function uid() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return Math.random().toString(36).slice(2);
-}
-
-function buildCheckoutSummary(
-  cartMap: Map<number, CartItem>,
-  newProduct: Product,
-  newQty: number
-): string {
-  // Incluye el nuevo artículo en el resumen
-  const updatedMap = new Map(cartMap);
-  updatedMap.set(newProduct.id, { product: newProduct, qty: newQty });
-
-  const items = Array.from(updatedMap.values());
-  const total = items.reduce(
-    (sum, item) => sum + item.product.price * item.qty,
-    0
-  );
-
-  const lines = items
-    .map(
-      (item) =>
-        `- **${item.qty} uds** × ${item.product.name} (Ref: ${item.product.reference}) — **${(item.product.price * item.qty).toFixed(2)} €**`
-    )
-    .join("\n");
-
-  return `🛒 **Resumen de tu cesta:**\n\n${lines}\n\n💰 **Total estimado: ${total.toFixed(2)} €**\n\n[👉 Ir a pagar](${newProduct.checkoutLink})\n\n¡Tu pedido está listo en la tienda! Estoy aquí para cualquier cambio que necesites. 😊`;
 }
 
 export default function ChatWidget({
@@ -77,60 +40,151 @@ export default function ChatWidget({
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: "welcome", role: "assistant", content: WELCOME },
   ]);
-  /** Carrito virtual: registra lo que el cliente ha añadido en esta sesión. */
   const [cartMap, setCartMap] = useState<Map<number, CartItem>>(new Map());
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [fallbackLinks, setFallbackLinks] = useState<{ name: string; qty: number; url: string }[] | null>(null);
+
+  // Customer identification
+  const [customer, setCustomer] = useState<PSCustomer | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return JSON.parse(localStorage.getItem("esgas-customer") ?? "null"); }
+    catch { return null; }
+  });
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setSessionId(uid());
-  }, []);
+  useEffect(() => { setSessionId(uid()); }, []);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [messages, loading, open]);
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, loading, open, fallbackLinks]);
 
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
+  useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
   useEffect(() => {
     if (typeof window === "undefined" || window.parent === window) return;
     window.parent.postMessage({ type: "esgas-chat", open }, "*");
   }, [open]);
 
-  /** Unidades totales en el carrito virtual. */
-  const totalCartUnits = Array.from(cartMap.values()).reduce(
-    (s, item) => s + item.qty,
-    0
+  const totalCartUnits = Array.from(cartMap.values()).reduce((s, i) => s + i.qty, 0);
+  const totalCartPrice = Array.from(cartMap.values()).reduce(
+    (s, i) => s + i.product.price * i.qty, 0
   );
 
-  /**
-   * Llamado cuando el cliente pulsa "Añadir al carrito" o "Añadir y pagar".
-   * Actualiza el carrito virtual e inyecta el resumen si es checkout.
-   */
+  const handleLogin = useCallback(async (email: string) => {
+    const trimmed = email.trim();
+    if (!trimmed) return;
+    setLoginLoading(true);
+    setLoginError("");
+    try {
+      const res = await fetch(`/api/customer?email=${encodeURIComponent(trimmed)}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setLoginError(data?.error ?? "Email no encontrado");
+        return;
+      }
+      const data: PSCustomer = await res.json();
+      setCustomer(data);
+      localStorage.setItem("esgas-customer", JSON.stringify(data));
+      setLoginEmail("");
+      setLoginError("");
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          role: "assistant",
+          content: `✅ ¡Hola, **${data.firstName}**! Te he identificado como cliente B2B de ESGAS.\n\nAhora veré tus **precios con descuento** y podré tramitar el pedido directamente en tu cuenta. ¿Qué necesitas?`,
+        },
+      ]);
+    } catch {
+      setLoginError("Error de conexión. Inténtalo de nuevo.");
+    } finally {
+      setLoginLoading(false);
+    }
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    setCustomer(null);
+    localStorage.removeItem("esgas-customer");
+    setCartMap(new Map());
+    setFallbackLinks(null);
+  }, []);
+
   const handleAddedToCart = useCallback(
-    (product: Product, qty: number, isCheckout: boolean) => {
+    (product: Product, qty: number) => {
       setCartMap((prev) => {
         const next = new Map(prev);
-        // Sobrescribe la entrada: refleja la última intención del cliente.
         next.set(product.id, { product, qty });
         return next;
       });
+    },
+    []
+  );
 
-      if (isCheckout) {
-        const summary = buildCheckoutSummary(cartMap, product, qty);
-        setMessages((prev) => [
-          ...prev,
-          { id: uid(), role: "assistant", content: summary },
-        ]);
+  const handleCheckout = useCallback(
+    async (singleProduct?: Product, singleQty?: number) => {
+      setFallbackLinks(null);
+      setIsCheckingOut(true);
+
+      const allItems = Array.from(cartMap.values()).map((i) => ({
+        productId: i.product.id,
+        qty: i.qty,
+      }));
+
+      if (singleProduct) {
+        if (!cartMap.has(singleProduct.id)) {
+          allItems.push({ productId: singleProduct.id, qty: singleQty ?? 1 });
+        }
+      }
+
+      if (!allItems.length) {
+        window.open(CART_PAGE, "_blank", "noopener,noreferrer");
+        setIsCheckingOut(false);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/cart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: allItems,
+            ...(customer?.id ? { customerId: customer.id } : {}),
+          }),
+        });
+        const data: { cartId?: string; cartUrl?: string; itemAddUrls?: string[] } =
+          await res.json().catch(() => ({}));
+
+        if (data.cartId) {
+          // Carrito WS creado → abrir recovery URL (carga el carrito exacto en la sesión)
+          window.open(data.cartUrl || CART_PAGE, "_blank", "noopener,noreferrer");
+        } else if (data.itemAddUrls?.length) {
+          // Fallback: links individuales para añadir uno a uno
+          const fullItems = Array.from(cartMap.values());
+          if (singleProduct && !cartMap.has(singleProduct.id)) {
+            fullItems.push({ product: singleProduct, qty: singleQty ?? 1 });
+          }
+          setFallbackLinks(
+            fullItems.map((item, idx) => ({
+              name: `${item.product.name} × ${item.qty}`,
+              qty: item.qty,
+              url: data.itemAddUrls![idx] ?? CART_PAGE,
+            }))
+          );
+        } else {
+          window.open(CART_PAGE, "_blank", "noopener,noreferrer");
+        }
+      } catch {
+        window.open(CART_PAGE, "_blank", "noopener,noreferrer");
+      } finally {
+        setIsCheckingOut(false);
       }
     },
-    [cartMap]
+    [cartMap, customer]
   );
 
   const send = useCallback(async () => {
@@ -158,86 +212,81 @@ export default function ChatWidget({
           sessionId,
           history,
           ...(customerDiscount ? { customerDiscount } : {}),
+          ...(customer?.groupId ? { customerGroupId: customer.groupId } : {}),
           ...(cart.length > 0 ? { cart } : {}),
         }),
       });
-      const data: { output?: string; products?: Product[] } = await res
-        .json()
-        .catch(() => ({}));
+      const data: { output?: string; products?: Product[] } = await res.json().catch(() => ({}));
 
       setMessages((prev) => [
         ...prev,
         {
           id: uid(),
           role: "assistant",
-          content:
-            data.output ??
-            "Lo siento, no he podido procesar tu consulta. Inténtalo de nuevo.",
+          content: data.output ?? "Lo siento, no he podido procesar tu consulta. Inténtalo de nuevo.",
           products: data.products,
         },
       ]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        {
-          id: uid(),
-          role: "assistant",
-          content:
-            "Ha habido un problema de conexión. ¿Puedes intentarlo de nuevo?",
-        },
+        { id: uid(), role: "assistant", content: "Ha habido un problema de conexión. ¿Puedes intentarlo de nuevo?" },
       ]);
     } finally {
       setLoading(false);
     }
-  }, [input, loading, messages, sessionId, webhookUrl, customerDiscount, cartMap]);
+  }, [input, loading, messages, sessionId, webhookUrl, customerDiscount, customer, cartMap]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
   return (
     <div className="fixed bottom-4 right-4 z-[2147483000] flex flex-col items-end font-sans">
-      {/* Ventana de chat */}
       {open && (
         <div
-          className="mb-3 flex h-[580px] w-[400px] max-w-[calc(100vw-2rem)] origin-bottom-right animate-scale-in flex-col overflow-hidden rounded-2xl bg-gray-50 shadow-2xl ring-1 ring-black/5 max-[420px]:h-[80vh]"
+          className="mb-3 flex h-[600px] w-[400px] max-w-[calc(100vw-2rem)] origin-bottom-right animate-scale-in flex-col overflow-hidden rounded-2xl bg-gray-50 shadow-2xl ring-1 ring-black/5 max-[420px]:h-[80vh]"
           role="dialog"
           aria-label={`Chat con Carlos de ${companyName}`}
         >
           {/* Header */}
-          <div
-            className="flex items-center gap-3 px-4 py-3 text-white"
-            style={{ backgroundColor: primaryColor }}
-          >
+          <div className="flex items-center gap-3 px-4 py-3 text-white" style={{ backgroundColor: primaryColor }}>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/15 ring-2 ring-white/30">
-              {logoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={logoUrl} alt={companyName} className="h-8 w-8 object-contain" />
-              ) : (
-                <RealisticRobot size={34} onlyHead />
-              )}
+              {logoUrl
+                ? <img src={logoUrl} alt={companyName} className="h-8 w-8 object-contain" />
+                : <RealisticRobot size={34} onlyHead />
+              }
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">
-                Carlos · Asesor Técnico {companyName}
-              </p>
-              <p className="flex items-center gap-1.5 text-xs text-white/90">
+              <p className="truncate text-sm font-semibold">Carlos · Asesor Técnico {companyName}</p>
+              <div className="flex items-center gap-1.5 text-xs text-white/90">
                 <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-green-400" />
-                En línea
-              </p>
+                {customer
+                  ? <span>{customer.firstName} {customer.lastName} · B2B</span>
+                  : <span>En línea</span>
+                }
+              </div>
             </div>
 
-            {/* Badge del carrito en el header */}
-            {totalCartUnits > 0 && (
-              <div
-                title={`${totalCartUnits} uds en tu cesta`}
-                className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold"
+            {customer && (
+              <button
+                onClick={handleLogout}
+                title="Cerrar sesión B2B"
+                className="rounded-full px-2 py-1 text-[10px] font-semibold text-white/70 transition hover:bg-white/20"
               >
-                🛒 {totalCartUnits} uds
-              </div>
+                salir
+              </button>
+            )}
+
+            {totalCartUnits > 0 && (
+              <button
+                onClick={() => handleCheckout()}
+                disabled={isCheckingOut}
+                title="Tramitar pedido"
+                className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold transition hover:bg-white/30 disabled:opacity-60"
+              >
+                🛒 {totalCartUnits}
+              </button>
             )}
 
             <button
@@ -259,6 +308,7 @@ export default function ChatWidget({
                 message={m}
                 primaryColor={primaryColor}
                 onAddedToCart={handleAddedToCart}
+                onCheckout={handleCheckout}
               />
             ))}
 
@@ -266,16 +316,101 @@ export default function ChatWidget({
               <div className="flex justify-start">
                 <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-gray-100 bg-white px-4 py-3 shadow-sm">
                   {[0, 1, 2].map((i) => (
-                    <span
-                      key={i}
-                      className="h-2 w-2 animate-typing-bounce rounded-full bg-gray-400"
-                      style={{ animationDelay: `${i * 0.15}s` }}
-                    />
+                    <span key={i} className="h-2 w-2 animate-typing-bounce rounded-full bg-gray-400" style={{ animationDelay: `${i * 0.15}s` }} />
                   ))}
                 </div>
               </div>
             )}
           </div>
+
+          {/* Panel de carrito */}
+          {totalCartUnits > 0 && (
+            <div className="border-t border-green-100 bg-green-50 px-4 py-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-green-800">
+                    🛒 {totalCartUnits} artículo{totalCartUnits !== 1 ? "s" : ""} · {totalCartPrice.toFixed(2)} €
+                  </p>
+                  {totalCartPrice > 0 && totalCartPrice < SHIPPING_THRESHOLD && (
+                    <p className="text-[10px] text-amber-700">
+                      Añade {(SHIPPING_THRESHOLD - totalCartPrice).toFixed(2)} € más para envío gratis
+                    </p>
+                  )}
+                  {totalCartPrice >= SHIPPING_THRESHOLD && (
+                    <p className="text-[10px] text-green-700">✓ Envío gratuito disponible</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleCheckout()}
+                  disabled={isCheckingOut}
+                  className="ml-3 rounded-lg px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-60 flex-shrink-0"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {isCheckingOut ? "..." : "Tramitar →"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Fallback links cuando WS falla */}
+          {fallbackLinks && (
+            <div className="border-t border-amber-200 bg-amber-50 px-4 py-2.5">
+              <div className="mb-1.5 flex items-center justify-between">
+                <p className="text-xs font-semibold text-amber-800">
+                  ⚠️ Añade los artículos en b2b.esgas.es (debes estar conectado)
+                </p>
+                <button onClick={() => setFallbackLinks(null)} className="text-amber-600 text-sm leading-none">✕</button>
+              </div>
+              <div className="space-y-1">
+                {fallbackLinks.map((link, i) => (
+                  <a
+                    key={i}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-50 transition"
+                  >
+                    <span>{link.name}</span>
+                    <span className="text-amber-500 text-[10px]">Añadir →</span>
+                  </a>
+                ))}
+              </div>
+              <p className="mt-1 text-[9px] text-amber-600">Cada enlace añade el artículo a tu carrito</p>
+            </div>
+          )}
+
+          {/* Panel de identificación B2B */}
+          {!customer && (
+            <div className="border-t border-blue-100 bg-blue-50 px-4 py-2.5">
+              <p className="mb-1.5 text-[10px] font-semibold text-blue-800">
+                🔐 Identifícate para ver tus precios B2B y tramitar pedidos
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  placeholder="tu@email.com (el de b2b.esgas.es)"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleLogin(loginEmail); } }}
+                  disabled={loginLoading}
+                  className="flex-1 min-w-0 rounded-full border border-blue-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-400 disabled:opacity-50"
+                  style={{ fontSize: "11px" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => handleLogin(loginEmail)}
+                  disabled={loginLoading || !loginEmail.trim()}
+                  className="rounded-full px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-40 flex-shrink-0"
+                  style={{ backgroundColor: primaryColor, fontSize: "11px" }}
+                >
+                  {loginLoading ? "…" : "Entrar"}
+                </button>
+              </div>
+              {loginError && (
+                <p className="mt-1 text-[9px] text-red-600">{loginError}</p>
+              )}
+            </div>
+          )}
 
           {/* Input */}
           <div className="border-t border-gray-200 bg-white p-3">
@@ -298,8 +433,7 @@ export default function ChatWidget({
                 style={{ backgroundColor: primaryColor }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m22 2-7 20-4-9-9-4Z" />
-                  <path d="M22 2 11 13" />
+                  <path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" />
                 </svg>
               </button>
             </div>
@@ -322,13 +456,11 @@ export default function ChatWidget({
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>
         ) : logoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img src={logoUrl} alt={companyName} className="h-10 w-10 object-contain" />
         ) : (
           <RealisticRobot size={52} isPointing />
         )}
 
-        {/* Badge de unidades en el botón flotante (cuando está cerrado) */}
         {!open && totalCartUnits > 0 && (
           <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-white">
             {totalCartUnits > 99 ? "99+" : totalCartUnits}
