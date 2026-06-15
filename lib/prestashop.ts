@@ -435,9 +435,9 @@ export async function psCreateCart(
       return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
     }
 
-    // Recovery URL: usa la secure_key del cliente (que metimos en el XML del carrito)
+    // Recovery URL: carga el carrito en la sesión y muestra la página del carrito
     const cartUrl = customerSecureKey
-      ? `${STORE_URL}/index.php?controller=order&recover_cart=${cartId}&token_cart=${customerSecureKey}`
+      ? `${STORE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${customerSecureKey}`
       : CART_PAGE_URL;
 
     return { cartId, cartUrl, itemAddUrls };

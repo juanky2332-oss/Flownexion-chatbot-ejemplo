@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
   let cartContents: any = {};
   try { cartContents = JSON.parse(getBody); } catch { /* xml */ }
 
-  const recoveryUrl = `${BASE_URL}/index.php?controller=order&recover_cart=${cartId}&token_cart=${customer.secureKey}`;
+  const recoveryUrl = `${BASE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${customer.secureKey}`;
 
   return NextResponse.json({
     product: { id: product.id, name: product.name, idProductAttribute },
