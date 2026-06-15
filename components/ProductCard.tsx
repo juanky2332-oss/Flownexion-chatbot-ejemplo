@@ -17,18 +17,14 @@ export default function ProductCard({
   onCheckout,
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
-  const [addedFeedback, setAddedFeedback] = useState(false);
 
   const showStock = product.stock !== undefined;
   const hasStock = showStock && product.stock! > 0;
 
   const changeQty = (delta: number) => setQty((prev) => Math.max(1, prev + delta));
 
-  const handleAddToCart = () => {
-    onAddedToCart?.(product, qty);
-    setAddedFeedback(true);
-    setTimeout(() => setAddedFeedback(false), 1800);
-  };
+  // URL real de PS para añadir este producto con la cantidad seleccionada
+  const cartUrl = product.cartLink.replace(/qty=\d+/, `qty=${qty}`);
 
   const handleCheckout = () => {
     onAddedToCart?.(product, qty);
@@ -144,14 +140,19 @@ export default function ProductCard({
           🔗 Ficha técnica
         </a>
 
-        <button
-          onClick={handleAddToCart}
+        {/* Abre la URL real de PS → añade al carrito de la tienda */}
+        <a
+          href={cartUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => onAddedToCart?.(product, qty)}
           className="rounded-lg border px-2.5 py-1.5 text-xs font-medium transition hover:bg-gray-50"
-          style={{ color: addedFeedback ? "#16a34a" : primaryColor, borderColor: addedFeedback ? "#16a34a" : primaryColor }}
+          style={{ color: primaryColor, borderColor: primaryColor }}
         >
-          {addedFeedback ? "✓ Añadido" : `🛒 Añadir ${qty > 1 ? `${qty} uds` : "al carrito"}`}
-        </button>
+          🛒 Añadir {qty > 1 ? `${qty} uds` : "al carrito"}
+        </a>
 
+        {/* Crea carrito WS → abre recovery URL con todos los artículos para pagar */}
         <button
           onClick={handleCheckout}
           className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-white transition hover:opacity-90"
