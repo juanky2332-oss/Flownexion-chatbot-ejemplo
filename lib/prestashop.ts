@@ -18,8 +18,6 @@ const STORE_URL = (BASE_URL || "https://b2b.esgas.es").replace(/\/+$/, "");
 const CHECKOUT_URL = `${STORE_URL}/index.php?controller=order`;
 const CART_PAGE_URL = `${STORE_URL}/carrito?action=show`;
 
-// back param: tras añadir al carrito, PS redirige a la página del carrito (no al homepage)
-const CART_BACK = encodeURIComponent("/carrito?action=show");
 
 function demoLinks(reference: string) {
   const ref = encodeURIComponent(reference);
@@ -109,8 +107,7 @@ function plainText(field: unknown): string {
 function buildLinks(id: number) {
   return {
     link: `${STORE_URL}/index.php?controller=product&id_product=${id}`,
-    // back param makes PS redirect to cart page (not homepage) after adding
-    cartLink: `${STORE_URL}/index.php?controller=cart&add=1&id_product=${id}&id_product_attribute=0&qty=1&action=add&back=${CART_BACK}`,
+    cartLink: `${STORE_URL}/index.php?controller=cart&add=1&id_product=${id}&id_product_attribute=0&qty=1&action=add`,
     checkoutLink: CHECKOUT_URL,
   };
 }
@@ -342,13 +339,20 @@ export interface CartResult {
   itemAddUrls: string[];
 }
 
+/** Extrae un campo de texto de una respuesta XML de PS WS (con o sin CDATA) */
+function xmlField(xml: string, tag: string): string {
+  const re = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, "i");
+  return xml.match(re)?.[1]?.trim() ?? "";
+}
+
 export async function psCreateCart(
   items: { productId: number; qty: number }[],
   customerId?: number
 ): Promise<CartResult> {
+  // Links de fallback: URL directa de PS para añadir uno a uno (si el WS falla)
   const itemAddUrls = items.map(
     (i) =>
-      `${STORE_URL}/index.php?controller=cart&add=1&id_product=${i.productId}&id_product_attribute=0&qty=${i.qty}&action=add&back=${CART_BACK}`
+      `${STORE_URL}/index.php?controller=cart&add=1&id_product=${i.productId}&id_product_attribute=0&qty=${i.qty}&action=add`
   );
 
   if (DEMO_MODE || !items.length) {
@@ -358,29 +362,27 @@ export async function psCreateCart(
   try {
     const rows = items
       .map(
-        (i) => `
-        <cart_row>
-          <id_product>${i.productId}</id_product>
-          <id_product_attribute>0</id_product_attribute>
-          <id_address_delivery>0</id_address_delivery>
-          <quantity>${i.qty}</quantity>
-        </cart_row>`
+        (i) =>
+          `<cart_row>` +
+          `<id_product>${i.productId}</id_product>` +
+          `<id_product_attribute>0</id_product_attribute>` +
+          `<quantity>${i.qty}</quantity>` +
+          `</cart_row>`
       )
       .join("");
 
     const customerXml = customerId ? `<id_customer>${customerId}</id_customer>` : "";
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
-  <cart>
-    <id_currency>1</id_currency>
-    <id_lang>1</id_lang>
-    ${customerXml}
-    <associations>
-      <cart_rows>${rows}</cart_rows>
-    </associations>
-  </cart>
-</prestashop>`;
+    const xml =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">` +
+      `<cart>` +
+      `<id_currency>1</id_currency>` +
+      `<id_lang>1</id_lang>` +
+      customerXml +
+      `<associations><cart_rows>${rows}</cart_rows></associations>` +
+      `</cart>` +
+      `</prestashop>`;
 
     const postUrl = buildUrl("carts");
     const res = await fetch(postUrl, {
@@ -389,21 +391,51 @@ export async function psCreateCart(
       body: xml,
     });
 
-    if (!res.ok) return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+    // Leer cuerpo como texto (PS puede devolver XML o JSON según versión)
+    const body = await res.text().catch(() => "");
 
-    const data = await res.json().catch(() => ({}));
-    const cartId = String(data?.cart?.id ?? "");
-    const secureKey: string = data?.cart?.secure_key ?? "";
+    if (!res.ok) {
+      console.error("[psCreateCart] PS WS error", res.status, body.slice(0, 400));
+      return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+    }
 
-    if (!cartId) return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+    let cartId = "";
+    let secureKey = "";
 
-    // recovery URL carga este carrito exacto en la sesión del cliente
+    // Intentar JSON primero
+    if (body.trimStart().startsWith("{")) {
+      try {
+        const json = JSON.parse(body);
+        cartId = String(json?.cart?.id ?? "");
+        secureKey = String(json?.cart?.secure_key ?? "");
+      } catch { /* ignorar */ }
+    }
+
+    // Si no salió JSON, parsear XML con regex
+    if (!cartId) {
+      cartId = xmlField(body, "id");
+      secureKey = xmlField(body, "secure_key");
+    }
+
+    // Último recurso: header Location devuelto por PS en el 201
+    if (!cartId) {
+      const loc = res.headers.get("location") ?? "";
+      cartId = loc.match(/\/carts\/(\d+)/)?.[1] ?? "";
+    }
+
+    if (!cartId) {
+      console.error("[psCreateCart] No se pudo extraer cart ID. Body:", body.slice(0, 400));
+      return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+    }
+
+    // Recovery URL: carga este carrito exacto en la sesión del navegador
     const cartUrl = secureKey
       ? `${STORE_URL}/index.php?controller=order&recover_cart=${cartId}&token_cart=${secureKey}`
       : CART_PAGE_URL;
 
     return { cartId, cartUrl, itemAddUrls };
-  } catch {
+  } catch (err) {
+    console.error("[psCreateCart] Exception:", err);
     return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
   }
 }

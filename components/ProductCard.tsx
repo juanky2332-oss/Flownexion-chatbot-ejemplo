@@ -17,28 +17,18 @@ export default function ProductCard({
   onCheckout,
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
-
-  const showStock = product.stock !== undefined;
-  const hasStock = showStock && product.stock! > 0;
+  const [added, setAdded] = useState(false);
 
   const changeQty = (delta: number) => setQty((prev) => Math.max(1, prev + delta));
 
-  // URL real de PS para añadir este producto con la cantidad seleccionada
+  // URL real de PS con la cantidad seleccionada
   const cartUrl = product.cartLink.replace(/qty=\d+/, `qty=${qty}`);
 
-  const handleCheckout = () => {
-    onAddedToCart?.(product, qty);
-    onCheckout?.(product, qty);
-  };
-
   const hasDiscount = product.discountPct != null && product.discountPct > 0;
-  const discountLabel = hasDiscount
-    ? `-${Math.round(product.discountPct! * 100)}%`
-    : null;
 
   return (
     <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-      {/* Cabecera: nombre + precio */}
+      {/* Nombre + precio */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-gray-900">
@@ -54,7 +44,7 @@ export default function ProductCard({
           )}
         </div>
 
-        {/* Precio con descuento B2B */}
+        {/* Precio — con o sin descuento B2B */}
         <div className="flex shrink-0 flex-col items-end gap-0.5">
           {hasDiscount && product.originalPrice ? (
             <>
@@ -62,11 +52,8 @@ export default function ProductCard({
                 {product.originalPrice.toFixed(2)} €
               </span>
               <div className="flex items-center gap-1">
-                <span
-                  className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white"
-                  style={{ backgroundColor: "#16a34a" }}
-                >
-                  {discountLabel}
+                <span className="rounded-full bg-green-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  -{Math.round(product.discountPct! * 100)}%
                 </span>
                 <span
                   className="rounded-full px-2.5 py-0.5 text-xs font-bold text-white"
@@ -88,13 +75,15 @@ export default function ProductCard({
       </div>
 
       {/* Stock */}
-      {showStock && (
+      {product.stock !== undefined && (
         <div className="mt-1.5 flex items-center gap-1.5 text-xs">
           <span
-            className={`inline-block h-2 w-2 rounded-full ${hasStock ? "bg-green-500" : "bg-red-500"}`}
+            className={`inline-block h-2 w-2 rounded-full ${
+              product.stock > 0 ? "bg-green-500" : "bg-red-400"
+            }`}
           />
-          <span className={hasStock ? "text-green-700" : "text-red-600"}>
-            {hasStock ? `${product.stock} uds en stock` : "Sin stock"}
+          <span className={product.stock > 0 ? "text-green-700" : "text-red-600"}>
+            {product.stock > 0 ? `${product.stock} uds en stock` : "Sin stock inmediato"}
           </span>
         </div>
       )}
@@ -105,8 +94,7 @@ export default function ProductCard({
         <div className="flex items-center overflow-hidden rounded-lg border border-gray-300">
           <button
             onClick={() => changeQty(-1)}
-            className="flex h-7 w-7 items-center justify-center text-sm font-bold text-gray-600 transition hover:bg-gray-100"
-            aria-label="Reducir cantidad"
+            className="flex h-7 w-7 items-center justify-center text-sm font-bold text-gray-600 hover:bg-gray-100"
           >
             −
           </button>
@@ -116,46 +104,56 @@ export default function ProductCard({
             value={qty}
             onChange={(e) => setQty(Math.max(1, parseInt(e.target.value) || 1))}
             className="w-11 border-x border-gray-300 py-0.5 text-center text-sm font-semibold outline-none"
-            aria-label="Cantidad"
           />
           <button
             onClick={() => changeQty(1)}
-            className="flex h-7 w-7 items-center justify-center text-sm font-bold text-gray-600 transition hover:bg-gray-100"
-            aria-label="Aumentar cantidad"
+            className="flex h-7 w-7 items-center justify-center text-sm font-bold text-gray-600 hover:bg-gray-100"
           >
             +
           </button>
         </div>
       </div>
 
-      {/* Botones de acción */}
+      {/* Botones */}
       <div className="mt-3 flex flex-wrap gap-2">
+        {/* Ficha técnica */}
         <a
           href={product.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-lg border px-2.5 py-1.5 text-xs font-medium transition hover:bg-gray-50"
+          className="rounded-lg border px-2.5 py-1.5 text-xs font-medium hover:bg-gray-50 transition"
           style={{ color: primaryColor, borderColor: primaryColor }}
         >
-          🔗 Ficha técnica
+          🔗 Ficha
         </a>
 
-        {/* Abre la URL real de PS → añade al carrito de la tienda */}
+        {/* Añadir al carrito: abre URL real de PS con qty correcto */}
         <a
           href={cartUrl}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={() => onAddedToCart?.(product, qty)}
-          className="rounded-lg border px-2.5 py-1.5 text-xs font-medium transition hover:bg-gray-50"
-          style={{ color: primaryColor, borderColor: primaryColor }}
+          onClick={() => {
+            onAddedToCart?.(product, qty);
+            setAdded(true);
+            setTimeout(() => setAdded(false), 2000);
+          }}
+          className="rounded-lg border px-2.5 py-1.5 text-xs font-medium transition"
+          style={
+            added
+              ? { color: "#16a34a", borderColor: "#16a34a" }
+              : { color: primaryColor, borderColor: primaryColor }
+          }
         >
-          🛒 Añadir {qty > 1 ? `${qty} uds` : "al carrito"}
+          {added ? "✓ Añadido" : `🛒 Añadir ${qty > 1 ? `${qty} uds` : "al carrito"}`}
         </a>
 
-        {/* Crea carrito WS → abre recovery URL con todos los artículos para pagar */}
+        {/* Tramitar pedido: crea carrito WS con todo lo del chat + este producto */}
         <button
-          onClick={handleCheckout}
-          className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-white transition hover:opacity-90"
+          onClick={() => {
+            onAddedToCart?.(product, qty);
+            onCheckout?.(product, qty);
+          }}
+          className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
           style={{ backgroundColor: primaryColor }}
         >
           💳 Tramitar pedido
