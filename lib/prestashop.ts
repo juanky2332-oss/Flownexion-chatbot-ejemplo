@@ -389,7 +389,8 @@ export async function psCreateCart(
       `</cart>` +
       `</prestashop>`;
 
-    const postUrl = buildUrl("carts");
+    // display=full en POST causa error en PS — construir URL sin ese parámetro
+    const postUrl = `${BASE_URL}/api/carts?ws_key=${API_KEY}&output_format=JSON`;
     const res = await fetch(postUrl, {
       method: "POST",
       headers: { ...PS_HEADERS, "Content-Type": "application/xml" },
