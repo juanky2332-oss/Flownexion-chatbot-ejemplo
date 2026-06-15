@@ -12,10 +12,15 @@ export interface ChatWidgetProps {
   companyName?: string;
   startOpen?: boolean;
   customerDiscount?: number;
+  /** Email del cliente ya autenticado. En producción viene de la sesión del portal B2B. */
+  customerEmail?: string;
 }
 
 const WELCOME =
   "¡Hola! 👋 Soy **Carlos**, tu asesor técnico de ESGAS, distribuidor oficial **NTN/SNR**.\n\nDime qué rodamiento o suministro necesitas y te ayudo a encontrarlo al mejor precio. ¿En qué estás trabajando?";
+
+// Email de prueba — sustituir por la sesión real del portal B2B cuando esté integrado
+const TEST_CUSTOMER_EMAIL = "juancarlos@flownexion.com";
 
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
 const SHIPPING_THRESHOLD = 80;
@@ -32,6 +37,7 @@ export default function ChatWidget({
   companyName = "ESGAS",
   startOpen = false,
   customerDiscount,
+  customerEmail = TEST_CUSTOMER_EMAIL,
 }: ChatWidgetProps) {
   const [open, setOpen] = useState(startOpen);
   const [sessionId, setSessionId] = useState("");
@@ -44,20 +50,35 @@ export default function ChatWidget({
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [fallbackLinks, setFallbackLinks] = useState<{ name: string; qty: number; url: string }[] | null>(null);
 
-  // Customer identification
-  const [customer, setCustomer] = useState<PSCustomer | null>(() => {
-    if (typeof window === "undefined") return null;
-    try { return JSON.parse(localStorage.getItem("esgas-customer") ?? "null"); }
-    catch { return null; }
-  });
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [loginError, setLoginError] = useState("");
+  // Cliente B2B — se carga automáticamente al montar el componente
+  const [customer, setCustomer] = useState<PSCustomer | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setSessionId(uid()); }, []);
+
+  // Identifica al cliente automáticamente usando el email del portal
+  useEffect(() => {
+    if (!customerEmail) return;
+    const cached = (() => {
+      try { return JSON.parse(localStorage.getItem("esgas-customer") ?? "null") as PSCustomer | null; }
+      catch { return null; }
+    })();
+    if (cached?.email?.toLowerCase() === customerEmail.toLowerCase()) {
+      setCustomer(cached);
+      return;
+    }
+    fetch(`/api/customer?email=${encodeURIComponent(customerEmail)}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: PSCustomer | null) => {
+        if (data?.id) {
+          setCustomer(data);
+          localStorage.setItem("esgas-customer", JSON.stringify(data));
+        }
+      })
+      .catch(() => {});
+  }, [customerEmail]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -74,45 +95,6 @@ export default function ChatWidget({
   const totalCartPrice = Array.from(cartMap.values()).reduce(
     (s, i) => s + i.product.price * i.qty, 0
   );
-
-  const handleLogin = useCallback(async (email: string) => {
-    const trimmed = email.trim();
-    if (!trimmed) return;
-    setLoginLoading(true);
-    setLoginError("");
-    try {
-      const res = await fetch(`/api/customer?email=${encodeURIComponent(trimmed)}`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setLoginError(data?.error ?? "Email no encontrado");
-        return;
-      }
-      const data: PSCustomer = await res.json();
-      setCustomer(data);
-      localStorage.setItem("esgas-customer", JSON.stringify(data));
-      setLoginEmail("");
-      setLoginError("");
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: uid(),
-          role: "assistant",
-          content: `✅ ¡Hola, **${data.firstName}**! Te he identificado como cliente B2B de ESGAS.\n\nAhora veré tus **precios con descuento** y podré tramitar el pedido directamente en tu cuenta. ¿Qué necesitas?`,
-        },
-      ]);
-    } catch {
-      setLoginError("Error de conexión. Inténtalo de nuevo.");
-    } finally {
-      setLoginLoading(false);
-    }
-  }, []);
-
-  const handleLogout = useCallback(() => {
-    setCustomer(null);
-    localStorage.removeItem("esgas-customer");
-    setCartMap(new Map());
-    setFallbackLinks(null);
-  }, []);
 
   const handleAddedToCart = useCallback(
     (product: Product, qty: number) => {
@@ -135,10 +117,8 @@ export default function ChatWidget({
         qty: i.qty,
       }));
 
-      if (singleProduct) {
-        if (!cartMap.has(singleProduct.id)) {
-          allItems.push({ productId: singleProduct.id, qty: singleQty ?? 1 });
-        }
+      if (singleProduct && !cartMap.has(singleProduct.id)) {
+        allItems.push({ productId: singleProduct.id, qty: singleQty ?? 1 });
       }
 
       if (!allItems.length) {
@@ -160,10 +140,8 @@ export default function ChatWidget({
           await res.json().catch(() => ({}));
 
         if (data.cartId) {
-          // Carrito WS creado → abrir recovery URL (carga el carrito exacto en la sesión)
           window.open(data.cartUrl || CART_PAGE, "_blank", "noopener,noreferrer");
         } else if (data.itemAddUrls?.length) {
-          // Fallback: links individuales para añadir uno a uno
           const fullItems = Array.from(cartMap.values());
           if (singleProduct && !cartMap.has(singleProduct.id)) {
             fullItems.push({ product: singleProduct, qty: singleQty ?? 1 });
@@ -268,16 +246,6 @@ export default function ChatWidget({
               </div>
             </div>
 
-            {customer && (
-              <button
-                onClick={handleLogout}
-                title="Cerrar sesión B2B"
-                className="rounded-full px-2 py-1 text-[10px] font-semibold text-white/70 transition hover:bg-white/20"
-              >
-                salir
-              </button>
-            )}
-
             {totalCartUnits > 0 && (
               <button
                 onClick={() => handleCheckout()}
@@ -376,39 +344,6 @@ export default function ChatWidget({
                 ))}
               </div>
               <p className="mt-1 text-[9px] text-amber-600">Cada enlace añade el artículo a tu carrito</p>
-            </div>
-          )}
-
-          {/* Panel de identificación B2B */}
-          {!customer && (
-            <div className="border-t border-blue-100 bg-blue-50 px-4 py-2.5">
-              <p className="mb-1.5 text-[10px] font-semibold text-blue-800">
-                🔐 Identifícate para ver tus precios B2B y tramitar pedidos
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  placeholder="tu@email.com (el de b2b.esgas.es)"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleLogin(loginEmail); } }}
-                  disabled={loginLoading}
-                  className="flex-1 min-w-0 rounded-full border border-blue-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-blue-400 disabled:opacity-50"
-                  style={{ fontSize: "11px" }}
-                />
-                <button
-                  type="button"
-                  onClick={() => handleLogin(loginEmail)}
-                  disabled={loginLoading || !loginEmail.trim()}
-                  className="rounded-full px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-40 flex-shrink-0"
-                  style={{ backgroundColor: primaryColor, fontSize: "11px" }}
-                >
-                  {loginLoading ? "…" : "Entrar"}
-                </button>
-              </div>
-              {loginError && (
-                <p className="mt-1 text-[9px] text-red-600">{loginError}</p>
-              )}
             </div>
           )}
 
