@@ -428,6 +428,18 @@ export async function psCreateCart(
       return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
     }
 
+    // El POST no devuelve secure_key → hacer GET para obtenerla
+    if (!secureKey) {
+      try {
+        const getUrl = buildUrl(`carts/${cartId}`, { display: "[id,secure_key]" });
+        const getRes = await fetch(getUrl, { headers: PS_HEADERS, cache: "no-store" });
+        if (getRes.ok) {
+          const getData = await getRes.json().catch(() => ({}));
+          secureKey = String(getData?.cart?.secure_key ?? "");
+        }
+      } catch { /* si falla el GET, seguimos sin secure_key */ }
+    }
+
     // Recovery URL: carga este carrito exacto en la sesión del navegador
     const cartUrl = secureKey
       ? `${STORE_URL}/index.php?controller=order&recover_cart=${cartId}&token_cart=${secureKey}`
