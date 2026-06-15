@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   const headers = corsHeaders(req);
 
   let body: {
-    items?: { productId: number; qty: number }[];
+    items?: { productId: number; qty: number; idProductAttribute?: number }[];
     customerId?: number;
     customerSecureKey?: string;
   };

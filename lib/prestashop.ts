@@ -104,10 +104,12 @@ function plainText(field: unknown): string {
   return "";
 }
 
-function buildLinks(id: number) {
+function buildLinks(id: number, idProductAttribute = 0) {
+  const back = encodeURIComponent("/carrito");
   return {
     link: `${STORE_URL}/index.php?controller=product&id_product=${id}`,
-    cartLink: `${STORE_URL}/index.php?controller=cart&add=1&id_product=${id}&id_product_attribute=0&qty=1&action=add`,
+    // back param: tras añadir, PS redirige al carrito (no al homepage)
+    cartLink: `${STORE_URL}/index.php?controller=cart&add=1&id_product=${id}&id_product_attribute=${idProductAttribute}&qty=1&action=add&back=${back}`,
     checkoutLink: CHECKOUT_URL,
   };
 }
@@ -115,13 +117,17 @@ function buildLinks(id: number) {
 function normalizeProduct(raw: any, basePrice?: number): Product {
   const id = Number(raw?.id ?? 0);
   const price = basePrice ?? (Number.parseFloat(raw?.price ?? "0") || 0);
+  // Primera combinación activa (0 = producto simple sin variantes)
+  const combinations: Array<{ id: string | number }> = raw?.associations?.combinations ?? [];
+  const idProductAttribute = combinations.length > 0 ? Number(combinations[0].id) : 0;
   return {
     id,
     name: plainText(raw?.name) || `Producto ${id}`,
     reference: plainText(raw?.reference) || plainText(raw?.name),
     price: Math.round(price * 100) / 100,
     description: plainText(raw?.description_short).replace(/<[^>]*>/g, "").trim(),
-    ...buildLinks(id),
+    idProductAttribute,
+    ...buildLinks(id, idProductAttribute),
   };
 }
 
@@ -347,14 +353,15 @@ function xmlField(xml: string, tag: string): string {
 }
 
 export async function psCreateCart(
-  items: { productId: number; qty: number }[],
+  items: { productId: number; qty: number; idProductAttribute?: number }[],
   customerId?: number,
   customerSecureKey?: string
 ): Promise<CartResult> {
+  const back = encodeURIComponent("/carrito");
   // Fallback: URLs directas de PS para añadir uno a uno
   const itemAddUrls = items.map(
     (i) =>
-      `${STORE_URL}/index.php?controller=cart&add=1&id_product=${i.productId}&id_product_attribute=0&qty=${i.qty}&action=add`
+      `${STORE_URL}/index.php?controller=cart&add=1&id_product=${i.productId}&id_product_attribute=${i.idProductAttribute ?? 0}&qty=${i.qty}&action=add&back=${back}`
   );
 
   if (DEMO_MODE || !items.length) {
@@ -367,7 +374,7 @@ export async function psCreateCart(
         (i) =>
           `<cart_row>` +
           `<id_product>${i.productId}</id_product>` +
-          `<id_product_attribute>0</id_product_attribute>` +
+          `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
           `<quantity>${i.qty}</quantity>` +
           `</cart_row>`
       )

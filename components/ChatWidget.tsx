@@ -115,10 +115,15 @@ export default function ChatWidget({
       const allItems = Array.from(cartMap.values()).map((i) => ({
         productId: i.product.id,
         qty: i.qty,
+        idProductAttribute: i.product.idProductAttribute ?? 0,
       }));
 
       if (singleProduct && !cartMap.has(singleProduct.id)) {
-        allItems.push({ productId: singleProduct.id, qty: singleQty ?? 1 });
+        allItems.push({
+          productId: singleProduct.id,
+          qty: singleQty ?? 1,
+          idProductAttribute: singleProduct.idProductAttribute ?? 0,
+        });
       }
 
       if (!allItems.length) {

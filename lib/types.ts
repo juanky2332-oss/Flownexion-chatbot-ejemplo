@@ -20,8 +20,10 @@ export interface Product {
   description?: string;
   /** URL de la ficha del producto en la tienda. */
   link: string;
-  /** URL para añadir el producto al carrito (base qty=1, back=/carrito). */
+  /** URL para añadir el producto al carrito (base qty=1). */
   cartLink: string;
+  /** ID de la combinación por defecto (0 para productos simples sin variantes). */
+  idProductAttribute?: number;
   /** URL del proceso de pago. */
   checkoutLink: string;
   imageUrl?: string;
