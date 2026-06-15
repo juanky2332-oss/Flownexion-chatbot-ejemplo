@@ -1,9 +1,9 @@
 /**
  * GET /api/debug-cart
- * Prueba end-to-end: busca cliente, crea carrito con secure_key, devuelve recovery URL.
+ * Busca el primer producto real del catálogo, crea carrito y devuelve recovery URL.
  */
 import { NextResponse } from "next/server";
-import { psGetCustomer, psCreateCart } from "@/lib/prestashop";
+import { psGetCustomer, psCreateCart, searchProducts } from "@/lib/prestashop";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,24 +12,33 @@ const TEST_EMAIL = "juancarlos@flownexion.com";
 
 export async function GET() {
   try {
+    // 1. Cliente
     const customer = await psGetCustomer(TEST_EMAIL);
     if (!customer) {
       return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
     }
 
-    // Usar id_product=1 con qty=3 como prueba
+    // 2. Buscar un producto real del catálogo
+    const products = await searchProducts("rodamiento", customer.groupId);
+    const product = products[0];
+    if (!product) {
+      return NextResponse.json({ error: "No se encontraron productos en el catálogo" }, { status: 404 });
+    }
+
+    // 3. Crear carrito con ese producto real, qty=2
     const result = await psCreateCart(
-      [{ productId: 1, qty: 3 }],
+      [{ productId: product.id, qty: 2 }],
       customer.id,
       customer.secureKey
     );
 
     return NextResponse.json({
       ok: !!result.cartId && !!customer.secureKey,
-      customer: { id: customer.id, name: customer.firstName, secureKey: customer.secureKey },
+      product: { id: product.id, name: product.name, ref: product.reference },
+      customer: { id: customer.id, name: customer.firstName },
       cartId: result.cartId,
       recoveryUrl: result.cartUrl,
-      fallbackUrls: result.itemAddUrls,
+      instruction: "Abre la recoveryUrl estando logueado en b2b.esgas.es",
     });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
