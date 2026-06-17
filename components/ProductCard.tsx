@@ -22,10 +22,10 @@ export default function ProductCard({
   const hasDiscount = product.discountPct != null && product.discountPct > 0;
 
   const handleAdd = () => {
+    if (adding) return; // evita doble clic
     setAdding(true);
     onCheckout?.(product, qty);
-    // El estado "adding" se resetea cuando el padre navega (iframe) o abre nueva pestaña
-    setTimeout(() => setAdding(false), 3000);
+    setTimeout(() => setAdding(false), 1500);
   };
 
   return (
@@ -129,7 +129,7 @@ export default function ProductCard({
           🔗 Ficha
         </a>
 
-        {/* Añadir al carrito → añade a PS y va al carrito */}
+        {/* Añadir al carrito */}
         <button
           onClick={handleAdd}
           disabled={adding}
