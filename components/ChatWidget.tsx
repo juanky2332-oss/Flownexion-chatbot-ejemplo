@@ -19,6 +19,7 @@ export interface ChatWidgetProps {
 const WELCOME =
   "¡Hola! 👋 Soy **Carlos**, tu asesor técnico de ESGAS, distribuidor oficial **NTN/SNR**.\n\nDime qué rodamiento o suministro necesitas y te ayudo a encontrarlo al mejor precio. ¿En qué estás trabajando?";
 
+const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
 const SHIPPING_THRESHOLD = 80;
 
@@ -51,15 +52,27 @@ export default function ChatWidget({
   const [resolvedEmail, setResolvedEmail] = useState<string | undefined>(customerEmail);
   // Cliente B2B cargado desde PrestaShop
   const [customer, setCustomer] = useState<PSCustomer | null>(null);
+  // Tras 400ms esperando postMessage, si no hay email → bloqueado
+  const [authChecked, setAuthChecked] = useState(!!customerEmail);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setSessionId(uid()); }, []);
 
+  // Espera hasta 400ms para que llegue un postMessage antes de mostrar pantalla bloqueada
+  useEffect(() => {
+    if (customerEmail) return;
+    const t = setTimeout(() => setAuthChecked(true), 400);
+    return () => clearTimeout(t);
+  }, [customerEmail]);
+
   // Sincroniza si la prop cambia (embed con URL param)
   useEffect(() => {
-    if (customerEmail) setResolvedEmail(customerEmail);
+    if (customerEmail) {
+      setResolvedEmail(customerEmail);
+      setAuthChecked(true);
+    }
   }, [customerEmail]);
 
   // Escucha el email inyectado por PrestaShop via postMessage cuando el widget está en un iframe
@@ -71,6 +84,7 @@ export default function ChatWidget({
         event.data.email.includes("@")
       ) {
         setResolvedEmail(event.data.email);
+        setAuthChecked(true);
       }
     };
     window.addEventListener("message", handler);
@@ -80,7 +94,6 @@ export default function ChatWidget({
   // Identifica al cliente automáticamente en cuanto se conoce el email
   useEffect(() => {
     if (!resolvedEmail) return;
-    // Usar caché local para no llamar a la API en cada apertura
     const cached = (() => {
       try { return JSON.parse(localStorage.getItem("esgas-customer") ?? "null") as PSCustomer | null; }
       catch { return null; }
@@ -89,7 +102,6 @@ export default function ChatWidget({
       setCustomer(cached);
       return;
     }
-    // Email distinto al caché: limpiar y cargar el nuevo cliente
     setCustomer(null);
     localStorage.removeItem("esgas-customer");
     fetch(`/api/customer?email=${encodeURIComponent(resolvedEmail)}`)
@@ -113,6 +125,8 @@ export default function ChatWidget({
     if (typeof window === "undefined" || window.parent === window) return;
     window.parent.postMessage({ type: "esgas-chat", open }, "*");
   }, [open]);
+
+  const isLocked = authChecked && !resolvedEmail;
 
   const totalCartUnits = Array.from(cartMap.values()).reduce((s, i) => s + i.qty, 0);
   const totalCartPrice = Array.from(cartMap.values()).reduce(
@@ -196,7 +210,7 @@ export default function ChatWidget({
 
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || loading) return;
+    if (!text || loading || isLocked) return;
 
     const userMsg: ChatMessage = { id: uid(), role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
@@ -242,7 +256,7 @@ export default function ChatWidget({
     } finally {
       setLoading(false);
     }
-  }, [input, loading, messages, sessionId, webhookUrl, customerDiscount, customer, cartMap]);
+  }, [input, loading, isLocked, messages, sessionId, webhookUrl, customerDiscount, customer, cartMap]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -267,15 +281,17 @@ export default function ChatWidget({
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold">Carlos · Asesor Técnico {companyName}</p>
               <div className="flex items-center gap-1.5 text-xs text-white/90">
-                <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-green-400" />
+                <span className={`inline-block h-2 w-2 rounded-full ${isLocked ? "bg-red-400" : "animate-pulse bg-green-400"}`} />
                 {customer
                   ? <span>{customer.firstName} {customer.lastName} · B2B</span>
-                  : <span>En línea</span>
+                  : isLocked
+                    ? <span>Acceso restringido</span>
+                    : <span>Identificando…</span>
                 }
               </div>
             </div>
 
-            {totalCartUnits > 0 && (
+            {!isLocked && totalCartUnits > 0 && (
               <button
                 onClick={() => handleCheckout()}
                 disabled={isCheckingOut}
@@ -297,114 +313,140 @@ export default function ChatWidget({
             </button>
           </div>
 
-          {/* Mensajes */}
-          <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
-            {messages.map((m) => (
-              <ChatBubble
-                key={m.id}
-                message={m}
-                primaryColor={primaryColor}
-                onAddedToCart={handleAddedToCart}
-                onCheckout={handleCheckout}
-              />
-            ))}
-
-            {loading && (
-              <div className="flex justify-start">
-                <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-gray-100 bg-white px-4 py-3 shadow-sm">
-                  {[0, 1, 2].map((i) => (
-                    <span key={i} className="h-2 w-2 animate-typing-bounce rounded-full bg-gray-400" style={{ animationDelay: `${i * 0.15}s` }} />
-                  ))}
-                </div>
+          {/* Pantalla de acceso bloqueado */}
+          {isLocked ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-5 px-8 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-3xl">
+                🔒
               </div>
-            )}
-          </div>
-
-          {/* Panel de carrito */}
-          {totalCartUnits > 0 && (
-            <div className="border-t border-green-100 bg-green-50 px-4 py-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold text-green-800">
-                    🛒 {totalCartUnits} artículo{totalCartUnits !== 1 ? "s" : ""} · {totalCartPrice.toFixed(2)} €
-                  </p>
-                  {totalCartPrice > 0 && totalCartPrice < SHIPPING_THRESHOLD && (
-                    <p className="text-[10px] text-amber-700">
-                      Añade {(SHIPPING_THRESHOLD - totalCartPrice).toFixed(2)} € más para envío gratis
-                    </p>
-                  )}
-                  {totalCartPrice >= SHIPPING_THRESHOLD && (
-                    <p className="text-[10px] text-green-700">✓ Envío gratuito disponible</p>
-                  )}
-                </div>
-                <button
-                  onClick={() => handleCheckout()}
-                  disabled={isCheckingOut}
-                  className="ml-3 rounded-lg px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-60 flex-shrink-0"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  {isCheckingOut ? "..." : "Tramitar →"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Fallback links cuando WS falla */}
-          {fallbackLinks && (
-            <div className="border-t border-amber-200 bg-amber-50 px-4 py-2.5">
-              <div className="mb-1.5 flex items-center justify-between">
-                <p className="text-xs font-semibold text-amber-800">
-                  ⚠️ Añade los artículos en b2b.esgas.es (debes estar conectado)
+              <div>
+                <p className="font-semibold text-gray-800">Acceso exclusivo para clientes B2B</p>
+                <p className="mt-1.5 text-sm text-gray-500">
+                  Debes iniciar sesión en el portal para acceder al asistente técnico y ver tus precios personalizados.
                 </p>
-                <button onClick={() => setFallbackLinks(null)} className="text-amber-600 text-sm leading-none">✕</button>
               </div>
-              <div className="space-y-1">
-                {fallbackLinks.map((link, i) => (
-                  <a
-                    key={i}
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-between rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-50 transition"
-                  >
-                    <span>{link.name}</span>
-                    <span className="text-amber-500 text-[10px]">Añadir →</span>
-                  </a>
-                ))}
-              </div>
-              <p className="mt-1 text-[9px] text-amber-600">Cada enlace añade el artículo a tu carrito</p>
-            </div>
-          )}
-
-          {/* Input */}
-          <div className="border-t border-gray-200 bg-white p-3">
-            <div className="flex items-end gap-2">
-              <input
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder="Escribe tu consulta técnica…"
-                disabled={loading}
-                className="flex-1 rounded-full border border-gray-300 px-4 py-2.5 text-sm outline-none transition focus:border-transparent focus:ring-2 disabled:opacity-60"
-                style={{ ["--tw-ring-color" as any]: primaryColor }}
-              />
-              <button
-                onClick={send}
-                disabled={loading || !input.trim()}
-                aria-label="Enviar mensaje"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              <a
+                href={LOGIN_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl px-6 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
                 style={{ backgroundColor: primaryColor }}
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" />
-                </svg>
-              </button>
+                Iniciar sesión en b2b.esgas.es →
+              </a>
             </div>
-            <p className="mt-1.5 text-center text-[10px] text-gray-400">
-              {companyName} · Distribuidor oficial NTN/SNR
-            </p>
-          </div>
+          ) : (
+            <>
+              {/* Mensajes */}
+              <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
+                {messages.map((m) => (
+                  <ChatBubble
+                    key={m.id}
+                    message={m}
+                    primaryColor={primaryColor}
+                    onAddedToCart={handleAddedToCart}
+                    onCheckout={handleCheckout}
+                  />
+                ))}
+
+                {loading && (
+                  <div className="flex justify-start">
+                    <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-gray-100 bg-white px-4 py-3 shadow-sm">
+                      {[0, 1, 2].map((i) => (
+                        <span key={i} className="h-2 w-2 animate-typing-bounce rounded-full bg-gray-400" style={{ animationDelay: `${i * 0.15}s` }} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Panel de carrito */}
+              {totalCartUnits > 0 && (
+                <div className="border-t border-green-100 bg-green-50 px-4 py-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-green-800">
+                        🛒 {totalCartUnits} artículo{totalCartUnits !== 1 ? "s" : ""} · {totalCartPrice.toFixed(2)} €
+                      </p>
+                      {totalCartPrice > 0 && totalCartPrice < SHIPPING_THRESHOLD && (
+                        <p className="text-[10px] text-amber-700">
+                          Añade {(SHIPPING_THRESHOLD - totalCartPrice).toFixed(2)} € más para envío gratis
+                        </p>
+                      )}
+                      {totalCartPrice >= SHIPPING_THRESHOLD && (
+                        <p className="text-[10px] text-green-700">✓ Envío gratuito disponible</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleCheckout()}
+                      disabled={isCheckingOut}
+                      className="ml-3 rounded-lg px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-60 flex-shrink-0"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      {isCheckingOut ? "..." : "Tramitar →"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Fallback links cuando WS falla */}
+              {fallbackLinks && (
+                <div className="border-t border-amber-200 bg-amber-50 px-4 py-2.5">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <p className="text-xs font-semibold text-amber-800">
+                      ⚠️ Añade los artículos en b2b.esgas.es (debes estar conectado)
+                    </p>
+                    <button onClick={() => setFallbackLinks(null)} className="text-amber-600 text-sm leading-none">✕</button>
+                  </div>
+                  <div className="space-y-1">
+                    {fallbackLinks.map((link, i) => (
+                      <a
+                        key={i}
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-50 transition"
+                      >
+                        <span>{link.name}</span>
+                        <span className="text-amber-500 text-[10px]">Añadir →</span>
+                      </a>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[9px] text-amber-600">Cada enlace añade el artículo a tu carrito</p>
+                </div>
+              )}
+
+              {/* Input */}
+              <div className="border-t border-gray-200 bg-white p-3">
+                <div className="flex items-end gap-2">
+                  <input
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={onKeyDown}
+                    placeholder="Escribe tu consulta técnica…"
+                    disabled={loading}
+                    className="flex-1 rounded-full border border-gray-300 px-4 py-2.5 text-sm outline-none transition focus:border-transparent focus:ring-2 disabled:opacity-60"
+                    style={{ ["--tw-ring-color" as any]: primaryColor }}
+                  />
+                  <button
+                    onClick={send}
+                    disabled={loading || !input.trim()}
+                    aria-label="Enviar mensaje"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" />
+                    </svg>
+                  </button>
+                </div>
+                <p className="mt-1.5 text-center text-[10px] text-gray-400">
+                  {companyName} · Distribuidor oficial NTN/SNR
+                </p>
+              </div>
+            </>
+          )}
         </div>
       )}
 
