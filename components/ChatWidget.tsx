@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Message, Product, CartItem, PSCustomer } from "@/lib/types";
+import type { Message, Product, PSCustomer } from "@/lib/types";
 import ChatBubble, { type ChatMessage } from "./ChatBubble";
 import RealisticRobot from "./RealisticRobot";
 
@@ -21,7 +21,6 @@ const WELCOME =
 
 const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
-const SHIPPING_THRESHOLD = 80;
 
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -49,7 +48,6 @@ export default function ChatWidget({
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: "welcome", role: "assistant", content: WELCOME },
   ]);
-  const [cartMap, setCartMap] = useState<Map<number, CartItem>>(new Map());
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [fallbackLinks, setFallbackLinks] = useState<{ name: string; qty: number; url: string }[] | null>(null);
 
@@ -126,67 +124,56 @@ export default function ChatWidget({
 
   const isLocked = authChecked && !resolvedEmail;
 
-  const totalCartUnits = Array.from(cartMap.values()).reduce((s, i) => s + i.qty, 0);
-  const totalCartPrice = Array.from(cartMap.values()).reduce(
-    (s, i) => s + i.product.price * i.qty, 0
-  );
-
-  const handleAddedToCart = useCallback(
-    (product: Product, qty: number) => {
-      setCartMap((prev) => {
-        const next = new Map(prev);
-        next.set(product.id, { product, qty });
-        return next;
-      });
-    },
-    []
-  );
-
+  /**
+   * Añadir al carrito → va directo a PrestaShop.
+   *
+   * En iframe (producción b2b.esgas.es):
+   *   - Manda postMessage al padre con los artículos.
+   *   - El script PS los añade vía AJAX y navega a /carrito.
+   *   - Fallback: si el script no está instalado, navega directamente tras 2s.
+   *
+   * En standalone (pruebas Vercel sin iframe):
+   *   - Llama a /api/cart (WS PrestaShop) → abre recovery URL en nueva pestaña.
+   *   - Si falla, muestra enlace a la ficha del producto.
+   */
   const handleCheckout = useCallback(
     async (singleProduct?: Product, singleQty?: number) => {
       setFallbackLinks(null);
-      setIsCheckingOut(true);
 
-      const allItems = Array.from(cartMap.values()).map((i) => ({
-        productId: i.product.id,
-        qty: i.qty,
-        idProductAttribute: i.product.idProductAttribute ?? 0,
-      }));
-      if (singleProduct && !cartMap.has(singleProduct.id)) {
-        allItems.push({
-          productId: singleProduct.id,
-          qty: singleQty ?? 1,
-          idProductAttribute: singleProduct.idProductAttribute ?? 0,
-        });
-      }
-
-      const fullItems = Array.from(cartMap.values());
-      if (singleProduct && !cartMap.has(singleProduct.id)) {
-        fullItems.push({ product: singleProduct, qty: singleQty ?? 1 });
-      }
-
-      if (!allItems.length) {
-        window.open(CART_PAGE, "_blank", "noopener,noreferrer");
-        setIsCheckingOut(false);
+      // Sin producto → ir al carrito
+      if (!singleProduct) {
+        if (detectIframe()) {
+          try { if (window.top && window.top !== window) window.top.location.href = CART_PAGE; } catch {}
+        } else {
+          window.open(CART_PAGE, "_blank", "noopener,noreferrer");
+        }
         return;
       }
 
-      // ── PRODUCCIÓN (iframe dentro de b2b.esgas.es) ────────────────────────
-      // Envía los artículos al padre vía postMessage. El script del tema PS los
-      // añade al carrito con el token de sesión nativo y luego navega al carrito.
+      setIsCheckingOut(true);
+
+      const item = {
+        productId: singleProduct.id,
+        qty: singleQty ?? 1,
+        idProductAttribute: singleProduct.idProductAttribute ?? 0,
+      };
+
+      // ── PRODUCCIÓN (iframe dentro de b2b.esgas.es) ──────────────────────
       if (detectIframe()) {
         window.parent.postMessage(
           {
             type: "esgas-add-to-cart",
-            items: allItems.map((i) => ({
-              id_product: i.productId,
-              qty: i.qty,
-              id_product_attribute: i.idProductAttribute ?? 0,
-            })),
+            items: [{
+              id_product: item.productId,
+              qty: item.qty,
+              id_product_attribute: item.idProductAttribute,
+              name: singleProduct.name,
+            }],
           },
           "*"
         );
-        // Fallback: si el script PS aún no está instalado, navegar después de 2s
+        // El script PS navega a /carrito automáticamente.
+        // Fallback por si el script no está instalado todavía.
         setTimeout(() => {
           try {
             if (window.top && window.top !== window) window.top.location.href = CART_PAGE;
@@ -196,15 +183,13 @@ export default function ChatWidget({
         return;
       }
 
-      // ── PRUEBAS (standalone Vercel, sin iframe) ───────────────────────────
-      // Intenta crear el carrito vía WS. Si funciona → abre recovery URL.
-      // Si no → muestra fichas de producto para añadir manualmente.
+      // ── PRUEBAS (standalone Vercel, sin iframe) ──────────────────────────
       try {
         const res = await fetch("/api/cart", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            items: allItems,
+            items: [item],
             ...(customer?.id ? { customerId: customer.id } : {}),
             ...(customer?.secureKey ? { customerSecureKey: customer.secureKey } : {}),
           }),
@@ -215,27 +200,23 @@ export default function ChatWidget({
         if (data.cartId) {
           window.open(data.cartUrl || CART_PAGE, "_blank", "noopener,noreferrer");
         } else {
-          setFallbackLinks(
-            fullItems.map((item) => ({
-              name: `${item.product.name} × ${item.qty}`,
-              qty: item.qty,
-              url: item.product.link,
-            }))
-          );
+          setFallbackLinks([{
+            name: `${singleProduct.name} × ${item.qty}`,
+            qty: item.qty,
+            url: singleProduct.link,
+          }]);
         }
       } catch {
-        setFallbackLinks(
-          fullItems.map((item) => ({
-            name: `${item.product.name} × ${item.qty}`,
-            qty: item.qty,
-            url: item.product.link,
-          }))
-        );
+        setFallbackLinks([{
+          name: `${singleProduct.name} × ${item.qty}`,
+          qty: item.qty,
+          url: singleProduct.link,
+        }]);
       } finally {
         setIsCheckingOut(false);
       }
     },
-    [cartMap, customer]
+    [customer]
   );
 
   const send = useCallback(async () => {
@@ -252,8 +233,6 @@ export default function ChatWidget({
       .slice(-20)
       .map((m) => ({ role: m.role, content: m.content }));
 
-    const cart: CartItem[] = Array.from(cartMap.values());
-
     try {
       const res = await fetch(webhookUrl, {
         method: "POST",
@@ -264,7 +243,6 @@ export default function ChatWidget({
           history,
           ...(customerDiscount ? { customerDiscount } : {}),
           ...(customer?.groupId ? { customerGroupId: customer.groupId } : {}),
-          ...(cart.length > 0 ? { cart } : {}),
         }),
       });
       const data: { output?: string; products?: Product[] } = await res.json().catch(() => ({}));
@@ -286,7 +264,7 @@ export default function ChatWidget({
     } finally {
       setLoading(false);
     }
-  }, [input, loading, isLocked, messages, sessionId, webhookUrl, customerDiscount, customer, cartMap]);
+  }, [input, loading, isLocked, messages, sessionId, webhookUrl, customerDiscount, customer]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -321,16 +299,16 @@ export default function ChatWidget({
               </div>
             </div>
 
-            {!isLocked && totalCartUnits > 0 && (
-              <button
-                onClick={() => handleCheckout()}
-                disabled={isCheckingOut}
-                title="Tramitar pedido"
-                className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold transition hover:bg-white/30 disabled:opacity-60"
-              >
-                🛒 {totalCartUnits}
-              </button>
-            )}
+            {/* Botón ir al carrito */}
+            <a
+              href={CART_PAGE}
+              target={detectIframe() ? "_top" : "_blank"}
+              rel="noopener noreferrer"
+              title="Ver carrito en b2b.esgas.es"
+              className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold transition hover:bg-white/30"
+            >
+              🛒 Carrito
+            </a>
 
             <button
               onClick={() => setOpen(false)}
@@ -372,7 +350,6 @@ export default function ChatWidget({
                     key={m.id}
                     message={m}
                     primaryColor={primaryColor}
-                    onAddedToCart={handleAddedToCart}
                     onCheckout={handleCheckout}
                   />
                 ))}
@@ -387,41 +364,12 @@ export default function ChatWidget({
                 )}
               </div>
 
-              {/* Panel de carrito */}
-              {totalCartUnits > 0 && (
-                <div className="border-t border-green-100 bg-green-50 px-4 py-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-semibold text-green-800">
-                        🛒 {totalCartUnits} artículo{totalCartUnits !== 1 ? "s" : ""} · {totalCartPrice.toFixed(2)} €
-                      </p>
-                      {totalCartPrice > 0 && totalCartPrice < SHIPPING_THRESHOLD && (
-                        <p className="text-[10px] text-amber-700">
-                          Añade {(SHIPPING_THRESHOLD - totalCartPrice).toFixed(2)} € más para envío gratis
-                        </p>
-                      )}
-                      {totalCartPrice >= SHIPPING_THRESHOLD && (
-                        <p className="text-[10px] text-green-700">✓ Envío gratuito disponible</p>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => handleCheckout()}
-                      disabled={isCheckingOut}
-                      className="ml-3 rounded-lg px-3 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-60 flex-shrink-0"
-                      style={{ backgroundColor: primaryColor }}
-                    >
-                      {isCheckingOut ? "..." : "Tramitar →"}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Panel fallback (modo prueba standalone) */}
+              {/* Panel fallback (modo prueba standalone — WS falló) */}
               {fallbackLinks && (
                 <div className="border-t border-amber-200 bg-amber-50 px-4 py-2.5">
                   <div className="mb-1.5 flex items-center justify-between">
                     <p className="text-xs font-semibold text-amber-800">
-                      📋 Modo prueba — abre cada ficha para añadir al carrito
+                      📋 Abre la ficha y añade desde la web
                     </p>
                     <button onClick={() => setFallbackLinks(null)} className="text-amber-600 text-sm leading-none">✕</button>
                   </div>
@@ -439,7 +387,7 @@ export default function ChatWidget({
                       </a>
                     ))}
                   </div>
-                  <p className="mt-1 text-[9px] text-amber-600">En producción (integrado en b2b.esgas.es) el carrito se rellena automáticamente</p>
+                  <p className="mt-1 text-[9px] text-amber-600">En producción (b2b.esgas.es) el carrito se rellena automáticamente</p>
                 </div>
               )}
 
@@ -492,12 +440,6 @@ export default function ChatWidget({
           <img src={logoUrl} alt={companyName} className="h-10 w-10 object-contain" />
         ) : (
           <RealisticRobot size={52} isPointing />
-        )}
-
-        {!open && totalCartUnits > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-white">
-            {totalCartUnits > 99 ? "99+" : totalCartUnits}
-          </span>
         )}
       </button>
     </div>
