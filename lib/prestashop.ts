@@ -241,7 +241,7 @@ export async function psGetCustomer(email: string): Promise<PSCustomer | null> {
       firstName: c.firstname,
       lastName: c.lastname,
       email: c.email,
-      secureKey: String(c.secure_key ?? ""),
+      secureKey: String(c.secure_key ?? "").trim(),
     };
   } catch {
     return null;
@@ -365,37 +365,45 @@ export async function psCreateCart(
   }
 
   try {
+    // id_address_delivery=0 y atributos nodeType/api son necesarios en PS WS 1.7
     const rows = items
       .map(
         (i) =>
           `<cart_row>` +
           `<id_product>${i.productId}</id_product>` +
           `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
+          `<id_address_delivery>0</id_address_delivery>` +
           `<quantity>${i.qty}</quantity>` +
           `</cart_row>`
       )
       .join("");
 
     const customerXml = customerId ? `<id_customer>${customerId}</id_customer>` : "";
-    const secureKeyXml = customerSecureKey ? `<secure_key>${customerSecureKey}</secure_key>` : "";
+    const secureKeyXml = customerSecureKey
+      ? `<secure_key>${customerSecureKey.trim()}</secure_key>`
+      : "";
 
-    const xml =
+    const buildCartXml = (cartIdTag = "") =>
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">` +
       `<cart>` +
+      cartIdTag +
       `<id_currency>1</id_currency>` +
       `<id_lang>1</id_lang>` +
       customerXml +
       secureKeyXml +
-      `<associations><cart_rows>${rows}</cart_rows></associations>` +
+      `<associations>` +
+      `<cart_rows nodeType="cart_row" api="cart_rows">${rows}</cart_rows>` +
+      `</associations>` +
       `</cart>` +
       `</prestashop>`;
 
+    // Paso 1: crear el carrito
     const postUrl = `${BASE_URL}/api/carts?ws_key=${API_KEY}&output_format=JSON`;
     const res = await fetch(postUrl, {
       method: "POST",
       headers: { ...PS_HEADERS, "Content-Type": "application/xml" },
-      body: xml,
+      body: buildCartXml(),
     });
 
     const body = await res.text().catch(() => "");
@@ -426,9 +434,27 @@ export async function psCreateCart(
       return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
     }
 
-    // token_cart = md5(customer.secure_key + cart_id) — fórmula PS 1.7 CartController
-    const tokenCart = customerSecureKey
-      ? createHash("md5").update(customerSecureKey + cartId).digest("hex")
+    // Paso 2: PUT para asegurar que los artículos están en el carrito.
+    // PS WS frecuentemente ignora cart_rows en el POST inicial — el PUT es el método fiable.
+    const putUrl = `${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}&output_format=JSON`;
+    try {
+      const putRes = await fetch(putUrl, {
+        method: "PUT",
+        headers: { ...PS_HEADERS, "Content-Type": "application/xml" },
+        body: buildCartXml(`<id>${cartId}</id>`),
+      });
+      if (!putRes.ok) {
+        const putBody = await putRes.text().catch(() => "");
+        console.warn("[psCreateCart] PUT items failed:", putRes.status, putBody.slice(0, 200));
+      }
+    } catch (putErr) {
+      console.warn("[psCreateCart] PUT exception:", putErr);
+    }
+
+    // token_cart = md5(customer.secure_key + cart_id) — fórmula CartController PS 1.7
+    const secureKey = customerSecureKey?.trim() ?? "";
+    const tokenCart = secureKey
+      ? createHash("md5").update(secureKey + cartId).digest("hex")
       : "";
 
     const cartUrl = tokenCart
