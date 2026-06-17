@@ -28,15 +28,9 @@ function uid() {
   return Math.random().toString(36).slice(2);
 }
 
-/** Navega al carrito: usa window.top si el widget está en iframe dentro de b2b.esgas.es */
-function navigateToCart(url: string) {
-  try {
-    if (window.top && window.top !== window) {
-      window.top.location.href = url;
-      return;
-    }
-  } catch { /* cross-origin bloqueado — fallback a nueva pestaña */ }
-  window.open(url, "_blank", "noopener,noreferrer");
+/** True cuando el widget corre dentro de un iframe (producción en b2b.esgas.es) */
+function detectIframe(): boolean {
+  try { return window.top !== window.self; } catch { return true; }
 }
 
 export default function ChatWidget({
@@ -59,11 +53,8 @@ export default function ChatWidget({
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [fallbackLinks, setFallbackLinks] = useState<{ name: string; qty: number; url: string }[] | null>(null);
 
-  // Email resuelto: viene de la prop (URL param embed) o de postMessage del portal PS
   const [resolvedEmail, setResolvedEmail] = useState<string | undefined>(customerEmail);
-  // Cliente B2B cargado desde PrestaShop
   const [customer, setCustomer] = useState<PSCustomer | null>(null);
-  // Tras 400ms esperando postMessage, si no hay email → bloqueado
   const [authChecked, setAuthChecked] = useState(!!customerEmail);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -71,14 +62,12 @@ export default function ChatWidget({
 
   useEffect(() => { setSessionId(uid()); }, []);
 
-  // Espera hasta 400ms para que llegue un postMessage antes de mostrar pantalla bloqueada
   useEffect(() => {
     if (customerEmail) return;
     const t = setTimeout(() => setAuthChecked(true), 400);
     return () => clearTimeout(t);
   }, [customerEmail]);
 
-  // Sincroniza si la prop cambia (embed con URL param)
   useEffect(() => {
     if (customerEmail) {
       setResolvedEmail(customerEmail);
@@ -86,7 +75,6 @@ export default function ChatWidget({
     }
   }, [customerEmail]);
 
-  // Escucha el email inyectado por PrestaShop via postMessage cuando el widget está en un iframe
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (
@@ -102,7 +90,6 @@ export default function ChatWidget({
     return () => window.removeEventListener("message", handler);
   }, []);
 
-  // Identifica al cliente automáticamente en cuanto se conoce el email
   useEffect(() => {
     if (!resolvedEmail) return;
     const cached = (() => {
@@ -165,7 +152,6 @@ export default function ChatWidget({
         qty: i.qty,
         idProductAttribute: i.product.idProductAttribute ?? 0,
       }));
-
       if (singleProduct && !cartMap.has(singleProduct.id)) {
         allItems.push({
           productId: singleProduct.id,
@@ -174,18 +160,45 @@ export default function ChatWidget({
         });
       }
 
-      if (!allItems.length) {
-        navigateToCart(CART_PAGE);
-        setIsCheckingOut(false);
-        return;
-      }
-
-      // fullItems contiene los objetos Product completos (con product.link) para el fallback
       const fullItems = Array.from(cartMap.values());
       if (singleProduct && !cartMap.has(singleProduct.id)) {
         fullItems.push({ product: singleProduct, qty: singleQty ?? 1 });
       }
 
+      if (!allItems.length) {
+        window.open(CART_PAGE, "_blank", "noopener,noreferrer");
+        setIsCheckingOut(false);
+        return;
+      }
+
+      // ── PRODUCCIÓN (iframe dentro de b2b.esgas.es) ────────────────────────
+      // Envía los artículos al padre vía postMessage. El script del tema PS los
+      // añade al carrito con el token de sesión nativo y luego navega al carrito.
+      if (detectIframe()) {
+        window.parent.postMessage(
+          {
+            type: "esgas-add-to-cart",
+            items: allItems.map((i) => ({
+              id_product: i.productId,
+              qty: i.qty,
+              id_product_attribute: i.idProductAttribute ?? 0,
+            })),
+          },
+          "*"
+        );
+        // Fallback: si el script PS aún no está instalado, navegar después de 2s
+        setTimeout(() => {
+          try {
+            if (window.top && window.top !== window) window.top.location.href = CART_PAGE;
+          } catch { /* ignorar */ }
+        }, 2000);
+        setIsCheckingOut(false);
+        return;
+      }
+
+      // ── PRUEBAS (standalone Vercel, sin iframe) ───────────────────────────
+      // Intenta crear el carrito vía WS. Si funciona → abre recovery URL.
+      // Si no → muestra fichas de producto para añadir manualmente.
       try {
         const res = await fetch("/api/cart", {
           method: "POST",
@@ -196,15 +209,12 @@ export default function ChatWidget({
             ...(customer?.secureKey ? { customerSecureKey: customer.secureKey } : {}),
           }),
         });
-        const data: { cartId?: string; cartUrl?: string; itemAddUrls?: string[] } =
+        const data: { cartId?: string; cartUrl?: string } =
           await res.json().catch(() => ({}));
 
         if (data.cartId) {
-          // Navega el frame padre (b2b.esgas.es) al carrito recuperado, o abre nueva pestaña
-          navigateToCart(data.cartUrl || CART_PAGE);
-        } else if (data.itemAddUrls?.length) {
-          // El WS no está disponible — mostrar fichas de producto como alternativa
-          // (las URLs directas de carrito necesitan token PS y no funcionan desde fuera)
+          window.open(data.cartUrl || CART_PAGE, "_blank", "noopener,noreferrer");
+        } else {
           setFallbackLinks(
             fullItems.map((item) => ({
               name: `${item.product.name} × ${item.qty}`,
@@ -212,11 +222,15 @@ export default function ChatWidget({
               url: item.product.link,
             }))
           );
-        } else {
-          navigateToCart(CART_PAGE);
         }
       } catch {
-        navigateToCart(CART_PAGE);
+        setFallbackLinks(
+          fullItems.map((item) => ({
+            name: `${item.product.name} × ${item.qty}`,
+            qty: item.qty,
+            url: item.product.link,
+          }))
+        );
       } finally {
         setIsCheckingOut(false);
       }
@@ -329,12 +343,10 @@ export default function ChatWidget({
             </button>
           </div>
 
-          {/* Pantalla de acceso bloqueado */}
+          {/* Pantalla bloqueada */}
           {isLocked ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-5 px-8 text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-3xl">
-                🔒
-              </div>
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-3xl">🔒</div>
               <div>
                 <p className="font-semibold text-gray-800">Acceso exclusivo para clientes B2B</p>
                 <p className="mt-1.5 text-sm text-gray-500">
@@ -364,7 +376,6 @@ export default function ChatWidget({
                     onCheckout={handleCheckout}
                   />
                 ))}
-
                 {loading && (
                   <div className="flex justify-start">
                     <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-gray-100 bg-white px-4 py-3 shadow-sm">
@@ -405,12 +416,12 @@ export default function ChatWidget({
                 </div>
               )}
 
-              {/* Panel fallback: el WS de carrito no está disponible */}
+              {/* Panel fallback (modo prueba standalone) */}
               {fallbackLinks && (
                 <div className="border-t border-amber-200 bg-amber-50 px-4 py-2.5">
                   <div className="mb-1.5 flex items-center justify-between">
                     <p className="text-xs font-semibold text-amber-800">
-                      ⚠️ Abre cada ficha y añádela al carrito en b2b.esgas.es
+                      📋 Modo prueba — abre cada ficha para añadir al carrito
                     </p>
                     <button onClick={() => setFallbackLinks(null)} className="text-amber-600 text-sm leading-none">✕</button>
                   </div>
@@ -428,7 +439,7 @@ export default function ChatWidget({
                       </a>
                     ))}
                   </div>
-                  <p className="mt-1 text-[9px] text-amber-600">Desde cada ficha puedes añadir al carrito directamente</p>
+                  <p className="mt-1 text-[9px] text-amber-600">En producción (integrado en b2b.esgas.es) el carrito se rellena automáticamente</p>
                 </div>
               )}
 
