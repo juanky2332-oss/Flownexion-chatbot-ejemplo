@@ -342,11 +342,57 @@ export interface CartResult {
   cartId: string;
   cartUrl: string;
   itemAddUrls: string[];
+  debug?: string;
 }
 
 function xmlField(xml: string, tag: string): string {
   const re = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, "i");
   return xml.match(re)?.[1]?.trim() ?? "";
+}
+
+/**
+ * Inyecta filas en el XML real del carrito obtenido via GET.
+ * Usa el XML exacto que devuelve PS en lugar de generar uno desde cero.
+ */
+function injectCartRows(
+  cartXml: string,
+  items: { productId: number; qty: number; idProductAttribute?: number }[]
+): string {
+  const rows = items
+    .map(
+      (i) =>
+        `<cart_row>` +
+        `<id_product>${i.productId}</id_product>` +
+        `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
+        `<id_address_delivery>0</id_address_delivery>` +
+        `<quantity>${i.qty}</quantity>` +
+        `</cart_row>`
+    )
+    .join("");
+
+  const replacement = `<cart_rows nodeType="cart_row" api="cart_rows">${rows}</cart_rows>`;
+
+  // Sustituye el tag cart_rows sea cual sea su formato (self-closing, vacío, o con contenido)
+  let result = cartXml.replace(/<cart_rows[^>]*\/>/g, replacement);
+  result = result.replace(/<cart_rows[^>]*>[\s\S]*?<\/cart_rows>/g, replacement);
+
+  // Si no había cart_rows, insertarlo antes del cierre de associations
+  if (!result.includes("<cart_rows")) {
+    result = result.replace(
+      /<\/associations>/,
+      `${replacement}</associations>`
+    );
+  }
+
+  // Si tampoco había associations, insertarlo antes del cierre del cart
+  if (!result.includes("<cart_rows")) {
+    result = result.replace(
+      /<\/cart>/,
+      `<associations>${replacement}</associations></cart>`
+    );
+  }
+
+  return result;
 }
 
 export async function psCreateCart(
@@ -365,92 +411,95 @@ export async function psCreateCart(
   }
 
   try {
-    // id_address_delivery=0 y atributos nodeType/api son necesarios en PS WS 1.7
-    const rows = items
-      .map(
-        (i) =>
-          `<cart_row>` +
-          `<id_product>${i.productId}</id_product>` +
-          `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
-          `<id_address_delivery>0</id_address_delivery>` +
-          `<quantity>${i.qty}</quantity>` +
-          `</cart_row>`
-      )
-      .join("");
-
     const customerXml = customerId ? `<id_customer>${customerId}</id_customer>` : "";
     const secureKeyXml = customerSecureKey
       ? `<secure_key>${customerSecureKey.trim()}</secure_key>`
       : "";
 
-    const buildCartXml = (cartIdTag = "") =>
+    // ── Paso 1: Crear carrito vacío ─────────────────────────────────────────
+    const postXml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">` +
       `<cart>` +
-      cartIdTag +
       `<id_currency>1</id_currency>` +
       `<id_lang>1</id_lang>` +
       customerXml +
       secureKeyXml +
-      `<associations>` +
-      `<cart_rows nodeType="cart_row" api="cart_rows">${rows}</cart_rows>` +
-      `</associations>` +
       `</cart>` +
       `</prestashop>`;
 
-    // Paso 1: crear el carrito
     const postUrl = `${BASE_URL}/api/carts?ws_key=${API_KEY}&output_format=JSON`;
-    const res = await fetch(postUrl, {
+    const postRes = await fetch(postUrl, {
       method: "POST",
       headers: { ...PS_HEADERS, "Content-Type": "application/xml" },
-      body: buildCartXml(),
+      body: postXml,
     });
 
-    const body = await res.text().catch(() => "");
+    const postBody = await postRes.text().catch(() => "");
 
-    if (!res.ok) {
-      console.error("[psCreateCart] PS WS error", res.status, body.slice(0, 400));
-      return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+    if (!postRes.ok) {
+      console.error("[psCreateCart] POST error", postRes.status, postBody.slice(0, 300));
+      return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls, debug: `POST ${postRes.status}` };
     }
 
     let cartId = "";
-
-    if (body.trimStart().startsWith("{")) {
-      try {
-        const json = JSON.parse(body);
-        cartId = String(json?.cart?.id ?? "");
-      } catch { /* ignorar */ }
+    if (postBody.trimStart().startsWith("{")) {
+      try { cartId = String(JSON.parse(postBody)?.cart?.id ?? ""); } catch { /* ignorar */ }
     }
-
-    if (!cartId) cartId = xmlField(body, "id");
-
+    if (!cartId) cartId = xmlField(postBody, "id");
     if (!cartId) {
-      const loc = res.headers.get("location") ?? "";
+      const loc = postRes.headers.get("location") ?? "";
       cartId = loc.match(/\/carts\/(\d+)/)?.[1] ?? "";
     }
 
     if (!cartId) {
-      console.error("[psCreateCart] No cart ID en respuesta:", body.slice(0, 400));
-      return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+      console.error("[psCreateCart] No cart ID:", postBody.slice(0, 300));
+      return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls, debug: "no cart ID" };
     }
 
-    // Paso 2: PUT para asegurar que los artículos están en el carrito.
-    // PS WS frecuentemente ignora cart_rows en el POST inicial — el PUT es el método fiable.
-    const putUrl = `${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}&output_format=JSON`;
-    try {
-      const putRes = await fetch(putUrl, {
+    // ── Paso 2: GET el XML real del carrito creado ──────────────────────────
+    // Usar el XML exacto de PS garantiza que el PUT tendrá todos los campos requeridos
+    const getUrl = `${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}`;
+    const getRes = await fetch(getUrl, { headers: { Accept: "application/xml" } });
+    const fullCartXml = await getRes.text().catch(() => "");
+
+    if (!getRes.ok || !fullCartXml.includes("<cart>")) {
+      console.warn("[psCreateCart] GET cart failed:", getRes.status);
+      // Si el GET falla, caer de vuelta al PUT con XML propio
+      const fallbackPutXml =
+        `<?xml version="1.0" encoding="UTF-8"?>` +
+        `<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">` +
+        `<cart><id>${cartId}</id><id_currency>1</id_currency><id_lang>1</id_lang>` +
+        customerXml + secureKeyXml +
+        `<associations><cart_rows nodeType="cart_row" api="cart_rows">` +
+        items.map(i =>
+          `<cart_row><id_product>${i.productId}</id_product>` +
+          `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
+          `<id_address_delivery>0</id_address_delivery>` +
+          `<quantity>${i.qty}</quantity></cart_row>`
+        ).join("") +
+        `</cart_rows></associations></cart></prestashop>`;
+
+      await fetch(`${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}&output_format=JSON`, {
         method: "PUT",
         headers: { ...PS_HEADERS, "Content-Type": "application/xml" },
-        body: buildCartXml(`<id>${cartId}</id>`),
+        body: fallbackPutXml,
+      }).catch(() => {});
+    } else {
+      // ── Paso 3: Inyectar filas en el XML real y hacer PUT ─────────────────
+      const putXml = injectCartRows(fullCartXml, items);
+      const putRes = await fetch(`${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}&output_format=JSON`, {
+        method: "PUT",
+        headers: { Accept: "application/json", "Content-Type": "application/xml" },
+        body: putXml,
       });
       if (!putRes.ok) {
         const putBody = await putRes.text().catch(() => "");
-        console.warn("[psCreateCart] PUT items failed:", putRes.status, putBody.slice(0, 200));
+        console.warn("[psCreateCart] PUT failed:", putRes.status, putBody.slice(0, 200));
       }
-    } catch (putErr) {
-      console.warn("[psCreateCart] PUT exception:", putErr);
     }
 
+    // ── Paso 4: URL de recuperación ─────────────────────────────────────────
     // token_cart = md5(customer.secure_key + cart_id) — fórmula CartController PS 1.7
     const secureKey = customerSecureKey?.trim() ?? "";
     const tokenCart = secureKey
@@ -464,7 +513,7 @@ export async function psCreateCart(
     return { cartId, cartUrl, itemAddUrls };
   } catch (err) {
     console.error("[psCreateCart] Exception:", err);
-    return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
+    return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls, debug: String(err) };
   }
 }
 
