@@ -28,6 +28,17 @@ function uid() {
   return Math.random().toString(36).slice(2);
 }
 
+/** Navega al carrito: usa window.top si el widget está en iframe dentro de b2b.esgas.es */
+function navigateToCart(url: string) {
+  try {
+    if (window.top && window.top !== window) {
+      window.top.location.href = url;
+      return;
+    }
+  } catch { /* cross-origin bloqueado — fallback a nueva pestaña */ }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 export default function ChatWidget({
   logoUrl,
   primaryColor = "#0066cc",
@@ -164,9 +175,15 @@ export default function ChatWidget({
       }
 
       if (!allItems.length) {
-        window.open(CART_PAGE, "_blank", "noopener,noreferrer");
+        navigateToCart(CART_PAGE);
         setIsCheckingOut(false);
         return;
+      }
+
+      // fullItems contiene los objetos Product completos (con product.link) para el fallback
+      const fullItems = Array.from(cartMap.values());
+      if (singleProduct && !cartMap.has(singleProduct.id)) {
+        fullItems.push({ product: singleProduct, qty: singleQty ?? 1 });
       }
 
       try {
@@ -183,24 +200,23 @@ export default function ChatWidget({
           await res.json().catch(() => ({}));
 
         if (data.cartId) {
-          window.open(data.cartUrl || CART_PAGE, "_blank", "noopener,noreferrer");
+          // Navega el frame padre (b2b.esgas.es) al carrito recuperado, o abre nueva pestaña
+          navigateToCart(data.cartUrl || CART_PAGE);
         } else if (data.itemAddUrls?.length) {
-          const fullItems = Array.from(cartMap.values());
-          if (singleProduct && !cartMap.has(singleProduct.id)) {
-            fullItems.push({ product: singleProduct, qty: singleQty ?? 1 });
-          }
+          // El WS no está disponible — mostrar fichas de producto como alternativa
+          // (las URLs directas de carrito necesitan token PS y no funcionan desde fuera)
           setFallbackLinks(
-            fullItems.map((item, idx) => ({
+            fullItems.map((item) => ({
               name: `${item.product.name} × ${item.qty}`,
               qty: item.qty,
-              url: data.itemAddUrls![idx] ?? CART_PAGE,
+              url: item.product.link,
             }))
           );
         } else {
-          window.open(CART_PAGE, "_blank", "noopener,noreferrer");
+          navigateToCart(CART_PAGE);
         }
       } catch {
-        window.open(CART_PAGE, "_blank", "noopener,noreferrer");
+        navigateToCart(CART_PAGE);
       } finally {
         setIsCheckingOut(false);
       }
@@ -389,12 +405,12 @@ export default function ChatWidget({
                 </div>
               )}
 
-              {/* Fallback links cuando WS falla */}
+              {/* Panel fallback: el WS de carrito no está disponible */}
               {fallbackLinks && (
                 <div className="border-t border-amber-200 bg-amber-50 px-4 py-2.5">
                   <div className="mb-1.5 flex items-center justify-between">
                     <p className="text-xs font-semibold text-amber-800">
-                      ⚠️ Añade los artículos en b2b.esgas.es (debes estar conectado)
+                      ⚠️ Abre cada ficha y añádela al carrito en b2b.esgas.es
                     </p>
                     <button onClick={() => setFallbackLinks(null)} className="text-amber-600 text-sm leading-none">✕</button>
                   </div>
@@ -408,11 +424,11 @@ export default function ChatWidget({
                         className="flex items-center justify-between rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-50 transition"
                       >
                         <span>{link.name}</span>
-                        <span className="text-amber-500 text-[10px]">Añadir →</span>
+                        <span className="text-amber-500 text-[10px]">Ver ficha →</span>
                       </a>
                     ))}
                   </div>
-                  <p className="mt-1 text-[9px] text-amber-600">Cada enlace añade el artículo a tu carrito</p>
+                  <p className="mt-1 text-[9px] text-amber-600">Desde cada ficha puedes añadir al carrito directamente</p>
                 </div>
               )}
 
