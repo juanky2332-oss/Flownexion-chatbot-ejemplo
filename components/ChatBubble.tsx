@@ -1,10 +1,5 @@
 "use client";
 
-// ─────────────────────────────────────────────────────────────
-// Burbuja de mensaje individual. Renderiza markdown en los mensajes
-// del asistente y muestra tarjetas de producto si las hay.
-// ─────────────────────────────────────────────────────────────
-
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Product } from "@/lib/types";
@@ -20,14 +15,12 @@ export interface ChatMessage {
 interface ChatBubbleProps {
   message: ChatMessage;
   primaryColor?: string;
-  onAddedToCart?: (product: Product, qty: number) => void;
   onCheckout?: (product?: Product, qty?: number) => void;
 }
 
 export default function ChatBubble({
   message,
   primaryColor = "#0066cc",
-  onAddedToCart,
   onCheckout,
 }: ChatBubbleProps) {
   const isUser = message.role === "user";
@@ -87,7 +80,6 @@ export default function ChatBubble({
                 key={p.id}
                 product={p}
                 primaryColor={primaryColor}
-                onAddedToCart={onAddedToCart}
                 onCheckout={onCheckout}
               />
             ))}
