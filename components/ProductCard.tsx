@@ -6,22 +6,27 @@ import type { Product } from "@/lib/types";
 interface ProductCardProps {
   product: Product;
   primaryColor?: string;
-  onAddedToCart?: (product: Product, qty: number) => void;
   onCheckout?: (product?: Product, qty?: number) => void;
 }
 
 export default function ProductCard({
   product,
   primaryColor = "#0066cc",
-  onAddedToCart,
   onCheckout,
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
-  const [added, setAdded] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const changeQty = (delta: number) => setQty((prev) => Math.max(1, prev + delta));
 
   const hasDiscount = product.discountPct != null && product.discountPct > 0;
+
+  const handleAdd = () => {
+    setAdding(true);
+    onCheckout?.(product, qty);
+    // El estado "adding" se resetea cuando el padre navega (iframe) o abre nueva pestaña
+    setTimeout(() => setAdding(false), 3000);
+  };
 
   return (
     <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
@@ -124,33 +129,14 @@ export default function ProductCard({
           🔗 Ficha
         </a>
 
-        {/* Añadir al carrito: acumula en el carrito local del widget */}
+        {/* Añadir al carrito → añade a PS y va al carrito */}
         <button
-          onClick={() => {
-            onAddedToCart?.(product, qty);
-            setAdded(true);
-            setTimeout(() => setAdded(false), 2000);
-          }}
-          className="rounded-lg border px-2.5 py-1.5 text-xs font-medium transition"
-          style={
-            added
-              ? { color: "#16a34a", borderColor: "#16a34a" }
-              : { color: primaryColor, borderColor: primaryColor }
-          }
-        >
-          {added ? "✓ Añadido" : `🛒 Añadir ${qty > 1 ? `${qty} uds` : "al carrito"}`}
-        </button>
-
-        {/* Tramitar pedido: crea el carrito real en PS via WS API con todos los artículos */}
-        <button
-          onClick={() => {
-            onAddedToCart?.(product, qty);
-            onCheckout?.(product, qty);
-          }}
-          className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
+          onClick={handleAdd}
+          disabled={adding}
+          className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-60"
           style={{ backgroundColor: primaryColor }}
         >
-          💳 Tramitar pedido
+          {adding ? "⏳ Añadiendo…" : `🛒 Añadir ${qty > 1 ? `${qty} uds` : "al carrito"}`}
         </button>
       </div>
     </div>
