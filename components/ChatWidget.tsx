@@ -12,15 +12,12 @@ export interface ChatWidgetProps {
   companyName?: string;
   startOpen?: boolean;
   customerDiscount?: number;
-  /** Email del cliente ya autenticado. En producción viene de la sesión del portal B2B. */
+  /** Email del cliente autenticado. Viene del portal B2B (URL param o postMessage). */
   customerEmail?: string;
 }
 
 const WELCOME =
   "¡Hola! 👋 Soy **Carlos**, tu asesor técnico de ESGAS, distribuidor oficial **NTN/SNR**.\n\nDime qué rodamiento o suministro necesitas y te ayudo a encontrarlo al mejor precio. ¿En qué estás trabajando?";
-
-// Email de prueba — sustituir por la sesión real del portal B2B cuando esté integrado
-const TEST_CUSTOMER_EMAIL = "juancarlos@flownexion.com";
 
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
 const SHIPPING_THRESHOLD = 80;
@@ -37,7 +34,7 @@ export default function ChatWidget({
   companyName = "ESGAS",
   startOpen = false,
   customerDiscount,
-  customerEmail = TEST_CUSTOMER_EMAIL,
+  customerEmail,
 }: ChatWidgetProps) {
   const [open, setOpen] = useState(startOpen);
   const [sessionId, setSessionId] = useState("");
@@ -50,7 +47,9 @@ export default function ChatWidget({
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [fallbackLinks, setFallbackLinks] = useState<{ name: string; qty: number; url: string }[] | null>(null);
 
-  // Cliente B2B — se carga automáticamente al montar el componente
+  // Email resuelto: viene de la prop (URL param embed) o de postMessage del portal PS
+  const [resolvedEmail, setResolvedEmail] = useState<string | undefined>(customerEmail);
+  // Cliente B2B cargado desde PrestaShop
   const [customer, setCustomer] = useState<PSCustomer | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -58,18 +57,42 @@ export default function ChatWidget({
 
   useEffect(() => { setSessionId(uid()); }, []);
 
-  // Identifica al cliente automáticamente usando el email del portal
+  // Sincroniza si la prop cambia (embed con URL param)
   useEffect(() => {
-    if (!customerEmail) return;
+    if (customerEmail) setResolvedEmail(customerEmail);
+  }, [customerEmail]);
+
+  // Escucha el email inyectado por PrestaShop via postMessage cuando el widget está en un iframe
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (
+        event.data?.type === "esgas-customer" &&
+        typeof event.data.email === "string" &&
+        event.data.email.includes("@")
+      ) {
+        setResolvedEmail(event.data.email);
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  // Identifica al cliente automáticamente en cuanto se conoce el email
+  useEffect(() => {
+    if (!resolvedEmail) return;
+    // Usar caché local para no llamar a la API en cada apertura
     const cached = (() => {
       try { return JSON.parse(localStorage.getItem("esgas-customer") ?? "null") as PSCustomer | null; }
       catch { return null; }
     })();
-    if (cached?.email?.toLowerCase() === customerEmail.toLowerCase()) {
+    if (cached?.email?.toLowerCase() === resolvedEmail.toLowerCase()) {
       setCustomer(cached);
       return;
     }
-    fetch(`/api/customer?email=${encodeURIComponent(customerEmail)}`)
+    // Email distinto al caché: limpiar y cargar el nuevo cliente
+    setCustomer(null);
+    localStorage.removeItem("esgas-customer");
+    fetch(`/api/customer?email=${encodeURIComponent(resolvedEmail)}`)
       .then((r) => r.ok ? r.json() : null)
       .then((data: PSCustomer | null) => {
         if (data?.id) {
@@ -78,7 +101,7 @@ export default function ChatWidget({
         }
       })
       .catch(() => {});
-  }, [customerEmail]);
+  }, [resolvedEmail]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
