@@ -1,20 +1,7 @@
-// ─────────────────────────────────────────────────────────────
-// API principal del chatbot: agente IA "Carlos".
-// POST /api/chat
-// Body: { message, sessionId, history, customerDiscount?, cart? }
-// Respuesta: { output: string, products?: Product[] }
-//
-// CORS restringido a ALLOWED_ORIGINS. Rate limit 30 req/min por IP.
-// ─────────────────────────────────────────────────────────────
-
 import { NextRequest, NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
-import {
-  corsHeaders,
-  preflight,
-  getClientIp,
-  isRateLimited,
-} from "@/lib/http";
+import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
+import { verifyIdentityToken } from "@/lib/hmac";
 import type { ChatRequest, Message, CartItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -40,16 +27,13 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as ChatRequest;
   } catch {
-    return NextResponse.json(
-      { output: "Petición inválida." },
-      { status: 400, headers }
-    );
+    return NextResponse.json({ output: "Petición inválida." }, { status: 400, headers });
   }
 
   const message = (body?.message ?? "").toString().trim();
   if (!message) {
     return NextResponse.json(
-      { output: "Cuéntame qué necesitas y te ayudo a encontrarlo. 😊" },
+      { output: "Cuéntame qué necesitas y te ayudo a encontrarlo." },
       { status: 400, headers }
     );
   }
@@ -65,27 +49,29 @@ export async function POST(req: NextRequest) {
         .slice(-20)
     : [];
 
-  const customerDiscount =
-    typeof body?.customerDiscount === "number" &&
-    body.customerDiscount > 0 &&
-    body.customerDiscount < 100
-      ? body.customerDiscount
-      : undefined;
-
   const cart: CartItem[] | undefined = Array.isArray(body?.cart)
     ? (body.cart as CartItem[]).slice(0, 20)
     : undefined;
 
-  const customerGroupId =
-    typeof body?.customerGroupId === "number" && body.customerGroupId > 0
-      ? body.customerGroupId
-      : undefined;
+  // Identidad: el token HMAC firmado tiene prioridad absoluta sobre cualquier dato del body
+  let customerGroupId: number | undefined;
+  const claims = verifyIdentityToken(body?.identityToken ?? "");
+  if (claims) {
+    customerGroupId = claims.id_group;
+  } else if (!process.env.HMAC_SECRET) {
+    // Sin secreto configurado (demo/dev): acepta customerGroupId del body
+    customerGroupId =
+      typeof body?.customerGroupId === "number" && body.customerGroupId > 0
+        ? body.customerGroupId
+        : undefined;
+  }
+  // Si hay secreto pero el token falla → sin pricing de grupo (no se falsifica identidad)
 
   try {
     const { output, products } = await runAgent(
       message,
       history,
-      customerDiscount,
+      undefined,
       cart,
       customerGroupId
     );

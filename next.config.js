@@ -1,13 +1,25 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
-    // Prevent TypeScript type errors from blocking the production build.
-    // Type safety is enforced during development (IDE / CI checks).
     ignoreBuildErrors: true,
   },
   eslint: {
-    // Same for ESLint — warnings don't block Vercel deploys.
     ignoreDuringBuilds: true,
+  },
+  async headers() {
+    return [
+      {
+        // Permite que /embed sea embebido como iframe en b2b.esgas.es
+        source: '/embed',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value:
+              "frame-ancestors 'self' https://b2b.esgas.es https://*.esgas.es http://localhost:* https://localhost:*",
+          },
+        ],
+      },
+    ];
   },
 };
 

@@ -13,6 +13,15 @@
       ]
     },
     {
+      "source": "/embed",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors 'self' https://b2b.esgas.es https://*.esgas.es http://localhost:*"
+        }
+      ]
+    },
+    {
       "source": "/widget.js",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },

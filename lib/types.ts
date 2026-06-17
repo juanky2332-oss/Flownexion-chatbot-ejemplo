@@ -65,9 +65,12 @@ export interface ChatRequest {
   message: string;
   sessionId: string;
   history: Message[];
-  /** Porcentaje de descuento del cliente (0-99). */
-  customerDiscount?: number;
-  /** ID de grupo PS del cliente para precios B2B. */
+  /**
+   * Token HMAC firmado por el módulo nexionchat de PS.
+   * Si está presente y es válido, el groupId se extrae de él (no del body).
+   */
+  identityToken?: string;
+  /** Fallback de groupId solo cuando HMAC_SECRET no está configurado (demo/dev). */
   customerGroupId?: number;
   /** Estado actual del carrito virtual del chatbot. */
   cart?: CartItem[];

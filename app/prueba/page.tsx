@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type CartItem = {
   id_product: number;
@@ -9,22 +9,48 @@ type CartItem = {
   name?: string;
 };
 
-const TEST_EMAIL = "juancarlos@flownexion.com";
 const PS_BASE = "https://b2b.esgas.es";
 
 export default function PruebaPage() {
-  const [embedEmail, setEmbedEmail] = useState(TEST_EMAIL);
   const [status, setStatus] = useState<"idle" | "adding">("idle");
   const [lastAdded, setLastAdded] = useState<CartItem | null>(null);
+  const [tokenStatus, setTokenStatus] = useState<"pending" | "ok" | "unavailable">("pending");
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const testTokenRef = useRef<string | null>(null);
 
+  const sendTokenToIframe = (token: string) => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: "esgas-identity-token", token },
+      "*"
+    );
+  };
+
+  // Fetch test token al montar (requiere HMAC_SECRET + PRESTASHOP_DEMO=1 en Vercel)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const e = params.get("email");
-    if (e && e.includes("@")) setEmbedEmail(e);
+    fetch("/api/test-token")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.token) {
+          testTokenRef.current = data.token;
+          setTokenStatus("ok");
+          sendTokenToIframe(data.token);
+        } else {
+          setTokenStatus("unavailable");
+        }
+      })
+      .catch(() => setTokenStatus("unavailable"));
   }, []);
 
+  // Mensajes del iframe
   useEffect(() => {
     const handler = (e: MessageEvent) => {
+      // El widget señala que está listo → reenviar token
+      if (e.data?.type === "esgas-ready" && testTokenRef.current) {
+        sendTokenToIframe(testTokenRef.current);
+        return;
+      }
+
+      // Añadir al carrito
       if (e.data?.type !== "esgas-add-to-cart" || !Array.isArray(e.data.items)) return;
 
       const items = e.data.items as CartItem[];
@@ -34,31 +60,27 @@ export default function PruebaPage() {
       setStatus("adding");
       setLastAdded(first);
 
-      // Resetea el botón del widget
+      // Confirmar al widget
       try {
-        const src = e.source as Window;
-        src?.postMessage?.({ type: "esgas-cart-handled", name: first.name ?? "artículo" }, "*");
+        (e.source as Window)?.postMessage?.(
+          { type: "esgas-cart-handled", name: first.name ?? "artículo" },
+          "*"
+        );
       } catch {}
 
-      // URL nativa de PS — usa la sesión del usuario logueado, fiable al 100%
-      // /index.php?controller=cart&add=1&... añade el producto y redirige a /carrito
+      // Redirigir a PS (añade al carrito de sesión)
       const back = encodeURIComponent("/carrito?action=show");
-      const addUrl =
+      window.location.href =
         `${PS_BASE}/index.php?controller=cart&add=1` +
         `&id_product=${first.id_product}` +
         `&id_product_attribute=${first.id_product_attribute ?? 0}` +
         `&qty=${first.qty}` +
-        `&action=add` +
-        `&back=${back}`;
-
-      window.location.href = addUrl;
+        `&action=add&back=${back}`;
     };
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, []);
-
-  const embedSrc = `/embed?email=${encodeURIComponent(embedEmail)}`;
 
   return (
     <div style={{ fontFamily: "sans-serif", padding: "2rem", maxWidth: 680, margin: "0 auto" }}>
@@ -66,8 +88,7 @@ export default function PruebaPage() {
         🧪 Página de prueba — Chatbot ESGAS
       </h1>
       <p style={{ color: "#555", fontSize: "0.85rem", marginBottom: "1.5rem", lineHeight: 1.5 }}>
-        Pulsa <strong>«Añadir al carrito»</strong> en el chat → te redirige a b2b.esgas.es
-        que añade el artículo directamente a tu sesión y abre el carrito.
+        Pulsa <strong>«Añadir al carrito»</strong> en el chat → redirige a b2b.esgas.es y añade a la sesión.
         <br />
         <strong style={{ color: "#0066cc" }}>Requisito: estar logueado en b2b.esgas.es.</strong>
       </p>
@@ -82,17 +103,20 @@ export default function PruebaPage() {
           color: "#475569",
         }}
       >
-        <strong>Email de prueba:</strong>{" "}
-        <code style={{ background: "#e2e8f0", padding: "1px 5px", borderRadius: 4 }}>
-          {embedEmail}
-        </code>
-        <span style={{ marginLeft: 12 }}>·</span>
-        <span style={{ marginLeft: 12 }}>
-          Cambia con{" "}
-          <code style={{ background: "#e2e8f0", padding: "1px 5px", borderRadius: 4 }}>
-            ?email=otro@correo.com
-          </code>
-        </span>
+        <strong>Estado HMAC token:</strong>{" "}
+        {tokenStatus === "ok" && (
+          <span style={{ color: "#16a34a", fontWeight: 600 }}>✅ Activo — precios B2B habilitados</span>
+        )}
+        {tokenStatus === "unavailable" && (
+          <span style={{ color: "#92400e" }}>
+            ⚠️ No disponible — configura{" "}
+            <code style={{ background: "#fef3c7", padding: "0 3px", borderRadius: 3 }}>HMAC_SECRET</code>
+            {" "}+{" "}
+            <code style={{ background: "#fef3c7", padding: "0 3px", borderRadius: 3 }}>PRESTASHOP_DEMO=1</code>
+            {" "}en Vercel para precios B2B
+          </span>
+        )}
+        {tokenStatus === "pending" && <span>Cargando…</span>}
       </div>
 
       {status === "idle" && (
@@ -113,7 +137,7 @@ export default function PruebaPage() {
             <li>Inicia sesión en b2b.esgas.es en otra pestaña</li>
             <li>Abre el chat (botón abajo a la derecha)</li>
             <li>Pide un rodamiento y pulsa 🛒 Añadir al carrito</li>
-            <li>Esta página te redirige a PS → el artículo aparece en el carrito</li>
+            <li>Esta página redirige a PS y añade el artículo a tu sesión</li>
           </ol>
         </div>
       )}
@@ -143,9 +167,7 @@ export default function PruebaPage() {
             }}
           />
           <div>
-            <p style={{ fontWeight: 700, color: "#1d4ed8", margin: 0 }}>
-              Redirigiendo a PrestaShop…
-            </p>
+            <p style={{ fontWeight: 700, color: "#1d4ed8", margin: 0 }}>Redirigiendo a PrestaShop…</p>
             <p style={{ color: "#3b82f6", fontSize: "0.8rem", margin: "0.25rem 0 0" }}>
               {lastAdded.name ?? `Producto #${lastAdded.id_product}`} × {lastAdded.qty} uds
             </p>
@@ -156,7 +178,8 @@ export default function PruebaPage() {
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       <iframe
-        src={embedSrc}
+        ref={iframeRef}
+        src="/embed"
         style={{
           position: "fixed",
           bottom: 0,

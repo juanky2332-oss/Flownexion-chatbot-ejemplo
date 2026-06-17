@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Message, Product, PSCustomer } from "@/lib/types";
+import type { Message, Product, CartItem } from "@/lib/types";
 import ChatBubble, { type ChatMessage } from "./ChatBubble";
 import RealisticRobot from "./RealisticRobot";
 
@@ -11,8 +11,8 @@ export interface ChatWidgetProps {
   webhookUrl?: string;
   companyName?: string;
   startOpen?: boolean;
-  customerDiscount?: number;
-  customerEmail?: string;
+  /** Si true, muestra pantalla de bloqueo cuando no hay token HMAC válido (modo producción). */
+  requireAuth?: boolean;
 }
 
 const WELCOME =
@@ -30,14 +30,25 @@ function detectIframe(): boolean {
   try { return window.top !== window.self; } catch { return true; }
 }
 
+/** Decodifica el email del token para mostrarlo en el header (sin verificar firma — solo UI). */
+function decodeTokenEmail(token: string): string | null {
+  try {
+    const lastDot = token.lastIndexOf(".");
+    if (lastDot <= 0) return null;
+    const payload = JSON.parse(atob(token.slice(0, lastDot)));
+    return typeof payload.email === "string" ? payload.email : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function ChatWidget({
   logoUrl,
   primaryColor = "#0066cc",
   webhookUrl = "/api/chat",
   companyName = "ESGAS",
   startOpen = false,
-  customerDiscount,
-  customerEmail,
+  requireAuth = false,
 }: ChatWidgetProps) {
   const [open, setOpen] = useState(startOpen);
   const [sessionId, setSessionId] = useState("");
@@ -50,9 +61,10 @@ export default function ChatWidget({
   const [fallbackLinks, setFallbackLinks] = useState<{ name: string; qty: number; url: string }[] | null>(null);
   const [cartConfirmed, setCartConfirmed] = useState<string | null>(null);
 
-  const [resolvedEmail, setResolvedEmail] = useState<string | undefined>(customerEmail);
-  const [customer, setCustomer] = useState<PSCustomer | null>(null);
-  const [authChecked, setAuthChecked] = useState(!!customerEmail);
+  // Token HMAC de identidad recibido del padre vía postMessage
+  const [identityToken, setIdentityToken] = useState<string | null>(null);
+  const [tokenChecked, setTokenChecked] = useState(false);
+  const [isInIframe, setIsInIframe] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -60,29 +72,33 @@ export default function ChatWidget({
   useEffect(() => { setSessionId(uid()); }, []);
 
   useEffect(() => {
-    if (customerEmail) return;
-    const t = setTimeout(() => setAuthChecked(true), 400);
-    return () => clearTimeout(t);
-  }, [customerEmail]);
+    const inIframe = detectIframe();
+    setIsInIframe(inIframe);
 
-  useEffect(() => {
-    if (customerEmail) {
-      setResolvedEmail(customerEmail);
-      setAuthChecked(true);
+    if (inIframe) {
+      // Señalar al padre que el widget está listo para recibir el token
+      window.parent.postMessage({ type: "esgas-ready" }, "*");
+      // Reenviar por si la primera señal llegó antes de que el padre escuchase
+      const retry = setTimeout(
+        () => window.parent.postMessage({ type: "esgas-ready" }, "*"),
+        300
+      );
+      // Timeout de seguridad: si no llega token en 800ms → marcar como comprobado
+      const timeout = setTimeout(() => setTokenChecked(true), 800);
+      return () => { clearTimeout(retry); clearTimeout(timeout); };
+    } else {
+      // Fuera de iframe: no se espera token
+      setTokenChecked(true);
     }
-  }, [customerEmail]);
+  }, []);
 
+  // Mensajes postMessage desde el padre (token de identidad y confirmación de carrito)
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      if (
-        event.data?.type === "esgas-customer" &&
-        typeof event.data.email === "string" &&
-        event.data.email.includes("@")
-      ) {
-        setResolvedEmail(event.data.email);
-        setAuthChecked(true);
+      if (event.data?.type === "esgas-identity-token" && typeof event.data.token === "string") {
+        setIdentityToken(event.data.token);
+        setTokenChecked(true);
       }
-      // Confirmación del parent (en prueba o PS) de que recibió los artículos
       if (event.data?.type === "esgas-cart-handled") {
         setCartConfirmed(event.data.name ?? "artículo");
         setTimeout(() => setCartConfirmed(null), 2500);
@@ -92,28 +108,11 @@ export default function ChatWidget({
     return () => window.removeEventListener("message", handler);
   }, []);
 
+  // Notificar al padre el estado open/closed para que redimensione el iframe
   useEffect(() => {
-    if (!resolvedEmail) return;
-    const cached = (() => {
-      try { return JSON.parse(localStorage.getItem("esgas-customer") ?? "null") as PSCustomer | null; }
-      catch { return null; }
-    })();
-    if (cached?.email?.toLowerCase() === resolvedEmail.toLowerCase()) {
-      setCustomer(cached);
-      return;
-    }
-    setCustomer(null);
-    localStorage.removeItem("esgas-customer");
-    fetch(`/api/customer?email=${encodeURIComponent(resolvedEmail)}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((data: PSCustomer | null) => {
-        if (data?.id) {
-          setCustomer(data);
-          localStorage.setItem("esgas-customer", JSON.stringify(data));
-        }
-      })
-      .catch(() => {});
-  }, [resolvedEmail]);
+    if (typeof window === "undefined" || window.parent === window) return;
+    window.parent.postMessage({ type: "esgas-chat", open }, "*");
+  }, [open]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -121,25 +120,10 @@ export default function ChatWidget({
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
-  useEffect(() => {
-    if (typeof window === "undefined" || window.parent === window) return;
-    window.parent.postMessage({ type: "esgas-chat", open }, "*");
-  }, [open]);
+  // Bloqueo: solo si requireAuth + en iframe + ya comprobado + sin token
+  const isLocked = requireAuth && isInIframe && tokenChecked && !identityToken;
+  const tokenEmail = identityToken ? decodeTokenEmail(identityToken) : null;
 
-  const isLocked = authChecked && !resolvedEmail;
-
-  /**
-   * handleCheckout — añade al carrito de PS directamente.
-   *
-   * En iframe (b2b.esgas.es en producción):
-   *   - Envía postMessage {type:"esgas-add-to-cart", items:[...]} al padre.
-   *   - El script PS hace AJAX + navega a /carrito.
-   *   - El widget NO navega por sí mismo (evita romper páginas de prueba).
-   *
-   * En standalone (Vercel sin iframe):
-   *   - Crea carrito vía WS API → recovery URL en nueva pestaña.
-   *   - Si falla → muestra enlace a la ficha del producto.
-   */
   const handleCheckout = useCallback(
     async (singleProduct?: Product, singleQty?: number) => {
       setFallbackLinks(null);
@@ -161,7 +145,7 @@ export default function ChatWidget({
         idProductAttribute: singleProduct.idProductAttribute ?? 0,
       };
 
-      // ── PRODUCCIÓN / PRUEBA (dentro de un iframe) ────────────────────────
+      // En iframe (producción PS o /prueba): delega al padre vía postMessage
       if (detectIframe()) {
         window.parent.postMessage(
           {
@@ -175,27 +159,18 @@ export default function ChatWidget({
           },
           "*"
         );
-        // La navegación la gestiona el PADRE:
-        //   - En b2b.esgas.es: el script PS hace AJAX y navega a /carrito.
-        //   - En /prueba: el test page muestra confirmación (no navega).
-        // El widget no navega por sí mismo para no romper entornos de prueba.
         setIsCheckingOut(false);
         return;
       }
 
-      // ── STANDALONE (Vercel sin iframe) ───────────────────────────────────
+      // Standalone (Vercel sin iframe): crea carrito vía WS API
       try {
         const res = await fetch("/api/cart", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: [item],
-            ...(customer?.id ? { customerId: customer.id } : {}),
-            ...(customer?.secureKey ? { customerSecureKey: customer.secureKey } : {}),
-          }),
+          body: JSON.stringify({ items: [item] }),
         });
-        const data: { cartId?: string; cartUrl?: string } =
-          await res.json().catch(() => ({}));
+        const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
 
         if (data.cartId) {
           window.open(data.cartUrl || CART_PAGE, "_blank", "noopener,noreferrer");
@@ -216,7 +191,7 @@ export default function ChatWidget({
         setIsCheckingOut(false);
       }
     },
-    [customer]
+    []
   );
 
   const send = useCallback(async () => {
@@ -241,8 +216,7 @@ export default function ChatWidget({
           message: text,
           sessionId,
           history,
-          ...(customerDiscount ? { customerDiscount } : {}),
-          ...(customer?.groupId ? { customerGroupId: customer.groupId } : {}),
+          ...(identityToken ? { identityToken } : {}),
         }),
       });
       const data: { output?: string; products?: Product[] } = await res.json().catch(() => ({}));
@@ -264,7 +238,7 @@ export default function ChatWidget({
     } finally {
       setLoading(false);
     }
-  }, [input, loading, isLocked, messages, sessionId, webhookUrl, customerDiscount, customer]);
+  }, [input, loading, isLocked, messages, sessionId, webhookUrl, identityToken]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -289,12 +263,19 @@ export default function ChatWidget({
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold">Carlos · Asesor Técnico {companyName}</p>
               <div className="flex items-center gap-1.5 text-xs text-white/90">
-                <span className={`inline-block h-2 w-2 rounded-full ${isLocked ? "bg-red-400" : "animate-pulse bg-green-400"}`} />
-                {customer
-                  ? <span>{customer.firstName} {customer.lastName} · B2B</span>
-                  : isLocked
-                    ? <span>Acceso restringido</span>
-                    : <span>Identificando…</span>
+                <span className={`inline-block h-2 w-2 rounded-full ${
+                  isLocked ? "bg-red-400"
+                  : identityToken ? "bg-green-400"
+                  : tokenChecked ? "bg-yellow-300"
+                  : "animate-pulse bg-yellow-400"
+                }`} />
+                {isLocked
+                  ? <span>Acceso restringido</span>
+                  : identityToken && tokenEmail
+                    ? <span className="truncate">{tokenEmail} · B2B</span>
+                    : tokenChecked
+                      ? <span>Demo</span>
+                      : <span>Identificando…</span>
                 }
               </div>
             </div>
@@ -303,7 +284,7 @@ export default function ChatWidget({
               href={CART_PAGE}
               target="_top"
               rel="noopener noreferrer"
-              title="Ver carrito en b2b.esgas.es"
+              title="Ver carrito"
               className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold transition hover:bg-white/30"
             >
               🛒 Carrito
@@ -359,7 +340,6 @@ export default function ChatWidget({
                     </div>
                   </div>
                 )}
-                {/* Confirmación in-widget al recibir esgas-cart-handled */}
                 {cartConfirmed && (
                   <div className="flex justify-center">
                     <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
@@ -372,9 +352,7 @@ export default function ChatWidget({
               {fallbackLinks && (
                 <div className="border-t border-amber-200 bg-amber-50 px-4 py-2.5">
                   <div className="mb-1.5 flex items-center justify-between">
-                    <p className="text-xs font-semibold text-amber-800">
-                      📋 Abre la ficha y añade desde la web
-                    </p>
+                    <p className="text-xs font-semibold text-amber-800">📋 Abre la ficha y añade desde la web</p>
                     <button onClick={() => setFallbackLinks(null)} className="text-amber-600 text-sm leading-none">✕</button>
                   </div>
                   <div className="space-y-1">
