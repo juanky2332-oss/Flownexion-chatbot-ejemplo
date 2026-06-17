@@ -25,10 +25,12 @@ export default function PruebaPage() {
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === "esgas-add-to-cart" && Array.isArray(e.data.items)) {
+        const items = e.data.items as CartItem[];
+
         // Acumula todos los productos añadidos en la sesión de prueba
         setAddedItems((prev) => {
           const next = [...prev];
-          for (const item of e.data.items as CartItem[]) {
+          for (const item of items) {
             const existing = next.findIndex((i) => i.id_product === item.id_product);
             if (existing >= 0) {
               next[existing] = { ...next[existing], qty: next[existing].qty + item.qty };
@@ -38,6 +40,18 @@ export default function PruebaPage() {
           }
           return next;
         });
+
+        // Confirma al widget que el mensaje fue recibido.
+        // Esto cancela el timer de navegación fallback dentro del ChatWidget.
+        try {
+          const src = e.source as Window;
+          if (src?.postMessage) {
+            src.postMessage(
+              { type: "esgas-cart-handled", name: items[0]?.name ?? "artículo" },
+              "*"
+            );
+          }
+        } catch {}
       }
     };
     window.addEventListener("message", handler);
@@ -54,8 +68,8 @@ export default function PruebaPage() {
       </h1>
       <p style={{ color: "#555", fontSize: "0.85rem", marginBottom: "1.5rem", lineHeight: 1.5 }}>
         Simula el entorno de producción: el chatbot corre en un iframe igual que en b2b.esgas.es.
-        Cada <strong>«Añadir al carrito»</strong> envía el producto al carrito PS vía postMessage
-        y navega a la página del carrito.
+        Cada <strong>«Añadir al carrito»</strong> envía el postMessage — aquí se confirma la recepción.
+        En producción el script PS añade al carrito y navega a /carrito automáticamente.
       </p>
 
       <div style={{ background: "#f1f5f9", borderRadius: 10, padding: "0.75rem 1rem", marginBottom: "1.5rem", fontSize: "0.8rem", color: "#475569" }}>
@@ -75,12 +89,13 @@ export default function PruebaPage() {
             <li>Abre el chat (botón abajo a la derecha)</li>
             <li>Pide un rodamiento → ej: <em>«necesito rodamiento 6205»</em></li>
             <li>Ajusta la cantidad y pulsa <strong>🛒 Añadir al carrito</strong></li>
-            <li>Aquí aparecerá la confirmación ✅ y podrías seguir añadiendo más</li>
+            <li>Aquí aparece confirmación ✅ — el botón se resetea y puedes seguir añadiendo</li>
+            <li>Pulsa <strong>«Ver carrito en b2b.esgas.es»</strong> para verificar en PS</li>
           </ol>
         </div>
       )}
 
-      {/* Panel de confirmación — se actualiza con cada "Añadir" */}
+      {/* Panel de confirmación — se actualiza con cada «Añadir» */}
       {addedItems.length > 0 && (
         <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 12, padding: "1.25rem", marginBottom: "1.5rem" }}>
           <p style={{ fontWeight: 700, color: "#15803d", margin: "0 0 0.5rem", fontSize: "1rem" }}>
