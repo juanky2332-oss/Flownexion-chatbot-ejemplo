@@ -2,6 +2,7 @@
 // Solo server-side.
 
 import "server-only";
+import { createHash } from "crypto";
 import type { Product, StockInfo, PSCustomer } from "./types";
 
 const BASE_URL = (process.env.PRESTASHOP_BASE_URL ?? "")
@@ -108,7 +109,6 @@ function buildLinks(id: number, idProductAttribute = 0) {
   const back = encodeURIComponent("/carrito");
   return {
     link: `${STORE_URL}/index.php?controller=product&id_product=${id}`,
-    // back param: tras añadir, PS redirige al carrito (no al homepage)
     cartLink: `${STORE_URL}/index.php?controller=cart&add=1&id_product=${id}&id_product_attribute=${idProductAttribute}&qty=1&action=add&back=${back}`,
     checkoutLink: CHECKOUT_URL,
   };
@@ -117,7 +117,6 @@ function buildLinks(id: number, idProductAttribute = 0) {
 function normalizeProduct(raw: any, basePrice?: number): Product {
   const id = Number(raw?.id ?? 0);
   const price = basePrice ?? (Number.parseFloat(raw?.price ?? "0") || 0);
-  // Primera combinación activa (0 = producto simple sin variantes)
   const combinations: Array<{ id: string | number }> = raw?.associations?.combinations ?? [];
   const idProductAttribute = combinations.length > 0 ? Number(combinations[0].id) : 0;
   return {
@@ -288,7 +287,6 @@ export async function searchProducts(query: string, groupId?: number): Promise<P
     }
   } catch { /* ignorar */ }
 
-  // Enriquecer con precios B2B si hay groupId
   const products = await Promise.all(
     (rawProducts.length > 0 ? rawProducts : matched.map((p) => ({ id: p.id, name: p.name }))).map(
       async (raw: any) => {
@@ -346,7 +344,6 @@ export interface CartResult {
   itemAddUrls: string[];
 }
 
-/** Extrae un campo de texto de una respuesta XML de PS WS (con o sin CDATA) */
 function xmlField(xml: string, tag: string): string {
   const re = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, "i");
   return xml.match(re)?.[1]?.trim() ?? "";
@@ -358,7 +355,6 @@ export async function psCreateCart(
   customerSecureKey?: string
 ): Promise<CartResult> {
   const back = encodeURIComponent("/carrito");
-  // Fallback: URLs directas de PS para añadir uno a uno
   const itemAddUrls = items.map(
     (i) =>
       `${STORE_URL}/index.php?controller=cart&add=1&id_product=${i.productId}&id_product_attribute=${i.idProductAttribute ?? 0}&qty=${i.qty}&action=add&back=${back}`
@@ -381,7 +377,6 @@ export async function psCreateCart(
       .join("");
 
     const customerXml = customerId ? `<id_customer>${customerId}</id_customer>` : "";
-    // Incluir secure_key del cliente en el carrito — necesaria para la recovery URL
     const secureKeyXml = customerSecureKey ? `<secure_key>${customerSecureKey}</secure_key>` : "";
 
     const xml =
@@ -396,7 +391,6 @@ export async function psCreateCart(
       `</cart>` +
       `</prestashop>`;
 
-    // display=full en POST causa error en PS — construir URL sin ese parámetro
     const postUrl = `${BASE_URL}/api/carts?ws_key=${API_KEY}&output_format=JSON`;
     const res = await fetch(postUrl, {
       method: "POST",
@@ -413,7 +407,6 @@ export async function psCreateCart(
 
     let cartId = "";
 
-    // Parsear JSON
     if (body.trimStart().startsWith("{")) {
       try {
         const json = JSON.parse(body);
@@ -421,10 +414,8 @@ export async function psCreateCart(
       } catch { /* ignorar */ }
     }
 
-    // Parsear XML como fallback
     if (!cartId) cartId = xmlField(body, "id");
 
-    // Último recurso: header Location
     if (!cartId) {
       const loc = res.headers.get("location") ?? "";
       cartId = loc.match(/\/carts\/(\d+)/)?.[1] ?? "";
@@ -435,9 +426,13 @@ export async function psCreateCart(
       return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
     }
 
-    // Recovery URL: carga el carrito en la sesión y muestra la página del carrito
-    const cartUrl = customerSecureKey
-      ? `${STORE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${customerSecureKey}`
+    // token_cart = md5(customer.secure_key + cart_id) — fórmula PS 1.7 CartController
+    const tokenCart = customerSecureKey
+      ? createHash("md5").update(customerSecureKey + cartId).digest("hex")
+      : "";
+
+    const cartUrl = tokenCart
+      ? `${STORE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${tokenCart}`
       : CART_PAGE_URL;
 
     return { cartId, cartUrl, itemAddUrls };
