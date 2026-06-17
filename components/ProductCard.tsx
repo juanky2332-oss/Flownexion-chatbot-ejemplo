@@ -21,9 +21,6 @@ export default function ProductCard({
 
   const changeQty = (delta: number) => setQty((prev) => Math.max(1, prev + delta));
 
-  // URL real de PS con la cantidad seleccionada
-  const cartUrl = product.cartLink.replace(/qty=\d+/, `qty=${qty}`);
-
   const hasDiscount = product.discountPct != null && product.discountPct > 0;
 
   return (
@@ -127,11 +124,8 @@ export default function ProductCard({
           🔗 Ficha
         </a>
 
-        {/* Añadir al carrito: abre URL real de PS con qty correcto */}
-        <a
-          href={cartUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+        {/* Añadir al carrito: acumula en el carrito local del widget */}
+        <button
           onClick={() => {
             onAddedToCart?.(product, qty);
             setAdded(true);
@@ -145,9 +139,9 @@ export default function ProductCard({
           }
         >
           {added ? "✓ Añadido" : `🛒 Añadir ${qty > 1 ? `${qty} uds` : "al carrito"}`}
-        </a>
+        </button>
 
-        {/* Tramitar pedido: crea carrito WS con todo lo del chat + este producto */}
+        {/* Tramitar pedido: crea el carrito real en PS via WS API con todos los artículos */}
         <button
           onClick={() => {
             onAddedToCart?.(product, qty);
