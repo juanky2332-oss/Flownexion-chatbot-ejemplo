@@ -12,7 +12,6 @@ export interface ChatWidgetProps {
   companyName?: string;
   startOpen?: boolean;
   customerDiscount?: number;
-  /** Email del cliente autenticado. Viene del portal B2B (URL param o postMessage). */
   customerEmail?: string;
 }
 
@@ -27,7 +26,6 @@ function uid() {
   return Math.random().toString(36).slice(2);
 }
 
-/** True cuando el widget corre dentro de un iframe (producción en b2b.esgas.es) */
 function detectIframe(): boolean {
   try { return window.top !== window.self; } catch { return true; }
 }
@@ -50,6 +48,7 @@ export default function ChatWidget({
   ]);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [fallbackLinks, setFallbackLinks] = useState<{ name: string; qty: number; url: string }[] | null>(null);
+  const [cartConfirmed, setCartConfirmed] = useState<string | null>(null);
 
   const [resolvedEmail, setResolvedEmail] = useState<string | undefined>(customerEmail);
   const [customer, setCustomer] = useState<PSCustomer | null>(null);
@@ -83,6 +82,11 @@ export default function ChatWidget({
         setResolvedEmail(event.data.email);
         setAuthChecked(true);
       }
+      // Confirmación del parent (en prueba o PS) de que recibió los artículos
+      if (event.data?.type === "esgas-cart-handled") {
+        setCartConfirmed(event.data.name ?? "artículo");
+        setTimeout(() => setCartConfirmed(null), 2500);
+      }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -113,7 +117,7 @@ export default function ChatWidget({
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, loading, open, fallbackLinks]);
+  }, [messages, loading, open, fallbackLinks, cartConfirmed]);
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
@@ -125,22 +129,21 @@ export default function ChatWidget({
   const isLocked = authChecked && !resolvedEmail;
 
   /**
-   * Añadir al carrito → va directo a PrestaShop.
+   * handleCheckout — añade al carrito de PS directamente.
    *
-   * En iframe (producción b2b.esgas.es):
-   *   - Manda postMessage al padre con los artículos.
-   *   - El script PS los añade vía AJAX y navega a /carrito.
-   *   - Fallback: si el script no está instalado, navega directamente tras 2s.
+   * En iframe (b2b.esgas.es en producción):
+   *   - Envía postMessage {type:"esgas-add-to-cart", items:[...]} al padre.
+   *   - El script PS hace AJAX + navega a /carrito.
+   *   - El widget NO navega por sí mismo (evita romper páginas de prueba).
    *
-   * En standalone (pruebas Vercel sin iframe):
-   *   - Llama a /api/cart (WS PrestaShop) → abre recovery URL en nueva pestaña.
-   *   - Si falla, muestra enlace a la ficha del producto.
+   * En standalone (Vercel sin iframe):
+   *   - Crea carrito vía WS API → recovery URL en nueva pestaña.
+   *   - Si falla → muestra enlace a la ficha del producto.
    */
   const handleCheckout = useCallback(
     async (singleProduct?: Product, singleQty?: number) => {
       setFallbackLinks(null);
 
-      // Sin producto → ir al carrito
       if (!singleProduct) {
         if (detectIframe()) {
           try { if (window.top && window.top !== window) window.top.location.href = CART_PAGE; } catch {}
@@ -158,7 +161,7 @@ export default function ChatWidget({
         idProductAttribute: singleProduct.idProductAttribute ?? 0,
       };
 
-      // ── PRODUCCIÓN (iframe dentro de b2b.esgas.es) ──────────────────────
+      // ── PRODUCCIÓN / PRUEBA (dentro de un iframe) ────────────────────────
       if (detectIframe()) {
         window.parent.postMessage(
           {
@@ -172,18 +175,15 @@ export default function ChatWidget({
           },
           "*"
         );
-        // El script PS navega a /carrito automáticamente.
-        // Fallback por si el script no está instalado todavía.
-        setTimeout(() => {
-          try {
-            if (window.top && window.top !== window) window.top.location.href = CART_PAGE;
-          } catch { /* ignorar */ }
-        }, 2000);
+        // La navegación la gestiona el PADRE:
+        //   - En b2b.esgas.es: el script PS hace AJAX y navega a /carrito.
+        //   - En /prueba: el test page muestra confirmación (no navega).
+        // El widget no navega por sí mismo para no romper entornos de prueba.
         setIsCheckingOut(false);
         return;
       }
 
-      // ── PRUEBAS (standalone Vercel, sin iframe) ──────────────────────────
+      // ── STANDALONE (Vercel sin iframe) ───────────────────────────────────
       try {
         const res = await fetch("/api/cart", {
           method: "POST",
@@ -299,10 +299,9 @@ export default function ChatWidget({
               </div>
             </div>
 
-            {/* Botón ir al carrito */}
             <a
               href={CART_PAGE}
-              target={detectIframe() ? "_top" : "_blank"}
+              target="_top"
               rel="noopener noreferrer"
               title="Ver carrito en b2b.esgas.es"
               className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold transition hover:bg-white/30"
@@ -321,7 +320,6 @@ export default function ChatWidget({
             </button>
           </div>
 
-          {/* Pantalla bloqueada */}
           {isLocked ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-5 px-8 text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-3xl">🔒</div>
@@ -343,7 +341,6 @@ export default function ChatWidget({
             </div>
           ) : (
             <>
-              {/* Mensajes */}
               <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
                 {messages.map((m) => (
                   <ChatBubble
@@ -362,9 +359,16 @@ export default function ChatWidget({
                     </div>
                   </div>
                 )}
+                {/* Confirmación in-widget al recibir esgas-cart-handled */}
+                {cartConfirmed && (
+                  <div className="flex justify-center">
+                    <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                      ✅ Añadido al carrito · {cartConfirmed}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Panel fallback (modo prueba standalone — WS falló) */}
               {fallbackLinks && (
                 <div className="border-t border-amber-200 bg-amber-50 px-4 py-2.5">
                   <div className="mb-1.5 flex items-center justify-between">
@@ -391,7 +395,6 @@ export default function ChatWidget({
                 </div>
               )}
 
-              {/* Input */}
               <div className="border-t border-gray-200 bg-white p-3">
                 <div className="flex items-end gap-2">
                   <input
@@ -425,7 +428,6 @@ export default function ChatWidget({
         </div>
       )}
 
-      {/* Botón flotante */}
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? "Cerrar chat" : "Abrir chat con Carlos"}
