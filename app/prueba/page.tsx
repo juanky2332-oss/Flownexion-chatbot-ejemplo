@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type CartItem = {
   id_product: number;
   qty: number;
   id_product_attribute: number;
   name?: string;
+};
+
+type PSCustomer = {
+  id: number;
+  secureKey?: string;
 };
 
 const TEST_EMAIL = "juancarlos@flownexion.com";
@@ -16,12 +21,25 @@ export default function PruebaPage() {
   const [status, setStatus] = useState<"idle" | "adding" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [lastAdded, setLastAdded] = useState<CartItem | null>(null);
+  const customerRef = useRef<PSCustomer | null>(null);
 
+  // Leer email de ?email= query param
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const e = params.get("email");
     if (e && e.includes("@")) setEmbedEmail(e);
   }, []);
+
+  // Obtener datos del cliente (necesitamos secureKey para la URL de recuperación)
+  useEffect(() => {
+    if (!embedEmail) return;
+    fetch(`/api/customer?email=${encodeURIComponent(embedEmail)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: PSCustomer | null) => {
+        if (data?.id) customerRef.current = data;
+      })
+      .catch(() => {});
+  }, [embedEmail]);
 
   useEffect(() => {
     const handler = (e: MessageEvent) => {
@@ -34,13 +52,14 @@ export default function PruebaPage() {
       setStatus("adding");
       setLastAdded(first);
 
-      // Confirma al widget para resetear el botón
+      // Confirma al widget para resetear su botón inmediatamente
       try {
         const src = e.source as Window;
         src?.postMessage?.({ type: "esgas-cart-handled", name: first.name ?? "artículo" }, "*");
       } catch {}
 
-      // Añade al carrito real de PS vía WS API
+      // Llama a /api/cart para crear el carrito en PS y obtener la recovery URL
+      const customer = customerRef.current;
       fetch("/api/cart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -50,18 +69,25 @@ export default function PruebaPage() {
             qty: item.qty,
             idProductAttribute: item.id_product_attribute ?? 0,
           })),
+          // secureKey necesario para generar ?recover_cart=ID&token_cart=TOKEN
+          ...(customer?.id ? { customerId: customer.id } : {}),
+          ...(customer?.secureKey ? { customerSecureKey: customer.secureKey } : {}),
         }),
       })
         .then((r) => r.json())
         .then((data: { cartId?: string; cartUrl?: string; error?: string }) => {
-          if (data.cartUrl) {
-            // Recovery URL → PS merges cart with user session
+          if (data.cartUrl && data.cartUrl.includes("recover_cart")) {
+            // Recovery URL → PS carga ese carrito exacto en la sesión del usuario
             window.location.href = data.cartUrl;
           } else if (data.cartId) {
+            // Carrito creado pero sin recovery (sin secureKey) → ir al carrito
             window.location.href = "https://b2b.esgas.es/carrito?action=show";
           } else {
             setStatus("error");
-            setErrorMsg(data.error ?? "No se pudo crear el carrito en PrestaShop");
+            setErrorMsg(
+              data.error ??
+                "No se pudo crear el carrito. Revisa PRESTASHOP_BASE_URL y PRESTASHOP_API_KEY en Vercel."
+            );
           }
         })
         .catch((err) => {
@@ -82,9 +108,8 @@ export default function PruebaPage() {
         🧪 Página de prueba — Chatbot ESGAS
       </h1>
       <p style={{ color: "#555", fontSize: "0.85rem", marginBottom: "1.5rem", lineHeight: 1.5 }}>
-        Simula el entorno de producción. Al pulsar{" "}
-        <strong>«Añadir al carrito»</strong> en el chat, esta página llama a la API de
-        PrestaShop y te redirige al carrito real en b2b.esgas.es.
+        Pulsa <strong>«Añadir al carrito»</strong> en el chat → esta página llama a la API de
+        PrestaShop y te redirige al carrito real en b2b.esgas.es con los productos añadidos.
       </p>
 
       <div
@@ -98,7 +123,9 @@ export default function PruebaPage() {
         }}
       >
         <strong>Email de prueba:</strong>{" "}
-        <code style={{ background: "#e2e8f0", padding: "1px 5px", borderRadius: 4 }}>{embedEmail}</code>
+        <code style={{ background: "#e2e8f0", padding: "1px 5px", borderRadius: 4 }}>
+          {embedEmail}
+        </code>
         <span style={{ marginLeft: 12 }}>·</span>
         <span style={{ marginLeft: 12 }}>
           Cambia con{" "}
@@ -129,7 +156,7 @@ export default function PruebaPage() {
               Pide un rodamiento → ej: <em>«necesito rodamiento 6205»</em>
             </li>
             <li>Ajusta la cantidad y pulsa 🛒 Añadir al carrito</li>
-            <li>Esta página llama a la API de PS y te lleva al carrito real</li>
+            <li>Esta página crea el carrito en PS y te redirige con los artículos ya añadidos</li>
           </ol>
         </div>
       )}
@@ -190,11 +217,14 @@ export default function PruebaPage() {
             </p>
           )}
           <p style={{ color: "#7f1d1d", fontSize: "0.75rem", margin: "0 0 0.75rem" }}>
-            Comprueba que las variables de entorno PRESTASHOP_BASE_URL y PRESTASHOP_API_KEY
-            están configuradas en Vercel.
+            Comprueba que PRESTASHOP_BASE_URL y PRESTASHOP_API_KEY están configuradas en Vercel.
           </p>
           <button
-            onClick={() => { setStatus("idle"); setErrorMsg(""); setLastAdded(null); }}
+            onClick={() => {
+              setStatus("idle");
+              setErrorMsg("");
+              setLastAdded(null);
+            }}
             style={{
               background: "#dc2626",
               color: "white",
