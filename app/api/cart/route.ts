@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { psCreateCart, CART_PAGE_URL } from "@/lib/prestashop";
+import { psCreateCart, psGetCustomer, CART_PAGE_URL } from "@/lib/prestashop";
 import { corsHeaders, preflight } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -31,6 +31,20 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await psCreateCart(items, body?.customerId, body?.customerSecureKey);
+  let customerId = body?.customerId;
+  let customerSecureKey = body?.customerSecureKey;
+
+  // 🧪 MODO PRUEBAS: si no llega cliente en el body, usamos la cuenta de
+  // pruebas configurada en TEST_CUSTOMER_EMAIL para que el carrito creado
+  // por la Webservice quede asociado a un cliente real con secure_key.
+  if ((!customerId || !customerSecureKey) && process.env.TEST_CUSTOMER_EMAIL) {
+    const testCustomer = await psGetCustomer(process.env.TEST_CUSTOMER_EMAIL);
+    if (testCustomer) {
+      customerId = testCustomer.id;
+      customerSecureKey = testCustomer.secureKey;
+    }
+  }
+
+  const result = await psCreateCart(items, customerId, customerSecureKey);
   return NextResponse.json(result, { headers });
 }
