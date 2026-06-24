@@ -38,7 +38,10 @@ export async function POST(req: NextRequest) {
   // pruebas configurada en TEST_CUSTOMER_EMAIL para que el carrito creado
   // por la Webservice quede asociado a un cliente real con secure_key.
   if ((!customerId || !customerSecureKey) && process.env.TEST_CUSTOMER_EMAIL) {
-    const testCustomer = await psGetCustomer(process.env.TEST_CUSTOMER_EMAIL);
+    const email = process.env.TEST_CUSTOMER_EMAIL.trim();
+    console.log("[api/cart] buscando cliente:", email);
+    const testCustomer = await psGetCustomer(email);
+    console.log("[api/cart] cliente encontrado:", testCustomer ? `id=${testCustomer.id} key=${testCustomer.secureKey?.slice(0,8)}…` : "NULL");
     if (testCustomer) {
       customerId = testCustomer.id;
       customerSecureKey = testCustomer.secureKey;
@@ -46,5 +49,6 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await psCreateCart(items, customerId, customerSecureKey);
+  console.log("[api/cart] resultado:", { cartId: result.cartId, cartUrl: result.cartUrl?.slice(0, 80) });
   return NextResponse.json(result, { headers });
 }
