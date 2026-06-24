@@ -357,13 +357,17 @@ function injectCartRows(
   cartXml: string,
   items: { productId: number; qty: number; idProductAttribute?: number }[]
 ): string {
+  // La primera ocurrencia de id_address_delivery en el XML del carrito es la del carrito
+  // (no la de un cart_row). PS 8.x rechaza id_address_delivery=0 en cart_product.
+  const idAddressDelivery = xmlField(cartXml, "id_address_delivery") || "0";
+
   const rows = items
     .map(
       (i) =>
         `<cart_row>` +
         `<id_product>${i.productId}</id_product>` +
         `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
-        `<id_address_delivery>0</id_address_delivery>` +
+        `<id_address_delivery>${idAddressDelivery}</id_address_delivery>` +
         `<quantity>${i.qty}</quantity>` +
         `</cart_row>`
     )
@@ -457,33 +461,15 @@ export async function psCreateCart(
     }
 
     // ── Paso 2: GET el XML real del carrito creado ──────────────────────────
-    // Usar el XML exacto de PS garantiza que el PUT tendrá todos los campos requeridos
+    // Necesitamos el XML exacto para: (a) todos los campos requeridos en PUT,
+    // (b) id_address_delivery real del carrito para usarlo en cart_rows.
     const getUrl = `${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}`;
     const getRes = await fetch(getUrl, { headers: { Accept: "application/xml" } });
     const fullCartXml = await getRes.text().catch(() => "");
 
     if (!getRes.ok || !fullCartXml.includes("<cart>")) {
-      console.warn("[psCreateCart] GET cart failed:", getRes.status);
-      // Si el GET falla, caer de vuelta al PUT con XML propio
-      const fallbackPutXml =
-        `<?xml version="1.0" encoding="UTF-8"?>` +
-        `<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">` +
-        `<cart><id>${cartId}</id><id_currency>1</id_currency><id_lang>1</id_lang>` +
-        customerXml + secureKeyXml +
-        `<associations><cart_rows nodeType="cart_row" api="cart_rows">` +
-        items.map(i =>
-          `<cart_row><id_product>${i.productId}</id_product>` +
-          `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
-          `<id_address_delivery>0</id_address_delivery>` +
-          `<quantity>${i.qty}</quantity></cart_row>`
-        ).join("") +
-        `</cart_rows></associations></cart></prestashop>`;
-
-      await fetch(`${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}&output_format=JSON`, {
-        method: "PUT",
-        headers: { ...PS_HEADERS, "Content-Type": "application/xml" },
-        body: fallbackPutXml,
-      }).catch(() => {});
+      console.error("[psCreateCart] GET cart failed:", getRes.status, fullCartXml.slice(0, 200));
+      // Sin el XML real no podemos hacer un PUT válido — devolvemos URL igual (carrito vacío visible)
     } else {
       // ── Paso 3: Inyectar filas en el XML real y hacer PUT ─────────────────
       const putXml = injectCartRows(fullCartXml, items);
@@ -494,7 +480,7 @@ export async function psCreateCart(
       });
       if (!putRes.ok) {
         const putBody = await putRes.text().catch(() => "");
-        console.warn("[psCreateCart] PUT failed:", putRes.status, putBody.slice(0, 200));
+        console.error("[psCreateCart] PUT failed:", putRes.status, putBody.slice(0, 400));
       }
     }
 
