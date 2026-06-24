@@ -205,10 +205,13 @@ class Nexionchat extends Module
         $output .= '    }));';
         $output .= '    ps.then(function(results){';
         $output .= '      var first=items[0]||{};';
+        $output .= '      var res=results[0]||{};';
         $output .= '      frame.contentWindow.postMessage({type:"esgas-cart-handled",name:first.name||""},chatUrl);';
         $output .= '      if(typeof prestashop!=="undefined"&&prestashop.emit){';
         $output .= '        prestashop.emit("updateCart",{reason:{idProduct:first.id_product,idProductAttribute:first.id_product_attribute||0}});';
         $output .= '      }';
+        $output .= '      var dest=res.cartUrl||"/carrito?action=show";';
+        $output .= '      setTimeout(function(){window.location.href=dest;},400);';
         $output .= '    }).catch(function(){';
         $output .= '      frame.contentWindow.postMessage({type:"esgas-cart-handled",name:""},chatUrl);';
         $output .= '    });';

@@ -163,33 +163,19 @@ export default function ChatWidget({
         return;
       }
 
-      // Standalone (Vercel sin iframe): crea carrito vía WS API y abre la URL de recuperación
-      try {
-        const res = await fetch("/api/cart", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: [item] }),
-        });
-        const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
-
-        if (data.cartId) {
-          window.open(data.cartUrl || CART_PAGE, "_blank", "noopener,noreferrer");
-        } else {
-          setFallbackLinks([{
-            name: `${singleProduct.name} × ${item.qty}`,
-            qty: item.qty,
-            url: singleProduct.link,
-          }]);
-        }
-      } catch {
-        setFallbackLinks([{
-          name: `${singleProduct.name} × ${item.qty}`,
-          qty: item.qty,
-          url: singleProduct.link,
-        }]);
-      } finally {
-        setIsCheckingOut(false);
-      }
+      // Standalone (Vercel sin iframe): abre URL de add-to-cart de PS directamente.
+      // Requiere estar logueado en b2b.esgas.es. PS añade al carrito de sesión y
+      // redirige al carrito. Más fiable que la recovery URL via WS API.
+      const back = encodeURIComponent("/carrito?action=show");
+      const addUrl =
+        `https://b2b.esgas.es/index.php?controller=cart&add=1` +
+        `&id_product=${item.productId}` +
+        `&id_product_attribute=${item.idProductAttribute ?? 0}` +
+        `&qty=${item.qty}` +
+        `&action=add` +
+        `&back=${back}`;
+      window.open(addUrl, "_blank");
+      setIsCheckingOut(false);
     },
     []
   );
