@@ -163,34 +163,16 @@ export default function ChatWidget({
         return;
       }
 
-      // Standalone (Vercel sin iframe): crea carrito via WS API y abre recovery URL.
-      // PS 8.x exige token CSRF para add-to-cart directo, por eso usamos la WS API.
-      try {
-        const res = await fetch("/api/cart", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: [item] }),
-        });
-        const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
-
-        if (data.cartId) {
-          window.open(data.cartUrl || CART_PAGE, "_blank", "noopener,noreferrer");
-        } else {
-          setFallbackLinks([{
-            name: `${singleProduct.name} × ${item.qty}`,
-            qty: item.qty,
-            url: singleProduct.link,
-          }]);
-        }
-      } catch {
-        setFallbackLinks([{
-          name: `${singleProduct.name} × ${item.qty}`,
-          qty: item.qty,
-          url: singleProduct.link,
-        }]);
-      } finally {
-        setIsCheckingOut(false);
-      }
+      // Standalone (Vercel sin iframe): módulo nexionchat/addandgo en PS.
+      // El controlador PHP añade al carrito de sesión y redirige al carrito.
+      // Evita los problemas de CSRF (add-to-cart directo) y de recover_cart (WS API).
+      const addAndGoUrl =
+        `https://b2b.esgas.es/module/nexionchat/addandgo` +
+        `?id_product=${item.productId}` +
+        `&id_product_attribute=${item.idProductAttribute ?? 0}` +
+        `&qty=${item.qty}`;
+      window.open(addAndGoUrl, "_blank");
+      setIsCheckingOut(false);
     },
     []
   );
