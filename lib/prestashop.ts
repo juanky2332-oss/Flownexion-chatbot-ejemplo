@@ -349,54 +349,6 @@ function xmlField(xml: string, tag: string): string {
   return xml.match(re)?.[1]?.trim() ?? "";
 }
 
-/**
- * Inyecta filas en el XML real del carrito obtenido via GET.
- * Usa el XML exacto que devuelve PS en lugar de generar uno desde cero.
- */
-function injectCartRows(
-  cartXml: string,
-  items: { productId: number; qty: number; idProductAttribute?: number }[]
-): string {
-  // La primera ocurrencia de id_address_delivery en el XML del carrito es la del carrito
-  // (no la de un cart_row). PS 8.x rechaza id_address_delivery=0 en cart_product.
-  const idAddressDelivery = xmlField(cartXml, "id_address_delivery") || "0";
-
-  const rows = items
-    .map(
-      (i) =>
-        `<cart_row>` +
-        `<id_product>${i.productId}</id_product>` +
-        `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
-        `<id_address_delivery>${idAddressDelivery}</id_address_delivery>` +
-        `<quantity>${i.qty}</quantity>` +
-        `</cart_row>`
-    )
-    .join("");
-
-  const replacement = `<cart_rows nodeType="cart_row" api="cart_rows">${rows}</cart_rows>`;
-
-  // Sustituye el tag cart_rows sea cual sea su formato (self-closing, vacío, o con contenido)
-  let result = cartXml.replace(/<cart_rows[^>]*\/>/g, replacement);
-  result = result.replace(/<cart_rows[^>]*>[\s\S]*?<\/cart_rows>/g, replacement);
-
-  // Si no había cart_rows, insertarlo antes del cierre de associations
-  if (!result.includes("<cart_rows")) {
-    result = result.replace(
-      /<\/associations>/,
-      `${replacement}</associations>`
-    );
-  }
-
-  // Si tampoco había associations, insertarlo antes del cierre del cart
-  if (!result.includes("<cart_rows")) {
-    result = result.replace(
-      /<\/cart>/,
-      `<associations>${replacement}</associations></cart>`
-    );
-  }
-
-  return result;
-}
 
 export async function psCreateCart(
   items: { productId: number; qty: number; idProductAttribute?: number }[],
@@ -419,8 +371,19 @@ export async function psCreateCart(
       ? `<secure_key>${customerSecureKey.trim()}</secure_key>`
       : "";
 
-    // ── Paso 1: Crear carrito vacío ─────────────────────────────────────────
-    const postXml =
+    // POST único con items incluidos — mismo patrón confirmado en debug-cart
+    const rows = items
+      .map(
+        (i) =>
+          `<cart_row>` +
+          `<id_product>${i.productId}</id_product>` +
+          `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
+          `<quantity>${i.qty}</quantity>` +
+          `</cart_row>`
+      )
+      .join("");
+
+    const xml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">` +
       `<cart>` +
@@ -428,6 +391,7 @@ export async function psCreateCart(
       `<id_lang>1</id_lang>` +
       customerXml +
       secureKeyXml +
+      `<associations><cart_rows>${rows}</cart_rows></associations>` +
       `</cart>` +
       `</prestashop>`;
 
@@ -435,14 +399,14 @@ export async function psCreateCart(
     const postRes = await fetch(postUrl, {
       method: "POST",
       headers: { ...PS_HEADERS, "Content-Type": "application/xml" },
-      body: postXml,
+      body: xml,
     });
 
     const postBody = await postRes.text().catch(() => "");
 
     if (!postRes.ok) {
       console.error("[psCreateCart] POST error", postRes.status, postBody.slice(0, 300));
-      return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls, debug: `POST ${postRes.status}` };
+      return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
     }
 
     let cartId = "";
@@ -457,38 +421,11 @@ export async function psCreateCart(
 
     if (!cartId) {
       console.error("[psCreateCart] No cart ID:", postBody.slice(0, 300));
-      return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls, debug: "no cart ID" };
+      return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
     }
 
-    // ── Paso 2: GET el XML real del carrito creado ──────────────────────────
-    // Necesitamos el XML exacto para: (a) todos los campos requeridos en PUT,
-    // (b) id_address_delivery real del carrito para usarlo en cart_rows.
-    const getUrl = `${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}`;
-    const getRes = await fetch(getUrl, { headers: { Accept: "application/xml" } });
-    const fullCartXml = await getRes.text().catch(() => "");
-
-    if (!getRes.ok || !fullCartXml.includes("<cart>")) {
-      console.error("[psCreateCart] GET cart failed:", getRes.status, fullCartXml.slice(0, 200));
-      // Sin el XML real no podemos hacer un PUT válido — devolvemos URL igual (carrito vacío visible)
-    } else {
-      // ── Paso 3: Inyectar filas en el XML real y hacer PUT ─────────────────
-      const putXml = injectCartRows(fullCartXml, items);
-      const putRes = await fetch(`${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}&output_format=JSON`, {
-        method: "PUT",
-        headers: { Accept: "application/json", "Content-Type": "application/xml" },
-        body: putXml,
-      });
-      if (!putRes.ok) {
-        const putBody = await putRes.text().catch(() => "");
-        console.error("[psCreateCart] PUT failed:", putRes.status, putBody.slice(0, 400));
-      }
-    }
-
-    // ── Paso 4: URL de recuperación ─────────────────────────────────────────
-    // PS 8.x CartController acepta token_cart = customer.secure_key directamente
-    // (primera comprobación: hash_equals($customer->secure_key, $token))
+    // token_cart = secure_key del cliente — PS 8.x lo acepta directamente
     const secureKey = customerSecureKey?.trim() ?? "";
-
     const cartUrl = secureKey
       ? `${STORE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${secureKey}`
       : CART_PAGE_URL;
@@ -496,7 +433,7 @@ export async function psCreateCart(
     return { cartId, cartUrl, itemAddUrls };
   } catch (err) {
     console.error("[psCreateCart] Exception:", err);
-    return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls, debug: String(err) };
+    return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
   }
 }
 
