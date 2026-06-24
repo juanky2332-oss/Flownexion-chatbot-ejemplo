@@ -2,7 +2,6 @@
 // Solo server-side.
 
 import "server-only";
-import { createHash } from "crypto";
 import type { Product, StockInfo, PSCustomer } from "./types";
 
 const BASE_URL = (process.env.PRESTASHOP_BASE_URL ?? "")
@@ -500,14 +499,12 @@ export async function psCreateCart(
     }
 
     // ── Paso 4: URL de recuperación ─────────────────────────────────────────
-    // token_cart = md5(customer.secure_key + cart_id) — fórmula CartController PS 1.7
+    // PS 8.x CartController acepta token_cart = customer.secure_key directamente
+    // (primera comprobación: hash_equals($customer->secure_key, $token))
     const secureKey = customerSecureKey?.trim() ?? "";
-    const tokenCart = secureKey
-      ? createHash("md5").update(secureKey + cartId).digest("hex")
-      : "";
 
-    const cartUrl = tokenCart
-      ? `${STORE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${tokenCart}`
+    const cartUrl = secureKey
+      ? `${STORE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${secureKey}`
       : CART_PAGE_URL;
 
     return { cartId, cartUrl, itemAddUrls };

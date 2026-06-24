@@ -164,6 +164,8 @@ export default function ChatWidget({
       }
 
       // Standalone (Vercel sin iframe): crea carrito vía WS API
+      // Abrimos la pestaña antes del await para que el bloqueador de popups no la bloquee
+      const newTab = window.open("about:blank", "_blank", "noopener,noreferrer");
       try {
         const res = await fetch("/api/cart", {
           method: "POST",
@@ -173,8 +175,11 @@ export default function ChatWidget({
         const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
 
         if (data.cartId) {
-          window.open(data.cartUrl || CART_PAGE, "_blank", "noopener,noreferrer");
+          const target = data.cartUrl || CART_PAGE;
+          if (newTab) newTab.location.href = target;
+          else window.open(target, "_blank", "noopener,noreferrer");
         } else {
+          if (newTab) newTab.close();
           setFallbackLinks([{
             name: `${singleProduct.name} × ${item.qty}`,
             qty: item.qty,
@@ -182,6 +187,7 @@ export default function ChatWidget({
           }]);
         }
       } catch {
+        if (newTab) newTab.close();
         setFallbackLinks([{
           name: `${singleProduct.name} × ${item.qty}`,
           qty: item.qty,
