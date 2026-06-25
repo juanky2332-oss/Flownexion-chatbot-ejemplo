@@ -12,7 +12,6 @@ export default function EmbedPage({
   const logoUrl = searchParams.logo || undefined;
   const primaryColor = searchParams.color || "#0066cc";
   const companyName = searchParams.company || "ESGAS";
-  // requireAuth=true cuando HMAC_SECRET está configurado (producción)
   const requireAuth = !!process.env.HMAC_SECRET;
 
   return (
@@ -21,7 +20,7 @@ export default function EmbedPage({
         logoUrl={logoUrl}
         primaryColor={primaryColor}
         companyName={companyName}
-        startOpen={true}
+        startOpen={false}
         requireAuth={requireAuth}
       />
     </div>
