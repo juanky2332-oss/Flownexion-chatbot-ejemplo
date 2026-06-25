@@ -20,6 +20,7 @@ const WELCOME =
 
 const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
+const PS_BASE   = "https://b2b.esgas.es";
 
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -163,14 +164,14 @@ export default function ChatWidget({
         return;
       }
 
-      // Standalone (Vercel sin iframe): módulo nexionchat/addandgo en PS.
-      // El controlador PHP añade al carrito de sesión y redirige al carrito.
-      // Evita los problemas de CSRF (add-to-cart directo) y de recover_cart (WS API).
+      // Standalone (Vercel directo): URL nativa de PrestaShop
       const addAndGoUrl =
-        `https://b2b.esgas.es/module/nexionchat/addandgo` +
-        `?id_product=${item.productId}` +
-        `&id_product_attribute=${item.idProductAttribute ?? 0}` +
-        `&qty=${item.qty}`;
+        `${PS_BASE}/index.php?controller=cart&add=1` +
+        `&id_product=${item.productId}` +
+        `&id_product_attribute=${item.idProductAttribute}` +
+        `&qty=${item.qty}` +
+        `&action=add` +
+        `&back=${encodeURIComponent("/carrito?action=show")}`;
       window.open(addAndGoUrl, "_blank");
       setIsCheckingOut(false);
     },
