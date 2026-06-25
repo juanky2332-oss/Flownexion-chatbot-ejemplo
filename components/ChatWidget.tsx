@@ -31,7 +31,6 @@ function detectIframe(): boolean {
   try { return window.top !== window.self; } catch { return true; }
 }
 
-/** Decodifica el email del token para mostrarlo en el header (sin verificar firma — solo UI). */
 function decodeTokenEmail(token: string): string | null {
   try {
     const lastDot = token.lastIndexOf(".");
@@ -62,7 +61,6 @@ export default function ChatWidget({
   const [fallbackLinks, setFallbackLinks] = useState<{ name: string; qty: number; url: string }[] | null>(null);
   const [cartConfirmed, setCartConfirmed] = useState<string | null>(null);
 
-  // Token HMAC de identidad recibido del padre vía postMessage
   const [identityToken, setIdentityToken] = useState<string | null>(null);
   const [tokenChecked, setTokenChecked] = useState(false);
   const [isInIframe, setIsInIframe] = useState(false);
@@ -77,23 +75,15 @@ export default function ChatWidget({
     setIsInIframe(inIframe);
 
     if (inIframe) {
-      // Señalar al padre que el widget está listo para recibir el token
       window.parent.postMessage({ type: "esgas-ready" }, "*");
-      // Reenviar por si la primera señal llegó antes de que el padre escuchase
-      const retry = setTimeout(
-        () => window.parent.postMessage({ type: "esgas-ready" }, "*"),
-        300
-      );
-      // Timeout de seguridad: si no llega token en 800ms → marcar como comprobado
+      const retry = setTimeout(() => window.parent.postMessage({ type: "esgas-ready" }, "*"), 300);
       const timeout = setTimeout(() => setTokenChecked(true), 800);
       return () => { clearTimeout(retry); clearTimeout(timeout); };
     } else {
-      // Fuera de iframe: no se espera token
       setTokenChecked(true);
     }
   }, []);
 
-  // Mensajes postMessage desde el padre (token de identidad y confirmación de carrito)
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === "esgas-identity-token" && typeof event.data.token === "string") {
@@ -109,7 +99,6 @@ export default function ChatWidget({
     return () => window.removeEventListener("message", handler);
   }, []);
 
-  // Notificar al padre el estado open/closed para que redimensione el iframe
   useEffect(() => {
     if (typeof window === "undefined" || window.parent === window) return;
     window.parent.postMessage({ type: "esgas-chat", open }, "*");
@@ -121,7 +110,6 @@ export default function ChatWidget({
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
-  // Bloqueo: solo si requireAuth + en iframe + ya comprobado + sin token
   const isLocked = requireAuth && isInIframe && tokenChecked && !identityToken;
   const tokenEmail = identityToken ? decodeTokenEmail(identityToken) : null;
 
@@ -146,7 +134,7 @@ export default function ChatWidget({
         idProductAttribute: singleProduct.idProductAttribute ?? 0,
       };
 
-      // En iframe (producción PS o /prueba): delega al padre vía postMessage
+      // En iframe: delega al padre vía postMessage
       if (detectIframe()) {
         window.parent.postMessage(
           {
@@ -164,16 +152,27 @@ export default function ChatWidget({
         return;
       }
 
-      // Standalone (Vercel directo): URL nativa de PrestaShop
-      const addAndGoUrl =
-        `${PS_BASE}/index.php?controller=cart&add=1` +
-        `&id_product=${item.productId}` +
-        `&id_product_attribute=${item.idProductAttribute}` +
-        `&qty=${item.qty}` +
-        `&action=add` +
-        `&back=${encodeURIComponent("/carrito?action=show")}`;
-      window.open(addAndGoUrl, "_blank");
-      setIsCheckingOut(false);
+      // Standalone: llama a addchat.php en PS con la sesión del usuario
+      try {
+        const res = await fetch(
+          `${PS_BASE}/addchat.php` +
+          `?id_product=${item.productId}` +
+          `&id_product_attribute=${item.idProductAttribute}` +
+          `&qty=${item.qty}`,
+          { credentials: "include" }
+        );
+        const data: { ok?: boolean } = await res.json().catch(() => ({}));
+        if (data.ok) {
+          setCartConfirmed(singleProduct.name);
+          setTimeout(() => setCartConfirmed(null), 3000);
+        } else {
+          window.open(`${PS_BASE}/index.php?controller=product&id_product=${item.productId}`, "_blank");
+        }
+      } catch {
+        window.open(`${PS_BASE}/index.php?controller=product&id_product=${item.productId}`, "_blank");
+      } finally {
+        setIsCheckingOut(false);
+      }
     },
     []
   );
@@ -236,7 +235,6 @@ export default function ChatWidget({
           role="dialog"
           aria-label={`Chat con Carlos de ${companyName}`}
         >
-          {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 text-white" style={{ backgroundColor: primaryColor }}>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/15 ring-2 ring-white/30">
               {logoUrl
@@ -353,7 +351,6 @@ export default function ChatWidget({
                       </a>
                     ))}
                   </div>
-                  <p className="mt-1 text-[9px] text-amber-600">En producción (b2b.esgas.es) el carrito se rellena automáticamente</p>
                 </div>
               )}
 
