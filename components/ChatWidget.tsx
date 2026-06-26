@@ -17,8 +17,12 @@ export interface ChatWidgetProps {
 const WELCOME =
   "¡Hola! 👋 Soy **Carlos**, tu asesor técnico de ESGAS, distribuidor oficial **NTN/SNR**.\n\nDime qué rodamiento o suministro necesitas y te ayudo a encontrarlo al mejor precio. ¿En qué estás trabajando?";
 
-const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
-const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
+const LOGIN_URL  = "https://b2b.esgas.es/iniciar-sesion";
+const CART_PAGE  = "https://b2b.esgas.es/carrito?action=show";
+const PS_BASE    = "https://b2b.esgas.es";
+
+// Tiempo que damos a addchat.php para procesar el Cart::updateQty antes de redirigir al carrito
+const ADDCHAT_DELAY_MS = 900;
 
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -73,7 +77,7 @@ export default function ChatWidget({
     setIsInIframe(inIframe);
     if (inIframe) {
       window.parent.postMessage({ type: "esgas-ready" }, "*");
-      const retry = setTimeout(() => window.parent.postMessage({ type: "esgas-ready" }, "*"), 300);
+      const retry   = setTimeout(() => window.parent.postMessage({ type: "esgas-ready" }, "*"), 300);
       const timeout = setTimeout(() => setTokenChecked(true), 800);
       return () => { clearTimeout(retry); clearTimeout(timeout); };
     } else {
@@ -107,7 +111,7 @@ export default function ChatWidget({
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
-  const isLocked = requireAuth && isInIframe && tokenChecked && !identityToken;
+  const isLocked   = requireAuth && isInIframe && tokenChecked && !identityToken;
   const tokenEmail = identityToken ? decodeTokenEmail(identityToken) : null;
 
   const handleCheckout = useCallback(
@@ -126,8 +130,8 @@ export default function ChatWidget({
       setIsCheckingOut(true);
 
       const item = {
-        productId: singleProduct.id,
-        qty: singleQty ?? 1,
+        productId:          singleProduct.id,
+        qty:                singleQty ?? 1,
         idProductAttribute: singleProduct.idProductAttribute ?? 0,
       };
 
@@ -137,10 +141,10 @@ export default function ChatWidget({
           {
             type: "esgas-add-to-cart",
             items: [{
-              id_product: item.productId,
-              qty: item.qty,
+              id_product:           item.productId,
+              qty:                  item.qty,
               id_product_attribute: item.idProductAttribute,
-              name: singleProduct.name,
+              name:                 singleProduct.name,
             }],
           },
           "*"
@@ -149,23 +153,36 @@ export default function ChatWidget({
         return;
       }
 
-      // Standalone: llama a /api/cart (servidor Vercel → PS WebService)
-      // El servidor crea el carrito con dirección válida y devuelve recover_cart URL
-      try {
-        const res = await fetch("/api/cart", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: [{ productId: item.productId, qty: item.qty, idProductAttribute: item.idProductAttribute }],
-          }),
-        });
-        const data = await res.json().catch(() => ({})) as { cartUrl?: string };
-        window.open(data?.cartUrl || CART_PAGE, "_blank");
-      } catch {
-        window.open(CART_PAGE, "_blank");
-      } finally {
+      // ── Standalone ────────────────────────────────────────────────────────
+      // addchat.php usa la sesión PS real del usuario (cookies SameSite=Lax
+      // se envían porque es una navegación top-level, no un fetch).
+      // Flujo:
+      //   1. Abrimos addchat.php en nueva pestaña → PS añade el producto al carrito.
+      //   2. Tras ADDCHAT_DELAY_MS, navegamos esa misma pestaña al carrito
+      //      (el opener puede navegar ventanas que él abrió, incluso cross-origin).
+      // ─────────────────────────────────────────────────────────────────────
+      const addchatUrl =
+        `${PS_BASE}/addchat.php` +
+        `?id_product=${item.productId}` +
+        `&id_product_attribute=${item.idProductAttribute}` +
+        `&qty=${item.qty}`;
+
+      const popup = window.open(addchatUrl, "_blank");
+
+      setTimeout(() => {
+        try {
+          if (popup && !popup.closed) {
+            // Navegar la pestaña al carrito (permitido porque nosotros la abrimos)
+            popup.location.href = CART_PAGE;
+          } else {
+            // Popup bloqueado o cerrado → abrir el carrito directamente
+            window.open(CART_PAGE, "_blank");
+          }
+        } catch {
+          window.open(CART_PAGE, "_blank");
+        }
         setIsCheckingOut(false);
-      }
+      }, ADDCHAT_DELAY_MS);
     },
     []
   );
@@ -239,9 +256,9 @@ export default function ChatWidget({
               <p className="truncate text-sm font-semibold">Carlos · Asesor Técnico {companyName}</p>
               <div className="flex items-center gap-1.5 text-xs text-white/90">
                 <span className={`inline-block h-2 w-2 rounded-full ${
-                  isLocked ? "bg-red-400"
-                  : identityToken ? "bg-green-400"
-                  : tokenChecked ? "bg-yellow-300"
+                  isLocked       ? "bg-red-400"
+                  : identityToken  ? "bg-green-400"
+                  : tokenChecked   ? "bg-yellow-300"
                   : "animate-pulse bg-yellow-400"
                 }`} />
                 {isLocked
