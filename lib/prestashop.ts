@@ -349,7 +349,6 @@ function xmlField(xml: string, tag: string): string {
   return xml.match(re)?.[1]?.trim() ?? "";
 }
 
-
 export async function psCreateCart(
   items: { productId: number; qty: number; idProductAttribute?: number }[],
   customerId?: number,
@@ -371,19 +370,9 @@ export async function psCreateCart(
       ? `<secure_key>${customerSecureKey.trim()}</secure_key>`
       : "";
 
-    // POST único con items incluidos — mismo patrón confirmado en debug-cart
-    const rows = items
-      .map(
-        (i) =>
-          `<cart_row>` +
-          `<id_product>${i.productId}</id_product>` +
-          `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
-          `<quantity>${i.qty}</quantity>` +
-          `</cart_row>`
-      )
-      .join("");
-
-    const xml =
+    // Paso 1: POST para crear carrito vacío
+    // PS WebService ignora cart_rows en POST — hay que añadirlos con PUT después
+    const createXml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">` +
       `<cart>` +
@@ -391,7 +380,6 @@ export async function psCreateCart(
       `<id_lang>1</id_lang>` +
       customerXml +
       secureKeyXml +
-      `<associations><cart_rows>${rows}</cart_rows></associations>` +
       `</cart>` +
       `</prestashop>`;
 
@@ -399,7 +387,7 @@ export async function psCreateCart(
     const postRes = await fetch(postUrl, {
       method: "POST",
       headers: { ...PS_HEADERS, "Content-Type": "application/xml" },
-      body: xml,
+      body: createXml,
     });
 
     const postBody = await postRes.text().catch(() => "");
@@ -424,7 +412,59 @@ export async function psCreateCart(
       return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
     }
 
-    // token_cart = secure_key del cliente — PS 8.x lo acepta directamente
+    // Paso 2: GET para obtener campos reales del carrito (id_address_delivery, id_shop, etc.)
+    const getUrl = `${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}&output_format=JSON`;
+    const getRes = await fetch(getUrl, { headers: PS_HEADERS, cache: "no-store" });
+    const cartData = getRes.ok ? await getRes.json().catch(() => ({})) : {};
+    const cartObj = cartData?.cart ?? {};
+
+    const idAddressDelivery = Number(cartObj?.id_address_delivery ?? 0);
+    const idShopGroup = Number(cartObj?.id_shop_group ?? 1);
+    const idShop = Number(cartObj?.id_shop ?? 1);
+
+    // Paso 3: PUT para añadir los productos — ahora sí los acepta PS
+    const rows = items
+      .map(
+        (i) =>
+          `<cart_row>` +
+          `<id_product>${i.productId}</id_product>` +
+          `<id_product_attribute>${i.idProductAttribute ?? 0}</id_product_attribute>` +
+          `<id_address_delivery>${idAddressDelivery}</id_address_delivery>` +
+          `<quantity>${i.qty}</quantity>` +
+          `<id_customization>0</id_customization>` +
+          `</cart_row>`
+      )
+      .join("");
+
+    const putXml =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">` +
+      `<cart>` +
+      `<id>${cartId}</id>` +
+      `<id_currency>1</id_currency>` +
+      `<id_lang>1</id_lang>` +
+      `<id_shop_group>${idShopGroup}</id_shop_group>` +
+      `<id_shop>${idShop}</id_shop>` +
+      customerXml +
+      secureKeyXml +
+      `<associations><cart_rows>${rows}</cart_rows></associations>` +
+      `</cart>` +
+      `</prestashop>`;
+
+    const putUrl = `${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}`;
+    const putRes = await fetch(putUrl, {
+      method: "PUT",
+      headers: { ...PS_HEADERS, "Content-Type": "application/xml" },
+      body: putXml,
+    });
+
+    if (!putRes.ok) {
+      const putBody = await putRes.text().catch(() => "");
+      console.error("[psCreateCart] PUT error", putRes.status, putBody.slice(0, 300));
+    } else {
+      console.log("[psCreateCart] carrito", cartId, "actualizado con", items.length, "producto(s)");
+    }
+
     const secureKey = customerSecureKey?.trim() ?? "";
     const cartUrl = secureKey
       ? `${STORE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${secureKey}`
