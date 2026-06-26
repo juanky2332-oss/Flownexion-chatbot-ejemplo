@@ -11,7 +11,6 @@ export interface ChatWidgetProps {
   webhookUrl?: string;
   companyName?: string;
   startOpen?: boolean;
-  /** Si true, muestra pantalla de bloqueo cuando no hay token HMAC válido (modo producción). */
   requireAuth?: boolean;
 }
 
@@ -20,7 +19,6 @@ const WELCOME =
 
 const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
-const PS_BASE   = "https://b2b.esgas.es";
 
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -73,7 +71,6 @@ export default function ChatWidget({
   useEffect(() => {
     const inIframe = detectIframe();
     setIsInIframe(inIframe);
-
     if (inIframe) {
       window.parent.postMessage({ type: "esgas-ready" }, "*");
       const retry = setTimeout(() => window.parent.postMessage({ type: "esgas-ready" }, "*"), 300);
@@ -152,20 +149,31 @@ export default function ChatWidget({
         return;
       }
 
-      // Standalone: navegación directa a addchat.php con redirect=1
-      // (top-level navigation → las cookies SameSite=Lax de PS sí se envían,
-      //  addchat.php añade el producto y redirige al carrito)
-      window.open(
-        `${PS_BASE}/addchat.php` +
-        `?id_product=${item.productId}` +
-        `&id_product_attribute=${item.idProductAttribute}` +
-        `&qty=${item.qty}` +
-        `&redirect=1`,
-        "_blank"
-      );
-      setIsCheckingOut(false);
+      // Standalone: llama a /api/cart en el servidor Vercel.
+      // El servidor usa la WebService API de PS (sin restricciones de cookies cross-origin)
+      // y devuelve una cartUrl con recover_cart para que el cliente vea su carrito.
+      try {
+        const res = await fetch("/api/cart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: [{
+              productId: item.productId,
+              qty: item.qty,
+              idProductAttribute: item.idProductAttribute,
+            }],
+            ...(identityToken ? { identityToken } : {}),
+          }),
+        });
+        const data = await res.json().catch(() => ({})) as { cartId?: string; cartUrl?: string };
+        window.open(data?.cartUrl || CART_PAGE, "_blank");
+      } catch {
+        window.open(CART_PAGE, "_blank");
+      } finally {
+        setIsCheckingOut(false);
+      }
     },
-    []
+    [identityToken]
   );
 
   const send = useCallback(async () => {
