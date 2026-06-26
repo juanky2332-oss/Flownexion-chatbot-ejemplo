@@ -19,6 +19,7 @@ const WELCOME =
 
 const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
+const PS_BASE   = "https://b2b.esgas.es";
 
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -149,31 +150,20 @@ export default function ChatWidget({
         return;
       }
 
-      // Standalone: llama a /api/cart en el servidor Vercel.
-      // El servidor usa la WebService API de PS (sin restricciones de cookies cross-origin)
-      // y devuelve una cartUrl con recover_cart para que el cliente vea su carrito.
-      try {
-        const res = await fetch("/api/cart", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: [{
-              productId: item.productId,
-              qty: item.qty,
-              idProductAttribute: item.idProductAttribute,
-            }],
-            ...(identityToken ? { identityToken } : {}),
-          }),
-        });
-        const data = await res.json().catch(() => ({})) as { cartId?: string; cartUrl?: string };
-        window.open(data?.cartUrl || CART_PAGE, "_blank");
-      } catch {
-        window.open(CART_PAGE, "_blank");
-      } finally {
-        setIsCheckingOut(false);
-      }
+      // Standalone: navegación directa a addchat.php en nueva pestaña.
+      // Al ser top-level navigation (no fetch), el navegador envía las cookies
+      // de sesión de PS (SameSite=Lax) → addchat.php tiene la sesión real →
+      // añade el producto y redirige al carrito.
+      window.open(
+        `${PS_BASE}/addchat.php` +
+        `?id_product=${item.productId}` +
+        `&id_product_attribute=${item.idProductAttribute}` +
+        `&qty=${item.qty}`,
+        "_blank"
+      );
+      setIsCheckingOut(false);
     },
-    [identityToken]
+    []
   );
 
   const send = useCallback(async () => {
