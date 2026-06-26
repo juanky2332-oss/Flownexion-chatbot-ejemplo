@@ -17,12 +17,9 @@ export interface ChatWidgetProps {
 const WELCOME =
   "¡Hola! 👋 Soy **Carlos**, tu asesor técnico de ESGAS, distribuidor oficial **NTN/SNR**.\n\nDime qué rodamiento o suministro necesitas y te ayudo a encontrarlo al mejor precio. ¿En qué estás trabajando?";
 
-const LOGIN_URL  = "https://b2b.esgas.es/iniciar-sesion";
-const CART_PAGE  = "https://b2b.esgas.es/carrito?action=show";
-const PS_BASE    = "https://b2b.esgas.es";
-
-// Tiempo que damos a addchat.php para procesar el Cart::updateQty antes de redirigir al carrito
-const ADDCHAT_DELAY_MS = 900;
+const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
+const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
+const PS_BASE   = "https://b2b.esgas.es";
 
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -154,12 +151,12 @@ export default function ChatWidget({
       }
 
       // ── Standalone ────────────────────────────────────────────────────────
-      // addchat.php usa la sesión PS real del usuario (cookies SameSite=Lax
-      // se envían porque es una navegación top-level, no un fetch).
-      // Flujo:
-      //   1. Abrimos addchat.php en nueva pestaña → PS añade el producto al carrito.
-      //   2. Tras ADDCHAT_DELAY_MS, navegamos esa misma pestaña al carrito
-      //      (el opener puede navegar ventanas que él abrió, incluso cross-origin).
+      // 1. Abrimos addchat.php en nueva pestaña (top-level nav → cookies PS
+      //    enviadas → Cart::updateQty ejecuta con la sesión real del usuario).
+      // 2. Simultáneamente lanzamos un fetch sin credenciales al mismo endpoint
+      //    como señal de tiempo: cuando PS responde al fetch, sabemos que el
+      //    servidor ya procesó también el request del popup. En ese momento
+      //    navegamos el popup al carrito, eliminando el flash del JSON.
       // ─────────────────────────────────────────────────────────────────────
       const addchatUrl =
         `${PS_BASE}/addchat.php` +
@@ -169,20 +166,24 @@ export default function ChatWidget({
 
       const popup = window.open(addchatUrl, "_blank");
 
-      setTimeout(() => {
+      const goToCart = () => {
         try {
           if (popup && !popup.closed) {
-            // Navegar la pestaña al carrito (permitido porque nosotros la abrimos)
             popup.location.href = CART_PAGE;
           } else {
-            // Popup bloqueado o cerrado → abrir el carrito directamente
             window.open(CART_PAGE, "_blank");
           }
         } catch {
           window.open(CART_PAGE, "_blank");
         }
         setIsCheckingOut(false);
-      }, ADDCHAT_DELAY_MS);
+      };
+
+      // fetch mode:no-cors actúa solo como timer: resuelve cuando PS responde,
+      // sin leer el cuerpo ni necesitar CORS. En ese punto el popup ya añadió el item.
+      fetch(addchatUrl, { mode: "no-cors", cache: "no-store" })
+        .then(goToCart)
+        .catch(() => setTimeout(goToCart, 600));
     },
     []
   );
