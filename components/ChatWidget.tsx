@@ -152,8 +152,17 @@ export default function ChatWidget({
         return;
       }
 
-      // Standalone: llama a addchat.php en PS con la sesión del usuario
+      // Standalone: URL nativa de PS para añadir al carrito (funciona con sesión activa)
+      const psCartUrl =
+        `${PS_BASE}/index.php?controller=cart&add=1` +
+        `&id_product=${item.productId}` +
+        `&id_product_attribute=${item.idProductAttribute}` +
+        `&qty=${item.qty}` +
+        `&action=add` +
+        `&back=${encodeURIComponent("/carrito")}`;
+
       try {
+        // Intento silencioso vía addchat.php (funciona si la sesión PS comparte cookies)
         const res = await fetch(
           `${PS_BASE}/addchat.php` +
           `?id_product=${item.productId}` +
@@ -166,10 +175,12 @@ export default function ChatWidget({
           setCartConfirmed(singleProduct.name);
           setTimeout(() => setCartConfirmed(null), 3000);
         } else {
-          window.open(`${PS_BASE}/index.php?controller=product&id_product=${item.productId}`, "_blank");
+          // addchat.php no pudo añadir → abrir URL nativa PS en nueva pestaña
+          window.open(psCartUrl, "_blank");
         }
       } catch {
-        window.open(`${PS_BASE}/index.php?controller=product&id_product=${item.productId}`, "_blank");
+        // Error de red o CORS → abrir URL nativa PS en nueva pestaña
+        window.open(psCartUrl, "_blank");
       } finally {
         setIsCheckingOut(false);
       }
