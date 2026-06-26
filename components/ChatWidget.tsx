@@ -152,38 +152,18 @@ export default function ChatWidget({
         return;
       }
 
-      // Standalone: URL nativa de PS para añadir al carrito (funciona con sesión activa)
-      const psCartUrl =
-        `${PS_BASE}/index.php?controller=cart&add=1` +
-        `&id_product=${item.productId}` +
+      // Standalone: navegación directa a addchat.php con redirect=1
+      // (top-level navigation → las cookies SameSite=Lax de PS sí se envían,
+      //  addchat.php añade el producto y redirige al carrito)
+      window.open(
+        `${PS_BASE}/addchat.php` +
+        `?id_product=${item.productId}` +
         `&id_product_attribute=${item.idProductAttribute}` +
         `&qty=${item.qty}` +
-        `&action=add` +
-        `&back=${encodeURIComponent("/carrito")}`;
-
-      try {
-        // Intento silencioso vía addchat.php (funciona si la sesión PS comparte cookies)
-        const res = await fetch(
-          `${PS_BASE}/addchat.php` +
-          `?id_product=${item.productId}` +
-          `&id_product_attribute=${item.idProductAttribute}` +
-          `&qty=${item.qty}`,
-          { credentials: "include" }
-        );
-        const data: { ok?: boolean } = await res.json().catch(() => ({}));
-        if (data.ok) {
-          setCartConfirmed(singleProduct.name);
-          setTimeout(() => setCartConfirmed(null), 3000);
-        } else {
-          // addchat.php no pudo añadir → abrir URL nativa PS en nueva pestaña
-          window.open(psCartUrl, "_blank");
-        }
-      } catch {
-        // Error de red o CORS → abrir URL nativa PS en nueva pestaña
-        window.open(psCartUrl, "_blank");
-      } finally {
-        setIsCheckingOut(false);
-      }
+        `&redirect=1`,
+        "_blank"
+      );
+      setIsCheckingOut(false);
     },
     []
   );
