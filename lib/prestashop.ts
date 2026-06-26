@@ -219,6 +219,39 @@ async function psGetBestSpecificPrice(
   }
 }
 
+// ─── Dirección válida para cart_rows ─────────────────────────────────────────
+
+async function getValidAddressId(customerId?: number): Promise<number> {
+  // 1. Dirección del cliente (si existe)
+  if (customerId) {
+    try {
+      const res = await fetch(
+        `${BASE_URL}/api/addresses?ws_key=${API_KEY}&output_format=JSON&display=[id]&filter[id_customer]=[${customerId}]&limit=1`,
+        { headers: PS_HEADERS, cache: "no-store" }
+      );
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const id = Number(data?.addresses?.[0]?.id ?? 0);
+        if (id > 0) return id;
+      }
+    } catch { /* continuar */ }
+  }
+
+  // 2. Cualquier dirección del sistema como fallback
+  try {
+    const res = await fetch(
+      `${BASE_URL}/api/addresses?ws_key=${API_KEY}&output_format=JSON&display=[id]&limit=1`,
+      { headers: PS_HEADERS, cache: "no-store" }
+    );
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return Number(data?.addresses?.[0]?.id ?? 0);
+    }
+  } catch { /* usar 0 */ }
+
+  return 0;
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function psGetCustomer(email: string): Promise<PSCustomer | null> {
@@ -370,8 +403,7 @@ export async function psCreateCart(
       ? `<secure_key>${customerSecureKey.trim()}</secure_key>`
       : "";
 
-    // Paso 1: POST para crear carrito vacío
-    // PS WebService ignora cart_rows en POST — hay que añadirlos con PUT después
+    // Paso 1: POST — crear carrito vacío (PS ignora cart_rows en POST)
     const createXml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">` +
@@ -412,17 +444,24 @@ export async function psCreateCart(
       return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
     }
 
-    // Paso 2: GET para obtener campos reales del carrito (id_address_delivery, id_shop, etc.)
+    // Paso 2: GET — leer campos reales del carrito recién creado
     const getUrl = `${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}&output_format=JSON`;
     const getRes = await fetch(getUrl, { headers: PS_HEADERS, cache: "no-store" });
     const cartData = getRes.ok ? await getRes.json().catch(() => ({})) : {};
     const cartObj = cartData?.cart ?? {};
 
-    const idAddressDelivery = Number(cartObj?.id_address_delivery ?? 0);
+    let idAddressDelivery = Number(cartObj?.id_address_delivery ?? 0);
     const idShopGroup = Number(cartObj?.id_shop_group ?? 1);
     const idShop = Number(cartObj?.id_shop ?? 1);
+    // El secure_key real del carrito (puede diferir del del cliente)
+    const cartSecureKey = String(cartObj?.secure_key ?? customerSecureKey ?? "").trim();
 
-    // Paso 3: PUT para añadir los productos — ahora sí los acepta PS
+    // Buscar dirección válida si el carrito no tiene ninguna asignada
+    if (idAddressDelivery === 0) {
+      idAddressDelivery = await getValidAddressId(customerId);
+    }
+
+    // Paso 3: PUT — añadir productos con dirección válida
     const rows = items
       .map(
         (i) =>
@@ -462,12 +501,13 @@ export async function psCreateCart(
       const putBody = await putRes.text().catch(() => "");
       console.error("[psCreateCart] PUT error", putRes.status, putBody.slice(0, 300));
     } else {
-      console.log("[psCreateCart] carrito", cartId, "actualizado con", items.length, "producto(s)");
+      console.log("[psCreateCart] carrito", cartId, "listo con", items.length, "producto(s), addr", idAddressDelivery);
     }
 
-    const secureKey = customerSecureKey?.trim() ?? "";
-    const cartUrl = secureKey
-      ? `${STORE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${secureKey}`
+    // Usar el secure_key real del carrito para recover_cart
+    const tokenCart = cartSecureKey || customerSecureKey?.trim() || "";
+    const cartUrl = tokenCart
+      ? `${STORE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${tokenCart}`
       : CART_PAGE_URL;
 
     return { cartId, cartUrl, itemAddUrls };
