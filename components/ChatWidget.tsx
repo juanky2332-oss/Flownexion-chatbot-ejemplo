@@ -151,12 +151,11 @@ export default function ChatWidget({
       }
 
       // ── Standalone ────────────────────────────────────────────────────────
-      // 1. Abrimos addchat.php en nueva pestaña (top-level nav → cookies PS
-      //    enviadas → Cart::updateQty ejecuta con la sesión real del usuario).
-      // 2. Simultáneamente lanzamos un fetch sin credenciales al mismo endpoint
-      //    como señal de tiempo: cuando PS responde al fetch, sabemos que el
-      //    servidor ya procesó también el request del popup. En ese momento
-      //    navegamos el popup al carrito, eliminando el flash del JSON.
+      // Abrimos addchat.php en una pestaña nueva (navegación top-level → lleva
+      // las cookies de PrestaShop). addchat.php se encarga de todo el flujo:
+      //  · Si no hay sesión → login y vuelve a añadir el producto.
+      //  · Si hay sesión   → añade al carrito (creándolo si hace falta) y
+      //    redirige directamente a la página del carrito (sin flash de JSON).
       // ─────────────────────────────────────────────────────────────────────
       const addchatUrl =
         `${PS_BASE}/addchat.php` +
@@ -164,26 +163,8 @@ export default function ChatWidget({
         `&id_product_attribute=${item.idProductAttribute}` +
         `&qty=${item.qty}`;
 
-      const popup = window.open(addchatUrl, "_blank");
-
-      const goToCart = () => {
-        try {
-          if (popup && !popup.closed) {
-            popup.location.href = CART_PAGE;
-          } else {
-            window.open(CART_PAGE, "_blank");
-          }
-        } catch {
-          window.open(CART_PAGE, "_blank");
-        }
-        setIsCheckingOut(false);
-      };
-
-      // fetch mode:no-cors actúa solo como timer: resuelve cuando PS responde,
-      // sin leer el cuerpo ni necesitar CORS. En ese punto el popup ya añadió el item.
-      fetch(addchatUrl, { mode: "no-cors", cache: "no-store" })
-        .then(goToCart)
-        .catch(() => setTimeout(goToCart, 600));
+      window.open(addchatUrl, "_blank");
+      setIsCheckingOut(false);
     },
     []
   );
