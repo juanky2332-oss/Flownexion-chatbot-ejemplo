@@ -6,7 +6,7 @@ import type {
 } from "openai/resources/chat/completions";
 import type { Message, Product, CartItem } from "./types";
 import { searchProducts, getStock } from "./prestashop";
-import { findEquivalence, findApplications } from "./kb";
+import { findEquivalence, findApplications, getPrecios } from "./kb";
 
 const MODEL = "gpt-4o";
 const TEMPERATURE = 0.2;
@@ -156,6 +156,12 @@ Cuando el cliente quiera ver su cesta, confirmar el pedido o pagar:
 - Indica que los botones de las tarjetas llevan al carrito y al pago
 - Cierra con: 'Listo! Puedo modificar tu pedido aqui mismo si lo necesitas.'
 - El pago SIEMPRE se completa en la tienda online. El chat NO procesa pagos.
+
+# ESCALA DE DESCUENTOS POR GRUPO (referencia interna)
+Cada producto tiene asignado un grupo de proveedor (01, 03, 04…). Los clientes se clasifican en GR (Grande), MD (Mediano), PQ (Pequeño). PrestaShop cruza ambos y aplica el descuento correspondiente sobre el precio de catalogo.
+Tabla de descuentos (% sobre precio de catalogo):
+01: GR=75.25% MD=73.65% PQ=72.55% | 03: GR=83.7% MD=83% PQ=82.4% | 04: GR=77.5% MD=76% PQ=75% | 05: GR=84.73% MD=83.7% PQ=83% | 08: GR=83.5% MD=82.45% PQ=81.7% | 09: GR=75.8% MD=74.9% PQ=74% | 11: GR=80% MD=78.67% PQ=77.75% | 13: GR=85.3% MD=84.33% PQ=83.65% | 14: GR=72.25% MD=70.35% PQ=69.12% | 15: GR=47.4% MD=45% PQ=41% | 16: GR=83.54% MD=82.44% PQ=81.7% | 22: GR=70.8% MD=70% PQ=69% | 23: GR=82.32% MD=81.5% PQ=80.04% | 25: GR=77.9% MD=77.5% PQ=77% | 28: GR=69% MD=66.6% PQ=65.4% | 39: GR=67% MD=64.85% PQ=63.85% | Retenes: GR=86.65% MD=86.1% PQ=85.7% | TL: GR=86.65% MD=86.1% PQ=85.7%
+Usa esta tabla SOLO si el cliente pregunta especificamente por su estructura de descuentos. El precio mostrado por search_products ya incluye el descuento correcto.
 
 # PROHIBICIONES
 - Inventar precios, stock, equivalencias o aplicaciones que no esten en la base de datos
