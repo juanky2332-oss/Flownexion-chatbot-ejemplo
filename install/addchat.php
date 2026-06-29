@@ -28,9 +28,26 @@ $ok = false;
 if ($id_product > 0) {
     $context = Context::getContext();
     $cart    = $context->cart;
-    if (Validate::isLoadedObject($cart)) {
-        $ok = (bool) $cart->updateQty($qty, $id_product, $id_product_attribute, false, 'up');
+
+    // Si no hay carrito en sesión, crear uno nuevo asociado al cliente (o como guest)
+    if (!Validate::isLoadedObject($cart)) {
+        $cart              = new Cart();
+        $cart->id_lang     = (int) $context->language->id;
+        $cart->id_currency = (int) $context->currency->id;
+        $cart->id_customer = (int) $context->customer->id;
+
+        if ($context->customer->isLogged()) {
+            $idAddress = (int) Address::getFirstCustomerAddressId((int) $context->customer->id);
+            $cart->id_address_delivery = $idAddress;
+            $cart->id_address_invoice  = $idAddress;
+        }
+
+        $cart->add();
+        $context->cookie->id_cart = (int) $cart->id;
+        $context->cart = $cart;
     }
+
+    $ok = (bool) $cart->updateQty($qty, $id_product, $id_product_attribute ?: null);
 }
 
 echo json_encode(['ok' => $ok]);
