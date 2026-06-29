@@ -7,26 +7,35 @@ interface ProductCardProps {
   product: Product;
   primaryColor?: string;
   onCheckout?: (product?: Product, qty?: number) => void;
+  isInIframe?: boolean;
+  psBase?: string;
 }
 
 export default function ProductCard({
   product,
   primaryColor = "#0066cc",
   onCheckout,
+  isInIframe = false,
+  psBase = "https://b2b.esgas.es",
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState(false);
 
   const changeQty = (delta: number) => setQty((prev) => Math.max(1, prev + delta));
 
   const hasDiscount = product.discountPct != null && product.discountPct > 0;
 
-  const handleAdd = () => {
-    if (adding) return; // evita doble clic
+  // Iframe mode: usa el callback para delegar al padre via postMessage
+  const handleAddIframe = () => {
+    if (adding) return;
     setAdding(true);
     onCheckout?.(product, qty);
     setTimeout(() => setAdding(false), 1500);
   };
+
+  const addchatAction = `${psBase}/addchat.php`;
+  const cartPageUrl   = `${psBase}/carrito?action=show`;
 
   return (
     <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
@@ -46,7 +55,6 @@ export default function ProductCard({
           )}
         </div>
 
-        {/* Precio — con o sin descuento B2B */}
         <div className="flex shrink-0 flex-col items-end gap-0.5">
           {hasDiscount && product.originalPrice ? (
             <>
@@ -118,7 +126,6 @@ export default function ProductCard({
 
       {/* Botones */}
       <div className="mt-3 flex flex-wrap gap-2">
-        {/* Ficha técnica */}
         <a
           href={product.link}
           target="_blank"
@@ -129,15 +136,47 @@ export default function ProductCard({
           🔗 Ficha
         </a>
 
-        {/* Añadir al carrito */}
-        <button
-          onClick={handleAdd}
-          disabled={adding}
-          className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-60"
-          style={{ backgroundColor: primaryColor }}
-        >
-          {adding ? "⏳ Añadiendo…" : `🛒 Añadir ${qty > 1 ? `${qty} uds` : "al carrito"}`}
-        </button>
+        {isInIframe ? (
+          // iframe: delega al padre via postMessage
+          <button
+            onClick={handleAddIframe}
+            disabled={adding}
+            className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+            style={{ backgroundColor: primaryColor }}
+          >
+            {adding ? "⏳ Añadiendo…" : `🛒 Añadir ${qty > 1 ? `${qty} uds` : "al carrito"}`}
+          </button>
+        ) : added ? (
+          // Tras submit: enlace directo al carrito
+          <a
+            href={cartPageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg border border-green-300 bg-green-50 px-2.5 py-1.5 text-xs font-semibold text-green-700 transition hover:bg-green-100"
+          >
+            ✅ Añadido → Ver carrito
+          </a>
+        ) : (
+          // standalone: form GET a addchat.php — los navegadores nunca bloquean submit de form
+          <form
+            method="GET"
+            action={addchatAction}
+            target="_blank"
+            onSubmit={() => setAdded(true)}
+            className="inline-flex"
+          >
+            <input type="hidden" name="id_product" value={product.id} />
+            <input type="hidden" name="id_product_attribute" value={product.idProductAttribute ?? 0} />
+            <input type="hidden" name="qty" value={qty} />
+            <button
+              type="submit"
+              className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
+              style={{ backgroundColor: primaryColor }}
+            >
+              🛒 Añadir {qty > 1 ? `${qty} uds` : "al carrito"}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

@@ -56,8 +56,6 @@ export default function ChatWidget({
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: "welcome", role: "assistant", content: WELCOME },
   ]);
-  const [isCheckingOut, setIsCheckingOut] = useState(false);
-  const [fallbackLinks, setFallbackLinks] = useState<{ name: string; qty: number; url: string }[] | null>(null);
   const [cartConfirmed, setCartConfirmed] = useState<string | null>(null);
 
   const [identityToken, setIdentityToken] = useState<string | null>(null);
@@ -104,86 +102,39 @@ export default function ChatWidget({
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, loading, open, fallbackLinks, cartConfirmed]);
+  }, [messages, loading, open, cartConfirmed]);
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
   const isLocked   = requireAuth && isInIframe && tokenChecked && !identityToken;
   const tokenEmail = identityToken ? decodeTokenEmail(identityToken) : null;
 
+  // handleCheckout: ver carrito (ambos modos) + añadir en modo iframe.
+  // En standalone el add-to-cart va por form submit en ProductCard (nunca bloqueado).
   const handleCheckout = useCallback(
-    async (singleProduct?: Product, singleQty?: number) => {
-      setFallbackLinks(null);
-
+    (singleProduct?: Product, singleQty?: number) => {
       if (!singleProduct) {
         if (detectIframe()) {
-          try { if (window.top && window.top !== window) window.top.location.href = CART_PAGE; } catch {}
+          try { if (window.top && window.top !== window) (window.top as Window).location.href = CART_PAGE; } catch {}
         } else {
           window.open(CART_PAGE, "_blank", "noopener,noreferrer");
         }
         return;
       }
-
-      setIsCheckingOut(true);
-
-      const item = {
-        productId:          singleProduct.id,
-        qty:                singleQty ?? 1,
-        idProductAttribute: singleProduct.idProductAttribute ?? 0,
-      };
-
-      // En iframe: delega al padre vía postMessage
       if (detectIframe()) {
         window.parent.postMessage(
           {
             type: "esgas-add-to-cart",
             items: [{
-              id_product:           item.productId,
-              qty:                  item.qty,
-              id_product_attribute: item.idProductAttribute,
+              id_product:           singleProduct.id,
+              qty:                  singleQty ?? 1,
+              id_product_attribute: singleProduct.idProductAttribute ?? 0,
               name:                 singleProduct.name,
             }],
           },
           "*"
         );
-        setIsCheckingOut(false);
-        return;
       }
-
-      // ── Standalone ────────────────────────────────────────────────────────
-      // 1. Abrimos addchat.php en nueva pestaña (top-level nav → cookies PS
-      //    enviadas → Cart::updateQty ejecuta con la sesión real del usuario).
-      // 2. Simultáneamente lanzamos un fetch sin credenciales al mismo endpoint
-      //    como señal de tiempo: cuando PS responde al fetch, sabemos que el
-      //    servidor ya procesó también el request del popup. En ese momento
-      //    navegamos el popup al carrito, eliminando el flash del JSON.
-      // ─────────────────────────────────────────────────────────────────────
-      const addchatUrl =
-        `${PS_BASE}/addchat.php` +
-        `?id_product=${item.productId}` +
-        `&id_product_attribute=${item.idProductAttribute}` +
-        `&qty=${item.qty}`;
-
-      const popup = window.open(addchatUrl, "_blank");
-
-      const goToCart = () => {
-        try {
-          if (popup && !popup.closed) {
-            popup.location.href = CART_PAGE;
-          } else {
-            window.open(CART_PAGE, "_blank");
-          }
-        } catch {
-          window.open(CART_PAGE, "_blank");
-        }
-        setIsCheckingOut(false);
-      };
-
-      // fetch mode:no-cors actúa solo como timer: resuelve cuando PS responde,
-      // sin leer el cuerpo ni necesitar CORS. En ese punto el popup ya añadió el item.
-      fetch(addchatUrl, { mode: "no-cors", cache: "no-store" })
-        .then(goToCart)
-        .catch(() => setTimeout(goToCart, 600));
     },
     []
   );
@@ -322,6 +273,8 @@ export default function ChatWidget({
                     message={m}
                     primaryColor={primaryColor}
                     onCheckout={handleCheckout}
+                    isInIframe={isInIframe}
+                    psBase={PS_BASE}
                   />
                 ))}
                 {loading && (
@@ -341,29 +294,6 @@ export default function ChatWidget({
                   </div>
                 )}
               </div>
-
-              {fallbackLinks && (
-                <div className="border-t border-amber-200 bg-amber-50 px-4 py-2.5">
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <p className="text-xs font-semibold text-amber-800">📋 Abre la ficha y añade desde la web</p>
-                    <button onClick={() => setFallbackLinks(null)} className="text-amber-600 text-sm leading-none">✕</button>
-                  </div>
-                  <div className="space-y-1">
-                    {fallbackLinks.map((link, i) => (
-                      <a
-                        key={i}
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-between rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-50 transition"
-                      >
-                        <span>{link.name}</span>
-                        <span className="text-amber-500 text-[10px]">Ver ficha →</span>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <div className="border-t border-gray-200 bg-white p-3">
                 <div className="flex items-end gap-2">
@@ -414,6 +344,17 @@ export default function ChatWidget({
           <RealisticRobot size={52} isPointing />
         )}
       </button>
+      <p className="mt-1 text-center text-[9px] text-gray-400 select-none">
+        Powered by{" "}
+        <a
+          href="https://flownexion.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2 hover:text-gray-600 transition-colors"
+        >
+          Flownexion
+        </a>
+      </p>
     </div>
   );
 }

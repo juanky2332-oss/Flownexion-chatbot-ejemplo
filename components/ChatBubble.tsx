@@ -16,12 +16,16 @@ interface ChatBubbleProps {
   message: ChatMessage;
   primaryColor?: string;
   onCheckout?: (product?: Product, qty?: number) => void;
+  isInIframe?: boolean;
+  psBase?: string;
 }
 
 export default function ChatBubble({
   message,
   primaryColor = "#0066cc",
   onCheckout,
+  isInIframe,
+  psBase,
 }: ChatBubbleProps) {
   const isUser = message.role === "user";
 
@@ -81,6 +85,8 @@ export default function ChatBubble({
                 product={p}
                 primaryColor={primaryColor}
                 onCheckout={onCheckout}
+                isInIframe={isInIframe}
+                psBase={psBase}
               />
             ))}
           </div>

@@ -6,6 +6,7 @@ import type {
 } from "openai/resources/chat/completions";
 import type { Message, Product, CartItem } from "./types";
 import { searchProducts, getStock } from "./prestashop";
+import { findEquivalence, findApplications } from "./kb";
 
 const MODEL = "gpt-4o";
 const TEMPERATURE = 0.2;
@@ -111,19 +112,36 @@ Muestra el precio siempre que presentes un producto. Aplica descuento solo si ha
 Consulta y muestra stock SOLO si el cliente pregunta por disponibilidad o da una cantidad concreta.
 Si solo consulta precio o ficha tecnica, NO consultes ni muestres stock.
 
-# EQUIVALENCIAS DE MARCA (HONESTIDAD TOTAL)
-Si piden marca que no vendemos (SKF, FAG, NSK, Timken, INA, Koyo, etc.):
-1. Busca equivalente NTN/SNR con search_products
-2. Si lo encuentras: presentalo indicando SUTILMENTE que es otra marca con mismas prestaciones
-   Ejemplo: "No trabajamos con SKF directamente, pero tenemos el equivalente NTN con identicas especificaciones..."
-3. Si NO hay equivalente claro: dilo con honestidad. NUNCA inventes equivalencias.
-4. Prioridad: 1 NTN, 2 SNR
-Equivalencias clave: SKF 6205-2RS = NTN 6205LLU = FAG 6205-2RSR = NSK 6205DDU
+# HERRAMIENTAS — ORDEN DE USO
+1. find_equivalence → cuando el cliente mencione una referencia de marca externa (SKF, FAG, INA, NSK, Timken, Koyo, etc.)
+2. find_applications → cuando pregunten para que sirve algo o que producto encaja con una necesidad/aplicacion/carga especifica
+3. search_products → para buscar en catalogo real (precio, stock, referencia exacta)
+4. get_stock → SOLO cuando pregunten disponibilidad o indiquen cantidad concreta
+5. note_qty → SIEMPRE que el cliente mencione unidades especificas
 
-# HERRAMIENTAS
-- search_products(query): busca en catalogo real. Usala para cualquier referencia o familia concreta.
-- get_stock(id_product): stock real. SOLO cuando el cliente pregunte por cantidad o disponibilidad.
-- note_qty(id_product, qty): llamala SIEMPRE que el cliente mencione unidades especificas.
+El precio y el stock SIEMPRE salen de search_products/get_stock. Las tools de KB solo dan informacion tecnica, nunca precio.
+
+# EQUIVALENCIAS DE MARCA (BASE DE DATOS PROPIA)
+Cuando el cliente mencione una referencia de SKF, FAG, INA, NSK, Timken, Koyo u otra marca externa:
+1. Llama SIEMPRE a find_equivalence con la referencia del cliente.
+2. Si hay equivalencia: "No trabajamos con [marca] directamente, pero tenemos el equivalente [ref_ntn_snr] de [NTN/SNR] con identicas especificaciones." -> luego busca ese producto con search_products.
+3. Si no hay equivalencia: dilo con honestidad. NUNCA inventes.
+4. Prioridad: 1 NTN, 2 SNR.
+
+# CONSULTAS DE APLICACION (BIDIRECCIONAL)
+Cuando el cliente pregunte para que sirve un producto O que producto recomiendas para una carga/aplicacion concreta: llama a find_applications.
+- Producto -> aplicaciones: presenta la descripcion de gama, aplicaciones y fortalezas del producto.
+- Aplicacion -> producto: sugiere hasta 3 referencias con descripcion y aplicaciones. Indica que son orientativas y ofrece buscar en catalogo con search_products para precio y stock.
+NUNCA inventes aplicaciones que no esten en la base de datos.
+
+# FUENTES FIABLES AUTORIZADAS
+Cuando necesites ampliar informacion tecnica que no cubren las herramientas, puedes referenciar estas fuentes oficiales (citalas de forma natural):
+- NTN-SNR productos detallados: https://eshop.ntn-snr.com/es/Industry-solutions/c/TCE
+- NTN-SNR informacion general: https://www.ntn-snr.com/es
+- Translink (transmision): https://www.translinkpt.com/es/
+- Sedis (cadenas y pinones): https://www.sedis.com/es/
+- Bondioli & Pavesi (transmision agricola): https://bondioli-pavesi.com/es/node
+Cuando cites estas fuentes dilo asi: "Para mas detalles tecnicos puedes consultar la ficha oficial en [URL]". NUNCA construyas URLs de producto manualmente; solo cita la URL raiz de la seccion relevante.
 
 # REGLAS DE BUSQUEDA
 1. Referencia especifica (ej: '6201ZZ', '6205LLU', '32008X') -> busca directamente, sin preguntar.
@@ -140,7 +158,7 @@ Cuando el cliente quiera ver su cesta, confirmar el pedido o pagar:
 - El pago SIEMPRE se completa en la tienda online. El chat NO procesa pagos.
 
 # PROHIBICIONES
-- Inventar precios, stock o URLs
+- Inventar precios, stock, equivalencias o aplicaciones que no esten en la base de datos
 - Mostrar JSON o nombres de herramientas al cliente
 - Construir URLs manualmente
 - Decir que un pedido no se puede tramitar por falta de stock
@@ -148,6 +166,44 @@ Cuando el cliente quiera ver su cesta, confirmar el pedido o pagar:
 }
 
 const tools: ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "find_equivalence",
+      description:
+        "Busca en la base de datos de equivalencias si tenemos el producto equivalente NTN/SNR a una referencia de otra marca (SKF, FAG, INA, NSK, Timken, Koyo, etc.). Usala cuando el cliente mencione una referencia de marca que no vendemos.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "La referencia de la marca externa a buscar, p.ej. '6205-2RS1', '32008X FAG', '6205DDU NSK'.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "find_applications",
+      description:
+        "Busca informacion tecnica sobre aplicaciones de un producto o que producto encaja con una necesidad concreta (busqueda bidireccional). Usala cuando el cliente pregunte para que sirve algo o que rodamiento recomiendas para una aplicacion/carga especifica.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Referencia de producto (ej: '32212U') o descripcion de necesidad (ej: 'cargas axiales pesadas', 'caja de cambios agricola').",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -221,6 +277,14 @@ async function runTool(
   collected: Product[],
   groupId?: number
 ): Promise<string> {
+  if (name === "find_equivalence") {
+    const results = findEquivalence(String(args?.query ?? ""));
+    return JSON.stringify(results);
+  }
+  if (name === "find_applications") {
+    const results = findApplications(String(args?.query ?? ""));
+    return JSON.stringify(results);
+  }
   if (name === "search_products") {
     const products = await searchProducts(String(args?.query ?? ""), groupId);
     for (const p of products.slice(0, 3)) {

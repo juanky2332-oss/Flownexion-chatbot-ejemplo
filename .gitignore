@@ -33,3 +33,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Knowledge base source files (xlsx — solo en local, nunca al repo)
+scripts/*.xlsx
+scripts/*.xls
