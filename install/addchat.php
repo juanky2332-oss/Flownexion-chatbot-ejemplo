@@ -47,7 +47,7 @@ if ($id_product > 0) {
         $context->cart = $cart;
     }
 
-    $ok = (bool) $cart->updateQty($qty, $id_product, $id_product_attribute ?: null);
+    $ok = (bool) $cart->updateQty($qty, $id_product, $id_product_attribute, false, 'up');
 }
 
 echo json_encode(['ok' => $ok]);

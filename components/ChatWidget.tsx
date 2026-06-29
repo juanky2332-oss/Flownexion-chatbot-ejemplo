@@ -151,19 +151,39 @@ export default function ChatWidget({
       }
 
       // ── Standalone ────────────────────────────────────────────────────────
-      // Usa el controlador addandgo del módulo PS, que:
-      //  · Si el usuario no está logueado → redirige al login con back= y
-      //    vuelve aquí tras autenticarse (funciona desde cualquier ordenador).
-      //  · Si está logueado → añade al carrito y redirige directamente al carrito.
+      // 1. Abrimos addchat.php en nueva pestaña (top-level nav → cookies PS
+      //    enviadas → Cart::updateQty ejecuta con la sesión real del usuario).
+      // 2. Simultáneamente lanzamos un fetch sin credenciales al mismo endpoint
+      //    como señal de tiempo: cuando PS responde al fetch, sabemos que el
+      //    servidor ya procesó también el request del popup. En ese momento
+      //    navegamos el popup al carrito, eliminando el flash del JSON.
       // ─────────────────────────────────────────────────────────────────────
-      const addandgoUrl =
-        `${PS_BASE}/module/nexionchat/addandgo` +
+      const addchatUrl =
+        `${PS_BASE}/addchat.php` +
         `?id_product=${item.productId}` +
         `&id_product_attribute=${item.idProductAttribute}` +
         `&qty=${item.qty}`;
 
-      window.open(addandgoUrl, "_blank");
-      setIsCheckingOut(false);
+      const popup = window.open(addchatUrl, "_blank");
+
+      const goToCart = () => {
+        try {
+          if (popup && !popup.closed) {
+            popup.location.href = CART_PAGE;
+          } else {
+            window.open(CART_PAGE, "_blank");
+          }
+        } catch {
+          window.open(CART_PAGE, "_blank");
+        }
+        setIsCheckingOut(false);
+      };
+
+      // fetch mode:no-cors actúa solo como timer: resuelve cuando PS responde,
+      // sin leer el cuerpo ni necesitar CORS. En ese punto el popup ya añadió el item.
+      fetch(addchatUrl, { mode: "no-cors", cache: "no-store" })
+        .then(goToCart)
+        .catch(() => setTimeout(goToCart, 600));
     },
     []
   );
