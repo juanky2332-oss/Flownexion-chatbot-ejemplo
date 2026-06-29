@@ -26,7 +26,9 @@ export default function ProductCard({
 
   const hasDiscount = product.discountPct != null && product.discountPct > 0;
 
-  // Iframe mode: usa el callback para delegar al padre via postMessage
+  const cartPageUrl = `${psBase}/carrito?action=show`;
+
+  // Iframe mode: delega al padre via postMessage
   const handleAddIframe = () => {
     if (adding) return;
     setAdding(true);
@@ -34,8 +36,26 @@ export default function ProductCard({
     setTimeout(() => setAdding(false), 1500);
   };
 
-  const addchatAction = `${psBase}/addchat.php`;
-  const cartPageUrl   = `${psBase}/carrito?action=show`;
+  // Standalone mode: fetch directo a addchat.php con cookies de sesión de PS.
+  // mode:'no-cors' permite la petición cross-origin sin cabeceras CORS en el servidor;
+  // credentials:'include' envía las cookies de sesión de PrestaShop.
+  // No necesita window.open (no gesto de usuario requerido para fetch).
+  const handleAddStandalone = async () => {
+    if (adding || added) return;
+    setAdding(true);
+    const url =
+      `${psBase}/addchat.php` +
+      `?id_product=${product.id}` +
+      `&id_product_attribute=${product.idProductAttribute ?? 0}` +
+      `&qty=${qty}`;
+    try {
+      await fetch(url, { mode: "no-cors", credentials: "include" });
+    } catch {
+      // error de red — el servidor puede igualmente haber procesado la petición
+    }
+    setAdded(true);
+    setAdding(false);
+  };
 
   return (
     <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
@@ -137,7 +157,7 @@ export default function ProductCard({
         </a>
 
         {isInIframe ? (
-          // iframe: delega al padre via postMessage
+          // iframe: postMessage al padre
           <button
             onClick={handleAddIframe}
             disabled={adding}
@@ -147,35 +167,23 @@ export default function ProductCard({
             {adding ? "⏳ Añadiendo…" : `🛒 Añadir ${qty > 1 ? `${qty} uds` : "al carrito"}`}
           </button>
         ) : added ? (
-          // Tras submit: enlace directo al carrito
-          <a
-            href={cartPageUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          // Producto añadido: botón directo a carrito (window.open en onClick = gesto de usuario, nunca bloqueado)
+          <button
+            onClick={() => window.open(cartPageUrl, "_blank", "noopener,noreferrer")}
             className="rounded-lg border border-green-300 bg-green-50 px-2.5 py-1.5 text-xs font-semibold text-green-700 transition hover:bg-green-100"
           >
             ✅ Añadido → Ver carrito
-          </a>
+          </button>
         ) : (
-          // standalone: form GET a addchat.php — los navegadores nunca bloquean submit de form
-          <form
-            method="GET"
-            action={addchatAction}
-            target="_blank"
-            onSubmit={() => setAdded(true)}
-            className="inline-flex"
+          // standalone: fetch a addchat.php, sin abrir pestañas
+          <button
+            onClick={handleAddStandalone}
+            disabled={adding}
+            className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-white transition hover:opacity-90 disabled:opacity-60"
+            style={{ backgroundColor: primaryColor }}
           >
-            <input type="hidden" name="id_product" value={product.id} />
-            <input type="hidden" name="id_product_attribute" value={product.idProductAttribute ?? 0} />
-            <input type="hidden" name="qty" value={qty} />
-            <button
-              type="submit"
-              className="rounded-lg px-2.5 py-1.5 text-xs font-bold text-white transition hover:opacity-90"
-              style={{ backgroundColor: primaryColor }}
-            >
-              🛒 Añadir {qty > 1 ? `${qty} uds` : "al carrito"}
-            </button>
-          </form>
+            {adding ? "⏳ Añadiendo…" : `🛒 Añadir ${qty > 1 ? `${qty} uds` : "al carrito"}`}
+          </button>
         )}
       </div>
     </div>
