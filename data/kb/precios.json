@@ -1,0 +1,272 @@
+[
+  {
+    "regla": "GRUPO 01 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 01\" para Clientes GR",
+    "pct": 75.25
+  },
+  {
+    "regla": "GRUPO 01 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 01\" para Clientes MD",
+    "pct": 73.65
+  },
+  {
+    "regla": "GRUPO 01 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 01\" para Clientes PQ",
+    "pct": 72.55
+  },
+  {
+    "regla": "GRUPO 03 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 03\" para Clientes GR",
+    "pct": 83.7
+  },
+  {
+    "regla": "GRUPO 03 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 03\" para Clientes MD",
+    "pct": 83
+  },
+  {
+    "regla": "GRUPO 03 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 03\" para Clientes PQ",
+    "pct": 82.4
+  },
+  {
+    "regla": "GRUPO 04 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 04\" para Clientes GR",
+    "pct": 77.5
+  },
+  {
+    "regla": "GRUPO 04 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 04\" para Clientes MD",
+    "pct": 76
+  },
+  {
+    "regla": "GRUPO 04 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 04\" para Clientes PQ",
+    "pct": 75
+  },
+  {
+    "regla": "GRUPO 05 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 05\" para Clientes GR",
+    "pct": 84.73
+  },
+  {
+    "regla": "GRUPO 05 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 05\" para Clientes MD",
+    "pct": 83.7
+  },
+  {
+    "regla": "GRUPO 05 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 05\" para Clientes PQ",
+    "pct": 83
+  },
+  {
+    "regla": "GRUPO 08 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 08\" para Clientes GR",
+    "pct": 83.5
+  },
+  {
+    "regla": "GRUPO 08 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 08\" para Clientes MD",
+    "pct": 82.45
+  },
+  {
+    "regla": "GRUPO 08 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 08\" para Clientes PQ",
+    "pct": 81.7
+  },
+  {
+    "regla": "GRUPO 09 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 09\" para Clientes GR",
+    "pct": 75.8
+  },
+  {
+    "regla": "GRUPO 09 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 09\" para Clientes MD",
+    "pct": 74.9
+  },
+  {
+    "regla": "GRUPO 09 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 09\" para Clientes PQ",
+    "pct": 74
+  },
+  {
+    "regla": "GRUPO 11 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 11\" para Clientes GR",
+    "pct": 80
+  },
+  {
+    "regla": "GRUPO 11 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 11\" para Clientes MD",
+    "pct": 78.67
+  },
+  {
+    "regla": "GRUPO 11 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 11\" para Clientes PQ",
+    "pct": 77.75
+  },
+  {
+    "regla": "GRUPO 13 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 13\" para Clientes GR",
+    "pct": 85.3
+  },
+  {
+    "regla": "GRUPO 13 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 13\" para Clientes MD",
+    "pct": 84.33
+  },
+  {
+    "regla": "GRUPO 13 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 13\" para Clientes PQ",
+    "pct": 83.65
+  },
+  {
+    "regla": "GRUPO 14 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 14\" para Clientes GR",
+    "pct": 72.25
+  },
+  {
+    "regla": "GRUPO 14 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 14\" para Clientes MD",
+    "pct": 70.35
+  },
+  {
+    "regla": "GRUPO 14 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 14\" para Clientes PQ",
+    "pct": 69.12
+  },
+  {
+    "regla": "GRUPO 15 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 15\" para Clientes GR",
+    "pct": 47.4
+  },
+  {
+    "regla": "GRUPO 15 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 15\" para Clientes MD",
+    "pct": 45
+  },
+  {
+    "regla": "GRUPO 15 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 15\" para Clientes PQ",
+    "pct": 41
+  },
+  {
+    "regla": "GRUPO 16 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 16\" para Clientes GR",
+    "pct": 83.54
+  },
+  {
+    "regla": "GRUPO 16 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 16\" para Clientes MD",
+    "pct": 82.44
+  },
+  {
+    "regla": "GRUPO 16 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 16\" para Clientes PQ",
+    "pct": 81.7
+  },
+  {
+    "regla": "GRUPO 22 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 22\" para Clientes GR",
+    "pct": 70.8
+  },
+  {
+    "regla": "GRUPO 22 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 22\" para Clientes MD",
+    "pct": 70
+  },
+  {
+    "regla": "GRUPO 22 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 22\" para Clientes PQ",
+    "pct": 69
+  },
+  {
+    "regla": "GRUPO 23 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 23\" para Clientes GR",
+    "pct": 82.32
+  },
+  {
+    "regla": "GRUPO 23 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 23\" para Clientes MD",
+    "pct": 81.5
+  },
+  {
+    "regla": "GRUPO 23 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 23\" para Clientes PQ",
+    "pct": 80.04
+  },
+  {
+    "regla": "GRUPO 25 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 25\" para Clientes GR",
+    "pct": 77.9
+  },
+  {
+    "regla": "GRUPO 25 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 25\" para Clientes MD",
+    "pct": 77.5
+  },
+  {
+    "regla": "GRUPO 25 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 25\" para Clientes PQ",
+    "pct": 77
+  },
+  {
+    "regla": "GRUPO 28 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 28\" para Clientes GR",
+    "pct": 69
+  },
+  {
+    "regla": "GRUPO 28 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 28\" para Clientes MD",
+    "pct": 66.6
+  },
+  {
+    "regla": "GRUPO 28 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 28\" para Clientes PQ",
+    "pct": 65.4
+  },
+  {
+    "regla": "GRUPO 39 CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 39\" para Clientes GR",
+    "pct": 67
+  },
+  {
+    "regla": "GRUPO 39 CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 39\" para Clientes MD",
+    "pct": 64.85
+  },
+  {
+    "regla": "GRUPO 39 CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo 39\" para Clientes PQ",
+    "pct": 63.85
+  },
+  {
+    "regla": "GRUPO Retenes CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo Retenes\" para Clientes GR",
+    "pct": 86.65
+  },
+  {
+    "regla": "GRUPO Retenes CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo Retenes\" para Clientes MD",
+    "pct": 86.1
+  },
+  {
+    "regla": "GRUPO Retenes CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo Retenes\" para Clientes PQ",
+    "pct": 85.7
+  },
+  {
+    "regla": "GRUPO TL CLIENTE GR",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo TL\" para Clientes GR",
+    "pct": 86.65
+  },
+  {
+    "regla": "GRUPO TL CLIENTE MD",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo TL\" para Clientes MD",
+    "pct": 86.1
+  },
+  {
+    "regla": "GRUPO TL CLIENTE PQ",
+    "condicion": "Descuento aplicado a los artículos que tienen asignado como Proveedor \"Grupo TL\" para Clientes PQ",
+    "pct": 85.7
+  }
+]

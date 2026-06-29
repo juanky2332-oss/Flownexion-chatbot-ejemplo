@@ -2,111 +2,105 @@ import "server-only";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-interface EquivalenciaRow {
-  ref_skf: string;
-  ref_fag_ina: string;
-  ref_nsk: string;
-  ref_ntn_snr: string;
-  marca: string;
-  ean: string;
-}
+// Row formats (arrays for compactness):
+//   eq row  → [skf, fag_ina, nsk, ref_ntn, marca, ean]
+//   ap row  → [ref, text]  (text = desc | gama | aplicaciones combined)
+//   precio  → { regla, condicion, pct }
 
-interface AplicacionRow {
-  marca: string;
-  referencia: string;
-  descripcion_producto: string;
-  descripcion_gama: string;
-  argumento_venta: string;
-  aplicaciones: string;
-  fortaleza: string;
-}
+type EqRow = [string, string, string, string, string, string];
+type ApRow = [string, string];
+interface PrecioRow { regla: string; condicion: string; pct: number; }
 
 function norm(s: unknown): string {
-  return String(s ?? "").toUpperCase().replace(/\s+/g, "");
+  return String(s ?? "").trim().toUpperCase().replace(/\s+/g, "");
 }
 
-let _eq: EquivalenciaRow[] | null = null;
-let _ap: AplicacionRow[] | null = null;
-
-function loadEq(): EquivalenciaRow[] {
-  if (_eq !== null) return _eq;
+function loadJson<T>(rel: string): T[] {
   try {
-    _eq = JSON.parse(
-      readFileSync(join(process.cwd(), "data", "kb", "equivalencias.json"), "utf-8")
-    ) as EquivalenciaRow[];
+    return JSON.parse(readFileSync(join(process.cwd(), rel), "utf-8")) as T[];
   } catch {
-    _eq = [];
+    return [];
   }
+}
+
+// ── Lazy caches ──
+let _eq: EqRow[] | null = null;
+let _ap: ApRow[] | null = null;
+let _pr: PrecioRow[] | null = null;
+
+function loadEq(): EqRow[] {
+  if (_eq !== null) return _eq;
+  _eq = [
+    ...loadJson<EqRow>("data/kb/eq-1.json"),
+    ...loadJson<EqRow>("data/kb/eq-2.json"),
+    ...loadJson<EqRow>("data/kb/eq-3.json"),
+  ];
   return _eq;
 }
 
-function loadAp(): AplicacionRow[] {
+function loadAp(): ApRow[] {
   if (_ap !== null) return _ap;
-  try {
-    _ap = JSON.parse(
-      readFileSync(join(process.cwd(), "data", "kb", "aplicaciones.json"), "utf-8")
-    ) as AplicacionRow[];
-  } catch {
-    _ap = [];
+  _ap = [];
+  for (let i = 1; i <= 10; i++) {
+    _ap.push(...loadJson<ApRow>(`data/kb/ap-${i}.json`));
   }
   return _ap;
 }
+
+function loadPrecios(): PrecioRow[] {
+  if (_pr !== null) return _pr;
+  _pr = loadJson<PrecioRow>("data/kb/precios.json");
+  return _pr;
+}
+
+// ── Public API ──
 
 export function findEquivalence(
   query: string
 ): { ref_buscada: string; ref_ntn_snr: string; marca: string }[] {
   const q = norm(query);
   if (!q || q.length < 3) return [];
-  const results: { ref_buscada: string; ref_ntn_snr: string; marca: string }[] = [];
+  const out: { ref_buscada: string; ref_ntn_snr: string; marca: string }[] = [];
   for (const row of loadEq()) {
+    const [skf, fag, nsk, ref, marca] = row;
     if (
-      (row.ref_skf && norm(row.ref_skf).includes(q)) ||
-      (row.ref_fag_ina && norm(row.ref_fag_ina).includes(q)) ||
-      (row.ref_nsk && norm(row.ref_nsk).includes(q))
+      (skf && norm(skf).includes(q)) ||
+      (fag && norm(fag).includes(q)) ||
+      (nsk && norm(nsk).includes(q))
     ) {
-      results.push({ ref_buscada: query, ref_ntn_snr: row.ref_ntn_snr, marca: row.marca });
-      if (results.length >= 3) break;
+      out.push({ ref_buscada: query, ref_ntn_snr: ref, marca });
+      if (out.length >= 3) break;
     }
   }
-  return results;
+  return out;
 }
 
-export function findApplications(query: string): object[] {
+export function findApplications(query: string): { referencia: string; info: string }[] {
   const q = norm(query);
   if (!q || q.length < 3) return [];
   const data = loadAp();
 
-  // Búsqueda por referencia exacta
-  const refMatch = data.find((r) => norm(r.referencia) === q);
-  if (refMatch) {
-    return [{
-      referencia: refMatch.referencia,
-      marca: refMatch.marca,
-      descripcion_gama: refMatch.descripcion_gama,
-      aplicaciones: refMatch.aplicaciones,
-      fortaleza: refMatch.fortaleza,
-    }];
-  }
+  // Exact reference match first
+  const exact = data.filter(([ref]) => norm(ref) === q);
+  if (exact.length) return exact.map(([ref, info]) => ({ referencia: ref, info }));
 
-  // Búsqueda por palabras clave en aplicaciones y gama
+  // Keyword scoring in the combined text field
   const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
   if (!words.length) return [];
+
   const scored = data
-    .map((r) => {
-      const hay = `${r.aplicaciones} ${r.descripcion_gama}`.toLowerCase();
+    .map((row) => {
+      const hay = row[1].toLowerCase();
       const hits = words.filter((w) => hay.includes(w)).length;
-      return { r, hits };
+      return { row, hits };
     })
     .filter(({ hits }) => hits > 0)
     .sort((a, b) => b.hits - a.hits)
     .slice(0, 3);
 
-  return scored.map(({ r }) => ({
-    referencia: r.referencia,
-    marca: r.marca,
-    descripcion_producto: r.descripcion_producto,
-    descripcion_gama: r.descripcion_gama,
-    aplicaciones: r.aplicaciones,
-    argumento_venta: r.argumento_venta,
-  }));
+  return scored.map(({ row: [ref, info] }) => ({ referencia: ref, info }));
+}
+
+export function getPrecios(): PrecioRow[] {
+  return loadPrecios();
 }

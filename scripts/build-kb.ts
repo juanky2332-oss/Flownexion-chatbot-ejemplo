@@ -1,64 +1,82 @@
 // Ejecutar con: npm run build:kb
-// Requiere los xlsx en scripts/ (no subidos al repo, ver .gitignore)
+// Los xlsx deben estar en data/source/ (ver README)
 import * as XLSX from "xlsx";
 import * as fs from "fs";
 import * as path from "path";
 
 const dataDir = path.join(process.cwd(), "data", "kb");
+const srcDir  = path.join(process.cwd(), "data", "source");
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 function norm(s: unknown): string {
   return String(s ?? "").trim().toUpperCase().replace(/\s+/g, "");
 }
-
-// ── Equivalencias ─────────────────────────────────────────────────────────────
-const eqPath = path.join(process.cwd(), "scripts", "Equivalencias_entre_productos.xlsx");
-if (!fs.existsSync(eqPath)) {
-  console.warn("⚠️  No encontrado: scripts/Equivalencias_entre_productos.xlsx");
-  if (!fs.existsSync(path.join(dataDir, "equivalencias.json"))) {
-    fs.writeFileSync(path.join(dataDir, "equivalencias.json"), "[]");
+function t(s: unknown, n: number): string {
+  return String(s ?? "").trim().slice(0, n);
+}
+function writeChunks(prefix: string, rows: unknown[], chunkSize: number) {
+  const total = Math.ceil(rows.length / chunkSize);
+  for (let p = 0; p < total; p++) {
+    const chunk = rows.slice(p * chunkSize, (p + 1) * chunkSize);
+    fs.writeFileSync(path.join(dataDir, `${prefix}-${p + 1}.json`), JSON.stringify(chunk));
   }
-} else {
-  const wb = XLSX.readFile(eqPath);
-  const ws = wb.Sheets["PRODUCTOS BD"] ?? wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: "" }) as Record<string, unknown>[];
-  const result = rows
-    .map((r) => ({
-      ref_skf:     norm(r["Referencia SKF"] ?? r["Referencia skf"] ?? ""),
-      ref_fag_ina: norm(r["Referencia FAG/INA"] ?? r["Referencia FAG"] ?? ""),
-      ref_nsk:     norm(r["Referencia NSK"] ?? ""),
-      ref_ntn_snr: norm(r["Referencia"] ?? ""),
-      marca:       String(r["Marca"] ?? "").trim(),
-      ean:         String(r["EAN"] ?? "").trim(),
-    }))
-    .filter((r) => r.ref_ntn_snr.length > 0);
-  fs.writeFileSync(path.join(dataDir, "equivalencias.json"), JSON.stringify(result, null, 2));
-  console.log(`✅ equivalencias.json — ${result.length} filas`);
+  return total;
 }
 
-// ── Aplicaciones ──────────────────────────────────────────────────────────────
-const apPath = path.join(process.cwd(), "scripts", "Tipos_de_aplicaciones.xlsx");
-if (!fs.existsSync(apPath)) {
-  console.warn("⚠️  No encontrado: scripts/Tipos_de_aplicaciones.xlsx");
-  if (!fs.existsSync(path.join(dataDir, "aplicaciones.json"))) {
-    fs.writeFileSync(path.join(dataDir, "aplicaciones.json"), "[]");
+// ── Equivalencias: [skf, fag, nsk, ref_ntn, marca, ean] ──────────────────────
+const eqPath = path.join(srcDir, "Equivalencias entre productos.xlsx");
+if (!fs.existsSync(eqPath)) {
+  console.warn("⚠️  No encontrado:", eqPath);
+} else {
+  const wb = XLSX.readFile(eqPath);
+  const raw = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets["PRODUCTOS BD"], { header: 1, defval: "" });
+  // Row 0 = group header, Row 1 = col headers, data from Row 2
+  const eq: [string, string, string, string, string, string][] = [];
+  for (let i = 2; i < raw.length; i++) {
+    const r = raw[i] as unknown[];
+    const ref = norm(r[3]);
+    if (!ref) continue;
+    eq.push([norm(r[0]), norm(r[1]), norm(r[2]), ref, String(r[4] ?? "").trim(), String(r[5] ?? "").trim()]);
   }
+  const parts = writeChunks("eq", eq, Math.ceil(eq.length / 3));
+  console.log(`✅ eq-1..${parts}.json — ${eq.length} referencias`);
+}
+
+// ── Aplicaciones: [ref, text] ─────────────────────────────────────────────────
+const apPath = path.join(srcDir, "Tipos de aplicaciones.xlsx");
+if (!fs.existsSync(apPath)) {
+  console.warn("⚠️  No encontrado:", apPath);
 } else {
   const wb = XLSX.readFile(apPath);
-  const ws = wb.Sheets["PRODUCTOS BD"] ?? wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: "" }) as Record<string, unknown>[];
-  const result = rows
+  const raw = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets["PRODUCTOS BD"], { header: 1, defval: "" });
+  const ap: [string, string][] = [];
+  for (let i = 2; i < raw.length; i++) {
+    const r = raw[i] as unknown[];
+    const ref = norm(r[1]);
+    if (!ref) continue;
+    const apps = String(r[6] ?? "").trim();
+    if (!apps || apps === "-" || apps.length < 15) continue;
+    const parts = [t(r[3], 60), t(r[4], 80), t(apps, 200)].filter((s) => s && s !== "-");
+    ap.push([ref, parts.join(" | ").slice(0, 280)]);
+  }
+  const parts = writeChunks("ap", ap, Math.ceil(ap.length / 10));
+  console.log(`✅ ap-1..${parts}.json — ${ap.length} referencias con aplicaciones`);
+}
+
+// ── Precios ───────────────────────────────────────────────────────────────────
+const prPath = path.join(srcDir, "Reglas de precio del catálogo (1).xlsx");
+if (!fs.existsSync(prPath)) {
+  console.warn("⚠️  No encontrado:", prPath);
+} else {
+  const wb = XLSX.readFile(prPath);
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets["Sheet1"], { defval: "" });
+  const precios = rows
+    .filter((r) => r["NOMBRE DE LA REGLA DE PRECIO"] && r["% DE DESCUENTO QUE SE APLICA"])
     .map((r) => ({
-      marca:                String(r["Marca"] ?? "").trim(),
-      referencia:           norm(r["Referencia"] ?? ""),
-      ean:                  String(r["EAN"] ?? "").trim(),
-      descripcion_producto: String(r["Descripción del producto"] ?? r["Descripcion del producto"] ?? "").trim(),
-      descripcion_gama:     String(r["Descripción de gama"] ?? r["Descripcion de gama"] ?? "").trim(),
-      argumento_venta:      String(r["Argumento de venta"] ?? "").trim(),
-      aplicaciones:         String(r["Aplicaciones de la gama"] ?? r["Aplicaciones"] ?? "").trim(),
-      fortaleza:            String(r["Fortaleza de la gama"] ?? r["Fortaleza"] ?? "").trim(),
-    }))
-    .filter((r) => r.descripcion_producto.length > 0 || r.aplicaciones.length > 0);
-  fs.writeFileSync(path.join(dataDir, "aplicaciones.json"), JSON.stringify(result, null, 2));
-  console.log(`✅ aplicaciones.json — ${result.length} filas`);
+      regla:     String(r["NOMBRE DE LA REGLA DE PRECIO"]).trim(),
+      condicion: String(r["CONDICIÓN"]).trim(),
+      pct:       parseFloat(String(r["% DE DESCUENTO QUE SE APLICA"])),
+    }));
+  fs.writeFileSync(path.join(dataDir, "precios.json"), JSON.stringify(precios, null, 2));
+  console.log(`✅ precios.json — ${precios.length} reglas`);
 }
