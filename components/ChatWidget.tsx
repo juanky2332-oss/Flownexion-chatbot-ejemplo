@@ -56,7 +56,6 @@ export default function ChatWidget({
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: "welcome", role: "assistant", content: WELCOME },
   ]);
-  const [cartConfirmed, setCartConfirmed] = useState<string | null>(null);
 
   const [identityToken, setIdentityToken] = useState<string | null>(null);
   const [tokenChecked, setTokenChecked] = useState(false);
@@ -86,10 +85,6 @@ export default function ChatWidget({
         setIdentityToken(event.data.token);
         setTokenChecked(true);
       }
-      if (event.data?.type === "esgas-cart-handled") {
-        setCartConfirmed(event.data.name ?? "artículo");
-        setTimeout(() => setCartConfirmed(null), 2500);
-      }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -102,7 +97,7 @@ export default function ChatWidget({
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, loading, open, cartConfirmed]);
+  }, [messages, loading, open]);
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
@@ -110,7 +105,7 @@ export default function ChatWidget({
   const tokenEmail = identityToken ? decodeTokenEmail(identityToken) : null;
 
   // handleCheckout: ver carrito (ambos modos) + añadir en modo iframe.
-  // En standalone el add-to-cart va por form submit en ProductCard (nunca bloqueado).
+  // En standalone el add-to-cart va por fetch en ProductCard (sin redirección).
   const handleCheckout = useCallback(
     (singleProduct?: Product, singleQty?: number) => {
       if (!singleProduct) {
@@ -284,13 +279,6 @@ export default function ChatWidget({
                         <span key={i} className="h-2 w-2 animate-typing-bounce rounded-full bg-gray-400" style={{ animationDelay: `${i * 0.15}s` }} />
                       ))}
                     </div>
-                  </div>
-                )}
-                {cartConfirmed && (
-                  <div className="flex justify-center">
-                    <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
-                      ✅ Añadido al carrito · {cartConfirmed}
-                    </span>
                   </div>
                 )}
               </div>
