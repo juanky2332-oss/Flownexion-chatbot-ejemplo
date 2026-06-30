@@ -42,6 +42,50 @@
 
   var ORIGIN = baseUrl();
 
+  // Variables del iframe (declaradas aquí para que el listener las vea)
+  var iframeStyle = null;
+  var COLLAPSED   = "96px";
+  var EXPANDED_W  = "412px";
+  var EXPANDED_H  = "640px";
+
+  // Listener global de mensajes del iframe
+  window.addEventListener("message", function (ev) {
+    if (ev.origin !== ORIGIN) return;
+    var d = ev.data || {};
+
+    // Redimensionar iframe cuando el chat se abre/cierra
+    if (d.type === "esgas-chat") {
+      if (!iframeStyle) return;
+      if (d.open) {
+        iframeStyle.width  = EXPANDED_W;
+        iframeStyle.height = EXPANDED_H;
+      } else {
+        iframeStyle.width  = COLLAPSED;
+        iframeStyle.height = COLLAPSED;
+      }
+      return;
+    }
+
+    // Añadir producto al carrito desde el iframe.
+    // El fetch va a /addchat.php en el mismo origen (b2b.esgas.es), así que
+    // las cookies de sesión de PrestaShop SE ENVÍAN correctamente.
+    if (d.type === "esgas-add-to-cart") {
+      var items = d.items || [];
+      if (!items.length) return;
+      var item = items[0];
+      var addUrl =
+        "/addchat.php" +
+        "?id_product="           + encodeURIComponent(item.id_product) +
+        "&id_product_attribute=" + encodeURIComponent(item.id_product_attribute || 0) +
+        "&qty="                  + encodeURIComponent(item.qty || 1);
+
+      fetch(addUrl, { credentials: "same-origin" })
+        .then(function ()  { window.location.href = "/carrito?action=show"; })
+        .catch(function () { window.location.href = "/carrito?action=show"; });
+      return;
+    }
+  });
+
   function build() {
     if (document.getElementById("esgas-chat-root")) return;
 
@@ -66,41 +110,23 @@
     iframe.setAttribute("frameborder", "0");
     iframe.setAttribute("scrolling", "no");
 
-    // Estado colapsado: solo el botón flotante (no bloquea la página).
-    var COLLAPSED = "96px";
-    var EXPANDED_W = "412px";
-    var EXPANDED_H = "640px";
-
     var s = iframe.style;
-    s.position = "fixed";
-    s.bottom = "0";
-    s.right = "0";
-    s.border = "0";
-    s.width = COLLAPSED;
-    s.height = COLLAPSED;
-    s.maxWidth = "100vw";
-    s.maxHeight = "100vh";
+    iframeStyle = s; // exponer al listener
+    s.position   = "fixed";
+    s.bottom     = "0";
+    s.right      = "0";
+    s.border     = "0";
+    s.width      = COLLAPSED;
+    s.height     = COLLAPSED;
+    s.maxWidth   = "100vw";
+    s.maxHeight  = "100vh";
     s.background = "transparent";
     s.colorScheme = "normal";
-    s.zIndex = "2147483000";
+    s.zIndex     = "2147483000";
     s.transition = "width .25s ease, height .25s ease";
 
     root.appendChild(iframe);
     document.body.appendChild(root);
-
-    // Redimensionar el iframe según abierto/cerrado (mensajes del widget).
-    window.addEventListener("message", function (ev) {
-      if (ev.origin !== ORIGIN) return;
-      var d = ev.data || {};
-      if (d.type !== "esgas-chat") return;
-      if (d.open) {
-        s.width = EXPANDED_W;
-        s.height = EXPANDED_H;
-      } else {
-        s.width = COLLAPSED;
-        s.height = COLLAPSED;
-      }
-    });
   }
 
   if (document.readyState === "loading") {
