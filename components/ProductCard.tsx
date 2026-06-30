@@ -33,23 +33,22 @@ export default function ProductCard({
     setTimeout(() => setAdding(false), 1500);
   };
 
-  // Standalone mode: fetch directo a addchat.php con cookies de sesión de PS.
-  // mode:'no-cors' permite la petición cross-origin; credentials:'include' envía
-  // las cookies de sesión de PrestaShop. Sin popup ni redirección.
+  // Standalone mode: fetch a addchat.php con cookies de sesión de PS,
+  // luego navega directamente al carrito de ESGAS.
   const handleAddStandalone = async () => {
     if (adding) return;
     setAdding(true);
-    const url =
+    const addUrl =
       `${psBase}/addchat.php` +
       `?id_product=${product.id}` +
       `&id_product_attribute=${product.idProductAttribute ?? 0}` +
       `&qty=${qty}`;
     try {
-      await fetch(url, { mode: "no-cors", credentials: "include" });
+      await fetch(addUrl, { mode: "no-cors", credentials: "include" });
     } catch {
       // error de red — el servidor puede igualmente haber procesado la petición
     }
-    setAdding(false);
+    window.location.href = `${psBase}/carrito?action=show`;
   };
 
   return (
