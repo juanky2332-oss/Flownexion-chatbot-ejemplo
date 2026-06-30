@@ -26,7 +26,7 @@ export default function ProductCard({
   const hasDiscount = product.discountPct != null && product.discountPct > 0;
 
   // Iframe mode: delega al padre (widget.js) via postMessage.
-  // widget.js corre en b2b.esgas.es y hace el fetch same-origin con cookies.
+  // widget.js corre en b2b.esgas.es y hace fetch same-origin con cookies.
   const handleAddIframe = () => {
     if (adding) return;
     setAdding(true);
@@ -34,24 +34,19 @@ export default function ProductCard({
     setTimeout(() => setAdding(false), 1500);
   };
 
-  // Standalone mode: window.open síncrono en el click handler (nunca bloqueado
-  // por popup blockers al ser un gesto directo del usuario). El popup navega a
-  // addchat.php en b2b.esgas.es — navegación top-level, se envían las cookies
-  // SameSite=Lax de PrestaShop. Tras 700ms PS ha procesado el add; cerramos el
-  // popup y llevamos la ventana principal al carrito.
+  // Standalone mode: navegación directa top-level a addchat.php?redirect=1.
+  // Al ser top-level las cookies SameSite=Lax de PS se envían correctamente.
+  // PS añade al carrito y redirige al carrito (sin popup, sin flash, funciona en móvil).
+  // REQUIERE que addchat.php soporte ?redirect=1 (ver instrucciones en README).
   const handleAddStandalone = () => {
     if (adding) return;
     setAdding(true);
-    const addUrl =
+    window.location.href =
       `${psBase}/addchat.php` +
       `?id_product=${product.id}` +
       `&id_product_attribute=${product.idProductAttribute ?? 0}` +
-      `&qty=${qty}`;
-    const popup = window.open(addUrl, "esgas_cart_add", "width=1,height=1,left=0,top=0");
-    setTimeout(() => {
-      try { popup?.close(); } catch {}
-      window.location.href = `${psBase}/carrito?action=show`;
-    }, 700);
+      `&qty=${qty}` +
+      `&redirect=1`;
   };
 
   return (
