@@ -34,19 +34,24 @@ export default function ProductCard({
     setTimeout(() => setAdding(false), 1500);
   };
 
-  // Standalone mode: navegación directa top-level a addchat.php?redirect=1.
-  // Al ser top-level las cookies SameSite=Lax de PS se envían correctamente.
-  // PS añade al carrito y redirige al carrito (sin popup, sin flash, funciona en móvil).
-  // REQUIERE que addchat.php soporte ?redirect=1 (ver instrucciones en README).
+  // Standalone mode: abre addchat.php en una NUEVA PESTAÑA.
+  // - Chatbot permanece en la pestaña original (no desaparece).
+  // - window.open('_blank') desde un click directo nunca es bloqueado en móvil
+  //   (los bloqueadores solo actúan sobre popups con tamaño o llamadas async).
+  // - Navegación top-level a b2b.esgas.es → cookies SameSite=Lax enviadas → PS añade al carrito.
+  // - Con ?redirect=1 y addchat.php actualizado: la nueva pestaña redirige al carrito.
+  // - Sin redirect: la nueva pestaña muestra {"ok":true} pero el artículo SÍ queda añadido.
   const handleAddStandalone = () => {
     if (adding) return;
     setAdding(true);
-    window.location.href =
+    const addUrl =
       `${psBase}/addchat.php` +
       `?id_product=${product.id}` +
       `&id_product_attribute=${product.idProductAttribute ?? 0}` +
       `&qty=${qty}` +
       `&redirect=1`;
+    window.open(addUrl, "_blank");
+    setTimeout(() => setAdding(false), 1500);
   };
 
   return (
