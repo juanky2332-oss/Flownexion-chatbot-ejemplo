@@ -20,13 +20,10 @@ export default function ProductCard({
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
-  const [added, setAdded] = useState(false);
 
   const changeQty = (delta: number) => setQty((prev) => Math.max(1, prev + delta));
 
   const hasDiscount = product.discountPct != null && product.discountPct > 0;
-
-  const cartPageUrl = `${psBase}/carrito?action=show`;
 
   // Iframe mode: delega al padre via postMessage
   const handleAddIframe = () => {
@@ -37,11 +34,10 @@ export default function ProductCard({
   };
 
   // Standalone mode: fetch directo a addchat.php con cookies de sesión de PS.
-  // mode:'no-cors' permite la petición cross-origin sin cabeceras CORS en el servidor;
-  // credentials:'include' envía las cookies de sesión de PrestaShop.
-  // No necesita window.open (no gesto de usuario requerido para fetch).
+  // mode:'no-cors' permite la petición cross-origin; credentials:'include' envía
+  // las cookies de sesión de PrestaShop. Sin popup ni redirección.
   const handleAddStandalone = async () => {
-    if (adding || added) return;
+    if (adding) return;
     setAdding(true);
     const url =
       `${psBase}/addchat.php` +
@@ -53,7 +49,6 @@ export default function ProductCard({
     } catch {
       // error de red — el servidor puede igualmente haber procesado la petición
     }
-    setAdded(true);
     setAdding(false);
   };
 
@@ -157,7 +152,6 @@ export default function ProductCard({
         </a>
 
         {isInIframe ? (
-          // iframe: postMessage al padre
           <button
             onClick={handleAddIframe}
             disabled={adding}
@@ -166,16 +160,7 @@ export default function ProductCard({
           >
             {adding ? "⏳ Añadiendo…" : `🛒 Añadir ${qty > 1 ? `${qty} uds` : "al carrito"}`}
           </button>
-        ) : added ? (
-          // Producto añadido: botón directo a carrito (window.open en onClick = gesto de usuario, nunca bloqueado)
-          <button
-            onClick={() => window.open(cartPageUrl, "_blank", "noopener,noreferrer")}
-            className="rounded-lg border border-green-300 bg-green-50 px-2.5 py-1.5 text-xs font-semibold text-green-700 transition hover:bg-green-100"
-          >
-            ✅ Añadido → Ver carrito
-          </button>
         ) : (
-          // standalone: fetch a addchat.php, sin abrir pestañas
           <button
             onClick={handleAddStandalone}
             disabled={adding}
