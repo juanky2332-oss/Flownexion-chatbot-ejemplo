@@ -34,24 +34,34 @@ export default function ProductCard({
     setTimeout(() => setAdding(false), 1500);
   };
 
-  // Standalone mode: abre addchat.php en una NUEVA PESTAÑA.
-  // - Chatbot permanece en la pestaña original (no desaparece).
-  // - window.open('_blank') desde un click directo nunca es bloqueado en móvil
-  //   (los bloqueadores solo actúan sobre popups con tamaño o llamadas async).
-  // - Navegación top-level a b2b.esgas.es → cookies SameSite=Lax enviadas → PS añade al carrito.
-  // - Con ?redirect=1 y addchat.php actualizado: la nueva pestaña redirige al carrito.
-  // - Sin redirect: la nueva pestaña muestra {"ok":true} pero el artículo SÍ queda añadido.
+  // Standalone mode: reproduce el flujo del popup original pero usando _blank.
+  // Los popups con dimensiones (width=1,height=1) son bloqueados en móvil;
+  // _blank abre como pestaña nueva y NUNCA es bloqueado desde un gesto de usuario.
+  //
+  // Flujo:
+  // 1. window.open(_blank) → pestaña nueva navega a addchat.php en b2b.esgas.es
+  //    → navegación top-level → cookies SameSite=Lax se envían → PS añade al carrito
+  // 2. Tras 700 ms (tiempo suficiente para que PS procese) → tab.close()
+  //    → podemos cerrarla porque NOSOTROS la abrimos (política del navegador)
+  // 3. window.location.href = carrito → pestaña principal va al carrito con el artículo
   const handleAddStandalone = () => {
     if (adding) return;
     setAdding(true);
+
     const addUrl =
       `${psBase}/addchat.php` +
       `?id_product=${product.id}` +
       `&id_product_attribute=${product.idProductAttribute ?? 0}` +
-      `&qty=${qty}` +
-      `&redirect=1`;
-    window.open(addUrl, "_blank");
-    setTimeout(() => setAdding(false), 1500);
+      `&qty=${qty}`;
+
+    const cartUrl = `${psBase}/carrito?action=show`;
+
+    const tab = window.open(addUrl, "_blank");
+
+    setTimeout(() => {
+      try { tab?.close(); } catch { /* cross-origin close puede fallar en algunos browsers */ }
+      window.location.href = cartUrl;
+    }, 700);
   };
 
   return (
