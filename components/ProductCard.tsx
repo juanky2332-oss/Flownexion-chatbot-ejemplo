@@ -15,6 +15,7 @@ interface ProductCardProps {
 export default function ProductCard({
   product,
   primaryColor = "#0066cc",
+  onCheckout,
   isInIframe = false,
   psBase = "https://b2b.esgas.es",
   identityToken,
