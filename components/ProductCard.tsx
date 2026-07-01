@@ -20,15 +20,15 @@ export default function ProductCard({
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
+  // addedCartUrl solo se usa en modo iframe para mostrar el éxito inline
   const [addedCartUrl, setAddedCartUrl] = useState<string | null>(null);
-  const [addError, setAddError] = useState(false);
 
   const changeQty = (delta: number) =>
     setQty((prev) => Math.max(1, prev + delta));
   const hasDiscount =
     product.discountPct != null && product.discountPct > 0;
 
-  // Iframe: delegate to parent via postMessage (parent has PS session cookie)
+  // ── Iframe: postMessage al padre (PS) que lo añade con sus cookies ──────────
   const handleAddIframe = () => {
     if (adding) return;
     setAdding(true);
@@ -39,40 +39,24 @@ export default function ProductCard({
     }, 900);
   };
 
-  // Standalone: call /api/cart → creates PS cart via Webservice, returns recovery URL.
-  // Zero page reload — inline success with link to recover the cart.
-  const handleAddStandalone = async () => {
+  // ── Standalone: navegar al URL de PS que añade al carrito (cookies del browser)
+  // y redirige a /carrito. No hay página intermedia — PS hace el redirect solo.
+  const handleAddStandalone = () => {
     if (adding) return;
     setAdding(true);
-    setAddError(false);
-    try {
-      const res = await fetch("/api/cart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: [
-            {
-              productId: product.id,
-              qty,
-              idProductAttribute: product.idProductAttribute ?? 0,
-            },
-          ],
-        }),
-      });
-      if (!res.ok) throw new Error("api-error");
-      const data: { cartUrl?: string } = await res.json().catch(() => ({}));
-      setAddedCartUrl(data.cartUrl ?? `${psBase}/carrito?action=show`);
-    } catch {
-      setAddError(true);
-      setTimeout(() => setAddError(false), 4000);
-    } finally {
-      setAdding(false);
-    }
+    const addUrl =
+      `${psBase}/index.php?controller=cart&add=1` +
+      `&id_product=${product.id}` +
+      `&id_product_attribute=${product.idProductAttribute ?? 0}` +
+      `&qty=${qty}` +
+      `&action=add` +
+      `&back=${encodeURIComponent("/carrito")}`;
+    window.location.href = addUrl;
   };
 
   const handleAdd = isInIframe ? handleAddIframe : handleAddStandalone;
 
-  // ── Success state ──────────────────────────────────────────────────────────
+  // ── Success state (solo modo iframe; en standalone PS hace el redirect) ──────
   if (addedCartUrl) {
     return (
       <div className="mt-2 animate-fade-in-up rounded-xl border border-green-200 bg-green-50 p-3 shadow-sm">
@@ -88,7 +72,7 @@ export default function ProductCard({
           </div>
           <a
             href={addedCartUrl}
-            target={isInIframe ? "_top" : "_blank"}
+            target="_top"
             rel="noopener noreferrer"
             className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:opacity-90 active:scale-95"
             style={{ backgroundColor: primaryColor }}
@@ -106,7 +90,6 @@ export default function ProductCard({
     );
   }
 
-  // ── Product card ───────────────────────────────────────────────────────────
   return (
     <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md">
       {/* Name + price */}
@@ -239,31 +222,12 @@ export default function ProductCard({
           href={product.link}
           target="_blank"
           rel="noopener noreferrer"
-          title="Ver ficha completa del producto"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-400 transition hover:border-gray-300 hover:text-gray-600"
+          className="flex-shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition hover:bg-gray-50"
+          style={{ color: primaryColor, borderColor: primaryColor }}
         >
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-            <polyline points="15 3 21 3 21 9" />
-            <line x1="10" y1="14" x2="21" y2="3" />
-          </svg>
+          Ver ficha →
         </a>
       </div>
-
-      {addError && (
-        <p className="mt-1.5 text-xs text-red-600">
-          No se pudo añadir al carrito. Por favor, inténtalo de nuevo.
-        </p>
-      )}
     </div>
   );
 }
