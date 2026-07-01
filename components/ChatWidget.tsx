@@ -121,7 +121,9 @@ export default function ChatWidget({
         }
         return;
       }
+      console.log("[ESGAS-DEBUG] ChatWidget.handleCheckout, detectIframe()=", detectIframe());
       if (detectIframe()) {
+        console.log("[ESGAS-DEBUG] enviando postMessage esgas-add-to-cart al padre");
         window.parent.postMessage(
           {
             type: "esgas-add-to-cart",
