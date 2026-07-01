@@ -19,49 +19,30 @@ export default function ProductCard({
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
 
   const changeQty = (delta: number) =>
     setQty((prev) => Math.max(1, prev + delta));
   const hasDiscount =
     product.discountPct != null && product.discountPct > 0;
 
-  const goToCart = () => {
-    const cartUrl = `${psBase}/carrito?action=show`;
-    if (isInIframe) {
-      try { (window.top as Window).location.href = cartUrl; } catch { window.location.href = cartUrl; }
-    } else {
-      window.location.href = cartUrl;
-    }
-  };
-
-  // Llama a addchat.php (endpoint en la raíz de PS) que usa $context->cart
-  // con las cookies de sesión del usuario para añadir al carrito real.
-  const handleAdd = async () => {
+  // Navegar a addchat.php con redirect=1:
+  // - PS añade al carrito usando $context->cart (sesión real del usuario)
+  // - PS redirige a /carrito
+  // Las navegaciones de página envían cookies aunque sean cross-site (SameSite=Lax OK)
+  // No necesita CORS ni fetch.
+  const handleAdd = () => {
     if (adding) return;
     setAdding(true);
-    setAddError(null);
-
-    try {
-      const url =
-        `${psBase}/addchat.php` +
-        `?id_product=${product.id}` +
-        `&id_product_attribute=${product.idProductAttribute ?? 0}` +
-        `&qty=${qty}`;
-
-      const res = await fetch(url, { credentials: "include" });
-      const data: { ok?: boolean } = await res.json().catch(() => ({}));
-
-      if (data.ok) {
-        goToCart();
-      } else {
-        setAdding(false);
-        setAddError("Inicia sesión en b2b.esgas.es para añadir al carrito.");
-      }
-    } catch {
-      // CORS u otro error de red
-      setAdding(false);
-      setAddError("Error de conexión. Inicia sesión en b2b.esgas.es.");
+    const addUrl =
+      `${psBase}/addchat.php` +
+      `?id_product=${product.id}` +
+      `&id_product_attribute=${product.idProductAttribute ?? 0}` +
+      `&qty=${qty}` +
+      `&redirect=1`;
+    if (isInIframe) {
+      try { (window.top as Window).location.href = addUrl; } catch { window.location.href = addUrl; }
+    } else {
+      window.location.href = addUrl;
     }
   };
 
@@ -135,11 +116,6 @@ export default function ProductCard({
               : "Sin stock — disponible en 24/48 h laborables"}
           </span>
         </div>
-      )}
-
-      {/* Error */}
-      {addError && (
-        <p className="mt-1.5 text-xs font-medium text-red-600">{addError}</p>
       )}
 
       {/* Qty + actions */}
