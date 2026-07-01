@@ -14,34 +14,21 @@ interface ProductCardProps {
 export default function ProductCard({
   product,
   primaryColor = "#0066cc",
-  onCheckout,
   isInIframe = false,
   psBase = "https://b2b.esgas.es",
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
-  // addedCartUrl solo se usa en modo iframe para mostrar el éxito inline
-  const [addedCartUrl, setAddedCartUrl] = useState<string | null>(null);
 
   const changeQty = (delta: number) =>
     setQty((prev) => Math.max(1, prev + delta));
   const hasDiscount =
     product.discountPct != null && product.discountPct > 0;
 
-  // ── Iframe: postMessage al padre (PS) que lo añade con sus cookies ──────────
-  const handleAddIframe = () => {
-    if (adding) return;
-    setAdding(true);
-    onCheckout?.(product, qty);
-    setTimeout(() => {
-      setAdding(false);
-      setAddedCartUrl(`${psBase}/carrito?action=show`);
-    }, 900);
-  };
-
-  // ── Standalone: navegar al URL de PS que añade al carrito (cookies del browser)
-  // y redirige a /carrito. No hay página intermedia — PS hace el redirect solo.
-  const handleAddStandalone = () => {
+  // Navegar al controlador de carrito de PS con el parámetro back apuntando
+  // al controlador de carrito (URL raw, funciona siempre aunque fallen las
+  // friendly URLs). En modo iframe usamos window.top para salir del iframe.
+  const handleAdd = () => {
     if (adding) return;
     setAdding(true);
     const addUrl =
@@ -50,45 +37,18 @@ export default function ProductCard({
       `&id_product_attribute=${product.idProductAttribute ?? 0}` +
       `&qty=${qty}` +
       `&action=add` +
-      `&back=${encodeURIComponent("/carrito")}`;
-    window.location.href = addUrl;
+      `&back=${encodeURIComponent("index.php?controller=cart&action=show")}`;
+
+    if (isInIframe) {
+      try {
+        (window.top as Window).location.href = addUrl;
+      } catch {
+        window.location.href = addUrl;
+      }
+    } else {
+      window.location.href = addUrl;
+    }
   };
-
-  const handleAdd = isInIframe ? handleAddIframe : handleAddStandalone;
-
-  // ── Success state (solo modo iframe; en standalone PS hace el redirect) ──────
-  if (addedCartUrl) {
-    return (
-      <div className="mt-2 animate-fade-in-up rounded-xl border border-green-200 bg-green-50 p-3 shadow-sm">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-100 text-base">
-            ✅
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-green-800">¡Añadido al carrito!</p>
-            <p className="truncate text-xs text-green-600">
-              {product.name} · {qty} {qty === 1 ? "ud." : "uds."}
-            </p>
-          </div>
-          <a
-            href={addedCartUrl}
-            target="_top"
-            rel="noopener noreferrer"
-            className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:opacity-90 active:scale-95"
-            style={{ backgroundColor: primaryColor }}
-          >
-            Ver carrito →
-          </a>
-        </div>
-        <button
-          onClick={() => setAddedCartUrl(null)}
-          className="mt-1.5 text-xs text-green-700 underline underline-offset-2 hover:text-green-900"
-        >
-          ← Seguir comprando
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md">
@@ -211,7 +171,7 @@ export default function ProductCard({
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                 />
               </svg>
-              Añadiendo…
+              Yendo al carrito…
             </>
           ) : (
             `🛒 ${qty > 1 ? `Añadir ${qty} uds` : "Añadir al carrito"}`

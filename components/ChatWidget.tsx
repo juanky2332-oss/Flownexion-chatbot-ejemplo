@@ -15,7 +15,7 @@ export interface ChatWidgetProps {
 }
 
 const WELCOME =
-  "¡Hola! 👋 Soy **Carlos**, tu asesor técnico de ESGAS, distribuidor oficial **NTN/SNR**.\n\nDime qué rodamiento o suministro necesitas y te ayudo a encontrarlo al mejor precio. ¿En qué estás trabajando?";
+  "Hola, soy **Carlos**, asesor técnico de **ESGAS** · NTN/SNR. ¿Qué rodamiento necesitas?";
 
 const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
