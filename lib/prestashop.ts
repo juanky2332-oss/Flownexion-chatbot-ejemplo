@@ -118,10 +118,19 @@ function normalizeProduct(raw: any, basePrice?: number): Product {
   const price = basePrice ?? (Number.parseFloat(raw?.price ?? "0") || 0);
   const combinations: Array<{ id: string | number }> = raw?.associations?.combinations ?? [];
   const idProductAttribute = combinations.length > 0 ? Number(combinations[0].id) : 0;
+
+  // Si el campo reference contiene solo dígitos (EAN-8 a EAN-14), usamos
+  // supplier_reference como alternativa, o el nombre del producto.
+  const rawRef = plainText(raw?.reference);
+  const isBarcode = /^\d{8,14}$/.test(rawRef);
+  const reference = !isBarcode && rawRef
+    ? rawRef
+    : (plainText(raw?.supplier_reference) || plainText(raw?.name));
+
   return {
     id,
     name: plainText(raw?.name) || `Producto ${id}`,
-    reference: plainText(raw?.reference) || plainText(raw?.name),
+    reference,
     price: Math.round(price * 100) / 100,
     description: plainText(raw?.description_short).replace(/<[^>]*>/g, "").trim(),
     idProductAttribute,
@@ -222,7 +231,6 @@ async function psGetBestSpecificPrice(
 // ─── Dirección válida para cart_rows ─────────────────────────────────────────
 
 async function getValidAddressId(customerId?: number): Promise<number> {
-  // 1. Dirección del cliente (si existe)
   if (customerId) {
     try {
       const res = await fetch(
@@ -237,7 +245,6 @@ async function getValidAddressId(customerId?: number): Promise<number> {
     } catch { /* continuar */ }
   }
 
-  // 2. Cualquier dirección del sistema como fallback
   try {
     const res = await fetch(
       `${BASE_URL}/api/addresses?ws_key=${API_KEY}&output_format=JSON&display=[id]&limit=1`,
@@ -403,7 +410,6 @@ export async function psCreateCart(
       ? `<secure_key>${customerSecureKey.trim()}</secure_key>`
       : "";
 
-    // Paso 1: POST — crear carrito vacío (PS ignora cart_rows en POST)
     const createXml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">` +
@@ -444,7 +450,6 @@ export async function psCreateCart(
       return { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls };
     }
 
-    // Paso 2: GET — leer campos reales del carrito recién creado
     const getUrl = `${BASE_URL}/api/carts/${cartId}?ws_key=${API_KEY}&output_format=JSON`;
     const getRes = await fetch(getUrl, { headers: PS_HEADERS, cache: "no-store" });
     const cartData = getRes.ok ? await getRes.json().catch(() => ({})) : {};
@@ -453,15 +458,12 @@ export async function psCreateCart(
     let idAddressDelivery = Number(cartObj?.id_address_delivery ?? 0);
     const idShopGroup = Number(cartObj?.id_shop_group ?? 1);
     const idShop = Number(cartObj?.id_shop ?? 1);
-    // El secure_key real del carrito (puede diferir del del cliente)
     const cartSecureKey = String(cartObj?.secure_key ?? customerSecureKey ?? "").trim();
 
-    // Buscar dirección válida si el carrito no tiene ninguna asignada
     if (idAddressDelivery === 0) {
       idAddressDelivery = await getValidAddressId(customerId);
     }
 
-    // Paso 3: PUT — añadir productos con dirección válida
     const rows = items
       .map(
         (i) =>
@@ -504,7 +506,6 @@ export async function psCreateCart(
       console.log("[psCreateCart] carrito", cartId, "listo con", items.length, "producto(s), addr", idAddressDelivery);
     }
 
-    // Usar el secure_key real del carrito para recover_cart
     const tokenCart = cartSecureKey || customerSecureKey?.trim() || "";
     const cartUrl = tokenCart
       ? `${STORE_URL}/index.php?controller=cart&action=show&recover_cart=${cartId}&token_cart=${tokenCart}`
