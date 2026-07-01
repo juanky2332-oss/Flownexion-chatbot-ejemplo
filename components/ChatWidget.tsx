@@ -21,6 +21,13 @@ const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
 const PS_BASE   = "https://b2b.esgas.es";
 
+const QUICK_CHIPS = [
+  "¿Tenéis el 6205 LLU en stock?",
+  "Necesito un rodamiento Ø25 mm interior",
+  "¿Equivalente NTN al 6205-2RS1 de SKF?",
+  "¿Para qué sirve el rodamiento 32212?",
+];
+
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return Math.random().toString(36).slice(2);
@@ -104,8 +111,6 @@ export default function ChatWidget({
   const isLocked   = requireAuth && isInIframe && tokenChecked && !identityToken;
   const tokenEmail = identityToken ? decodeTokenEmail(identityToken) : null;
 
-  // handleCheckout: ver carrito (ambos modos) + añadir en modo iframe.
-  // En standalone el add-to-cart va por fetch en ProductCard (sin redirección).
   const handleCheckout = useCallback(
     (singleProduct?: Product, singleQty?: number) => {
       if (!singleProduct) {
@@ -134,13 +139,13 @@ export default function ChatWidget({
     []
   );
 
-  const send = useCallback(async () => {
-    const text = input.trim();
+  const send = useCallback(async (overrideText?: string) => {
+    const text = (overrideText !== undefined ? overrideText : input).trim();
     if (!text || loading || isLocked) return;
 
     const userMsg: ChatMessage = { id: uid(), role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
-    setInput("");
+    if (overrideText === undefined) setInput("");
     setLoading(true);
 
     const history: Message[] = [...messages, userMsg]
@@ -180,8 +185,20 @@ export default function ChatWidget({
     }
   }, [input, loading, isLocked, messages, sessionId, webhookUrl, identityToken]);
 
+  const sendChip = useCallback((text: string) => { send(text); }, [send]);
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  };
+
+  const openCart = () => {
+    if (isInIframe) {
+      try { (window.top as Window).location.href = CART_PAGE; } catch {
+        window.open(CART_PAGE, "_blank", "noopener,noreferrer");
+      }
+    } else {
+      window.open(CART_PAGE, "_blank", "noopener,noreferrer");
+    }
   };
 
   return (
@@ -192,6 +209,7 @@ export default function ChatWidget({
           role="dialog"
           aria-label={`Chat con Carlos de ${companyName}`}
         >
+          {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 text-white" style={{ backgroundColor: primaryColor }}>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/15 ring-2 ring-white/30">
               {logoUrl
@@ -219,15 +237,13 @@ export default function ChatWidget({
               </div>
             </div>
 
-            <a
-              href={CART_PAGE}
-              target="_top"
-              rel="noopener noreferrer"
+            <button
+              onClick={openCart}
               title="Ver carrito"
-              className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold transition hover:bg-white/30"
+              className="flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold transition hover:bg-white/30 active:scale-95"
             >
               🛒 Carrito
-            </a>
+            </button>
 
             <button
               onClick={() => setOpen(false)}
@@ -272,6 +288,25 @@ export default function ChatWidget({
                     psBase={PS_BASE}
                   />
                 ))}
+
+                {/* Chips de preguntas frecuentes — solo visible en el primer turno */}
+                {messages.length === 1 && !loading && (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    <p className="mb-0.5 w-full text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                      Preguntas frecuentes
+                    </p>
+                    {QUICK_CHIPS.map((chip) => (
+                      <button
+                        key={chip}
+                        onClick={() => sendChip(chip)}
+                        className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:scale-95"
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {loading && (
                   <div className="flex justify-start">
                     <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-gray-100 bg-white px-4 py-3 shadow-sm">
@@ -296,7 +331,7 @@ export default function ChatWidget({
                     style={{ ["--tw-ring-color" as any]: primaryColor }}
                   />
                   <button
-                    onClick={send}
+                    onClick={() => send()}
                     disabled={loading || !input.trim()}
                     aria-label="Enviar mensaje"
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
