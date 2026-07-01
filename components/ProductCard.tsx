@@ -9,6 +9,7 @@ interface ProductCardProps {
   onCheckout?: (product?: Product, qty?: number) => void;
   isInIframe?: boolean;
   psBase?: string;
+  identityToken?: string | null;
 }
 
 export default function ProductCard({
@@ -16,33 +17,48 @@ export default function ProductCard({
   primaryColor = "#0066cc",
   isInIframe = false,
   psBase = "https://b2b.esgas.es",
+  identityToken,
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState(false);
 
   const changeQty = (delta: number) =>
     setQty((prev) => Math.max(1, prev + delta));
   const hasDiscount =
     product.discountPct != null && product.discountPct > 0;
 
-  // Navegar a addchat.php con redirect=1:
-  // - PS añade al carrito usando $context->cart (sesión real del usuario)
-  // - PS redirige a /carrito
-  // Las navegaciones de página envían cookies aunque sean cross-site (SameSite=Lax OK)
-  // No necesita CORS ni fetch.
-  const handleAdd = () => {
+  // Crea el carrito vía Webservice de PS (/api/cart → psCreateCart) y navega a
+  // la recover_cart URL nativa. No depende de cookies/sesión del navegador
+  // (addchat.php requiere un carrito ya cargado en sesión y no lo crea, por eso
+  // fallaba en pruebas standalone sin login previo en b2b.esgas.es).
+  const handleAdd = async () => {
     if (adding) return;
     setAdding(true);
-    const addUrl =
-      `${psBase}/addchat.php` +
-      `?id_product=${product.id}` +
-      `&id_product_attribute=${product.idProductAttribute ?? 0}` +
-      `&qty=${qty}` +
-      `&redirect=1`;
-    if (isInIframe) {
-      try { (window.top as Window).location.href = addUrl; } catch { window.location.href = addUrl; }
-    } else {
-      window.location.href = addUrl;
+    setAddError(false);
+    try {
+      const res = await fetch("/api/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: [{
+            productId: product.id,
+            qty,
+            idProductAttribute: product.idProductAttribute ?? 0,
+          }],
+          ...(identityToken ? { identityToken } : {}),
+        }),
+      });
+      const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
+      const dest = data.cartUrl || `${psBase}/carrito?action=show`;
+      if (isInIframe) {
+        try { (window.top as Window).location.href = dest; } catch { window.location.href = dest; }
+      } else {
+        window.location.href = dest;
+      }
+    } catch {
+      setAddError(true);
+      setAdding(false);
     }
   };
 
@@ -173,6 +189,12 @@ export default function ProductCard({
           Ver ficha →
         </a>
       </div>
+
+      {addError && (
+        <p className="mt-1.5 text-xs text-red-600">
+          No se pudo añadir al carrito. Por favor, inténtalo de nuevo.
+        </p>
+      )}
     </div>
   );
 }
