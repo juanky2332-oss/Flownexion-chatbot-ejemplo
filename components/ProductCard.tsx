@@ -19,34 +19,49 @@ export default function ProductCard({
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const changeQty = (delta: number) =>
     setQty((prev) => Math.max(1, prev + delta));
   const hasDiscount =
     product.discountPct != null && product.discountPct > 0;
 
-  // Navegar al controlador de carrito de PS con el parámetro back apuntando
-  // al controlador de carrito (URL raw, funciona siempre aunque fallen las
-  // friendly URLs). En modo iframe usamos window.top para salir del iframe.
-  const handleAdd = () => {
+  const goToCart = () => {
+    const cartUrl = `${psBase}/carrito?action=show`;
+    if (isInIframe) {
+      try { (window.top as Window).location.href = cartUrl; } catch { window.location.href = cartUrl; }
+    } else {
+      window.location.href = cartUrl;
+    }
+  };
+
+  // Llama a addchat.php (endpoint en la raíz de PS) que usa $context->cart
+  // con las cookies de sesión del usuario para añadir al carrito real.
+  const handleAdd = async () => {
     if (adding) return;
     setAdding(true);
-    const addUrl =
-      `${psBase}/index.php?controller=cart&add=1` +
-      `&id_product=${product.id}` +
-      `&id_product_attribute=${product.idProductAttribute ?? 0}` +
-      `&qty=${qty}` +
-      `&action=add` +
-      `&back=${encodeURIComponent("index.php?controller=cart&action=show")}`;
+    setAddError(null);
 
-    if (isInIframe) {
-      try {
-        (window.top as Window).location.href = addUrl;
-      } catch {
-        window.location.href = addUrl;
+    try {
+      const url =
+        `${psBase}/addchat.php` +
+        `?id_product=${product.id}` +
+        `&id_product_attribute=${product.idProductAttribute ?? 0}` +
+        `&qty=${qty}`;
+
+      const res = await fetch(url, { credentials: "include" });
+      const data: { ok?: boolean } = await res.json().catch(() => ({}));
+
+      if (data.ok) {
+        goToCart();
+      } else {
+        setAdding(false);
+        setAddError("Inicia sesión en b2b.esgas.es para añadir al carrito.");
       }
-    } else {
-      window.location.href = addUrl;
+    } catch {
+      // CORS u otro error de red
+      setAdding(false);
+      setAddError("Error de conexión. Inicia sesión en b2b.esgas.es.");
     }
   };
 
@@ -122,6 +137,11 @@ export default function ProductCard({
         </div>
       )}
 
+      {/* Error */}
+      {addError && (
+        <p className="mt-1.5 text-xs font-medium text-red-600">{addError}</p>
+      )}
+
       {/* Qty + actions */}
       <div className="mt-2.5 flex items-center gap-2">
         <div className="flex items-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
@@ -157,21 +177,10 @@ export default function ProductCard({
           {adding ? (
             <>
               <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                />
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              Yendo al carrito…
+              Añadiendo…
             </>
           ) : (
             `🛒 ${qty > 1 ? `Añadir ${qty} uds` : "Añadir al carrito"}`
