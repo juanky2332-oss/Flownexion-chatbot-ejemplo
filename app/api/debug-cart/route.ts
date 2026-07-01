@@ -11,9 +11,21 @@ export const dynamic = "force-dynamic";
 
 const TEST_EMAIL = "juancarlos@flownexion.com";
 
+const BASE_URL = (process.env.PRESTASHOP_BASE_URL ?? "").replace(/\/$/, "");
+const API_KEY = process.env.PRESTASHOP_API_KEY ?? "";
+
 export async function GET(req: NextRequest) {
   const idProduct = Number(req.nextUrl.searchParams.get("id_product") ?? "8854");
   const qty       = Number(req.nextUrl.searchParams.get("qty") ?? "3");
+  const inspect   = req.nextUrl.searchParams.get("inspect");
+
+  // Modo inspección: leer un carrito ya creado directamente de la WS API
+  if (inspect) {
+    const url = `${BASE_URL}/api/carts/${inspect}?ws_key=${API_KEY}&output_format=JSON`;
+    const res = await fetch(url, { cache: "no-store" });
+    const body = await res.text();
+    return NextResponse.json({ status: res.status, body: body.slice(0, 3000) });
+  }
 
   // Buscar cliente de prueba
   const customer = await psGetCustomer(TEST_EMAIL);
