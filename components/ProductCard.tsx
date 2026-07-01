@@ -28,14 +28,25 @@ export default function ProductCard({
   const hasDiscount =
     product.discountPct != null && product.discountPct > 0;
 
-  // Crea el carrito vía Webservice de PS (/api/cart → psCreateCart) y navega a
-  // la recover_cart URL nativa. No depende de cookies/sesión del navegador
-  // (addchat.php requiere un carrito ya cargado en sesión y no lo crea, por eso
-  // fallaba en pruebas standalone sin login previo en b2b.esgas.es).
+  // Embebido en b2b.esgas.es: delega al padre vía postMessage (onCheckout).
+  // El padre (nexionchat.php / widget.js) hace el fetch mismo-origen a
+  // addchat.php con la sesión real del cliente logueado — el único contexto
+  // en el que ese script llega a tener un carrito cargado.
+  //
+  // Standalone (demo en Vercel, sin padre PS): no hay forma de que un fetch
+  // cross-origin lleve la sesión real de b2b.esgas.es, así que usamos /api/cart
+  // (Webservice API) como mejor esfuerzo.
   const handleAdd = async () => {
     if (adding) return;
     setAdding(true);
     setAddError(false);
+
+    if (isInIframe && onCheckout) {
+      onCheckout(product, qty);
+      setAdding(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/cart", {
         method: "POST",
@@ -51,11 +62,7 @@ export default function ProductCard({
       });
       const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
       const dest = data.cartUrl || `${psBase}/carrito?action=show`;
-      if (isInIframe) {
-        try { (window.top as Window).location.href = dest; } catch { window.location.href = dest; }
-      } else {
-        window.location.href = dest;
-      }
+      window.location.href = dest;
     } catch {
       setAddError(true);
       setAdding(false);
