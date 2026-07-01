@@ -1,27 +1,26 @@
 <?php
 /**
- * Chatbot ESGAS — endpoint añadir al carrito
- * Subir este archivo a la RAÍZ del PrestaShop (mismo nivel que index.php)
- * URL resultante: https://b2b.esgas.es/addchat.php
+ * Chatbot ESGAS v2 — endpoint añadir al carrito
+ * Subir a la RAÍZ del PrestaShop (mismo nivel que index.php)
+ * URL: https://b2b.esgas.es/addchat.php
  *
  * Modos:
- *   - redirect=0 (defecto): responde JSON {ok: bool} para peticiones AJAX (iframe)
- *   - redirect=1           : añade y redirige al carrito (para navegación directa)
+ *   redirect=0 (defecto): JSON {ok: bool} — para AJAX desde iframe
+ *   redirect=1           : añade al carrito y redirige a /carrito — para navegación directa
  */
 require_once(dirname(__FILE__) . '/config/config.inc.php');
 require_once(dirname(__FILE__) . '/init.php');
 
 header('Cache-Control: no-store');
 
-$redirect = (bool) Tools::getValue('redirect', 0);
+// Leer parámetro redirect antes de cualquier output
+$redirect = ((int) Tools::getValue('redirect', 0) === 1);
 
 if (!$redirect) {
-    // CORS solo necesario en modo AJAX (iframe en esgas.nodoflow.com)
     header('Access-Control-Allow-Origin: https://esgas.nodoflow.com');
     header('Access-Control-Allow-Credentials: true');
     header('Access-Control-Allow-Methods: GET, OPTIONS');
     header('Content-Type: application/json; charset=utf-8');
-
     if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
         http_response_code(204);
         exit;
@@ -37,13 +36,38 @@ $ok = false;
 if ($id_product > 0) {
     $context = Context::getContext();
     $cart    = $context->cart;
+
+    // Si no hay carrito cargado en la sesión, crear uno nuevo
+    if (!Validate::isLoadedObject($cart)) {
+        $cart              = new Cart();
+        $cart->id_lang     = (int) $context->language->id;
+        $cart->id_currency = (int) $context->currency->id;
+        $cart->id_shop     = (int) $context->shop->id;
+        if ($context->customer && (int) $context->customer->id > 0) {
+            $cart->id_customer = (int) $context->customer->id;
+        }
+        $cart->add();
+        if ($cart->id) {
+            $context->cart              = $cart;
+            $context->cookie->id_cart  = (int) $cart->id;
+            $context->cookie->write();
+        }
+    }
+
     if (Validate::isLoadedObject($cart)) {
-        $ok = (bool) $cart->updateQty($qty, $id_product, $id_product_attribute, false, 'up');
+        $ok = (bool) $cart->updateQty(
+            $qty,
+            $id_product,
+            $id_product_attribute,
+            false,
+            'up'
+        );
     }
 }
 
 if ($redirect) {
-    // Redirigir al carrito (funciona con SameSite=Lax, no necesita CORS)
+    // Redirigir siempre al carrito, aunque ok=false
+    // (el usuario verá el carrito vacío si hubo error, pero no se queda en JSON)
     Tools::redirect('index.php?controller=cart&action=show');
 } else {
     echo json_encode(['ok' => $ok]);
