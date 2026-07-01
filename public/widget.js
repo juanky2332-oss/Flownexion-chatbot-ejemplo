@@ -70,9 +70,11 @@
     // El fetch va a /addchat.php en el mismo origen (b2b.esgas.es), así que
     // las cookies de sesión de PrestaShop SE ENVÍAN correctamente.
     if (d.type === "esgas-add-to-cart") {
-      console.log("[ESGAS-DEBUG] widget.js recibio esgas-add-to-cart:", d);
       var items = d.items || [];
-      if (!items.length) return;
+      if (!items.length) {
+        alert("ESGAS-DEBUG: widget.js recibio esgas-add-to-cart pero SIN items");
+        return;
+      }
       var item = items[0];
       var addUrl =
         "/addchat.php" +
@@ -80,10 +82,9 @@
         "&id_product_attribute=" + encodeURIComponent(item.id_product_attribute || 0) +
         "&qty="                  + encodeURIComponent(item.qty || 1);
 
-      console.log("[ESGAS-DEBUG] widget.js fetch a", addUrl);
       fetch(addUrl, { credentials: "same-origin" })
-        .then(function (r)  { return r.text().then(function(t){ console.log("[ESGAS-DEBUG] addchat.php respuesta:", r.status, t); }); })
-        .catch(function (e) { console.log("[ESGAS-DEBUG] addchat.php fetch fallo:", e); })
+        .then(function (r)  { return r.text().then(function(t){ alert("ESGAS-DEBUG addchat.php -> " + addUrl + "\nHTTP " + r.status + "\nrespuesta: " + t); }); })
+        .catch(function (e) { alert("ESGAS-DEBUG addchat.php fetch FALLO: " + e); })
         .finally(function() { window.location.href = "/carrito?action=show"; });
       return;
     }

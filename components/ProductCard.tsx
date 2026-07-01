@@ -42,16 +42,14 @@ export default function ProductCard({
     setAdding(true);
     setAddError(false);
 
-    console.log("[ESGAS-DEBUG] ProductCard.handleAdd, isInIframe=", isInIframe, "onCheckout disponible=", !!onCheckout);
+    alert("ESGAS-DEBUG ProductCard.handleAdd\nisInIframe=" + isInIframe + "\nonCheckout disponible=" + !!onCheckout);
 
     if (isInIframe && onCheckout) {
-      console.log("[ESGAS-DEBUG] delegando al padre via onCheckout (postMessage)");
       onCheckout(product, qty);
       setAdding(false);
       return;
     }
 
-    console.log("[ESGAS-DEBUG] usando /api/cart (WS API) como fallback standalone");
     try {
       const res = await fetch("/api/cart", {
         method: "POST",
@@ -66,7 +64,7 @@ export default function ProductCard({
         }),
       });
       const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
-      console.log("[ESGAS-DEBUG] respuesta /api/cart:", data);
+      alert("ESGAS-DEBUG respuesta /api/cart:\n" + JSON.stringify(data));
       const dest = data.cartUrl || `${psBase}/carrito?action=show`;
       window.location.href = dest;
     } catch {
