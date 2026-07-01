@@ -18,7 +18,22 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Scrollbar discreta dentro del chat */
+/* Scrollbar discreta del área de mensajes */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 4px;
+}
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 2px;
+}
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+/* Markdown del bot */
 .markdown-body :where(h1, h2, h3) {
   font-weight: 700;
   margin: 0.25rem 0;
