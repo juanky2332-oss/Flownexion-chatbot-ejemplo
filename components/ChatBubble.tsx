@@ -18,6 +18,7 @@ interface ChatBubbleProps {
   onCheckout?: (product?: Product, qty?: number) => void;
   isInIframe?: boolean;
   psBase?: string;
+  identityToken?: string | null;
 }
 
 export default function ChatBubble({
@@ -26,6 +27,7 @@ export default function ChatBubble({
   onCheckout,
   isInIframe,
   psBase,
+  identityToken,
 }: ChatBubbleProps) {
   const isUser = message.role === "user";
 
@@ -87,6 +89,7 @@ export default function ChatBubble({
                 onCheckout={onCheckout}
                 isInIframe={isInIframe}
                 psBase={psBase}
+                identityToken={identityToken}
               />
             ))}
           </div>

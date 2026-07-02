@@ -286,6 +286,7 @@ export default function ChatWidget({
                     onCheckout={handleCheckout}
                     isInIframe={isInIframe}
                     psBase={PS_BASE}
+                    identityToken={identityToken}
                   />
                 ))}
 

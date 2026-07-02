@@ -9,48 +9,58 @@ interface ProductCardProps {
   onCheckout?: (product?: Product, qty?: number) => void;
   isInIframe?: boolean;
   psBase?: string;
+  identityToken?: string | null;
 }
 
 export default function ProductCard({
   product,
   primaryColor = "#0066cc",
-  onCheckout,
   isInIframe = false,
   psBase = "https://b2b.esgas.es",
+  identityToken,
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState(false);
 
   const changeQty = (delta: number) =>
     setQty((prev) => Math.max(1, prev + delta));
   const hasDiscount =
     product.discountPct != null && product.discountPct > 0;
 
-  // Embebido en b2b.esgas.es: delega al padre vía postMessage (onCheckout).
-  // El padre (widget.js) hace la navegación mismo-origen con la sesión real
-  // del cliente logueado.
-  //
-  // Standalone (demo en Vercel, dominio distinto a la tienda): NO se puede
-  // añadir al carrito de forma silenciosa. El navegador no permite tocar la
-  // sesión de b2b.esgas.es desde otro dominio, y PrestaShop bloquea la escritura
-  // directa al carrito con un token CSRF (clave secreta del servidor que aquí no
-  // tenemos). Cualquier intento de añadir cross-origin acaba en carrito vacío.
-  //
-  // La única vía FIABLE sin tocar el servidor es llevar al usuario a la ficha
-  // del producto en b2b.esgas.es, donde el botón nativo de la tienda —que sí
-  // lleva el token válido— añade al carrito con un clic y con su precio B2B.
-  const handleAdd = () => {
+  // Crea el carrito vía Webservice de PS (/api/cart → psCreateCart) y navega a
+  // la recover_cart URL nativa. No depende de cookies/sesión del navegador ni
+  // del token CSRF de la tienda, así que funciona también cross-origin desde el
+  // demo en Vercel sin tocar el servidor (el carrito se crea con la API key del
+  // backend y recover_cart lo carga en la sesión).
+  const handleAdd = async () => {
     if (adding) return;
     setAdding(true);
-
-    if (isInIframe && onCheckout) {
-      onCheckout(product, qty);
+    setAddError(false);
+    try {
+      const res = await fetch("/api/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: [{
+            productId: product.id,
+            qty,
+            idProductAttribute: product.idProductAttribute ?? 0,
+          }],
+          ...(identityToken ? { identityToken } : {}),
+        }),
+      });
+      const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
+      const dest = data.cartUrl || `${psBase}/carrito?action=show`;
+      if (isInIframe) {
+        try { (window.top as Window).location.href = dest; } catch { window.location.href = dest; }
+      } else {
+        window.location.href = dest;
+      }
+    } catch {
+      setAddError(true);
       setAdding(false);
-      return;
     }
-
-    const dest = product.link || `${psBase}/index.php?controller=product&id_product=${product.id}`;
-    window.location.href = dest;
   };
 
   return (
@@ -180,6 +190,12 @@ export default function ProductCard({
           Ver ficha →
         </a>
       </div>
+
+      {addError && (
+        <p className="mt-1.5 text-xs text-red-600">
+          No se pudo añadir al carrito. Por favor, inténtalo de nuevo.
+        </p>
+      )}
     </div>
   );
 }
