@@ -9,7 +9,6 @@ interface ProductCardProps {
   onCheckout?: (product?: Product, qty?: number) => void;
   isInIframe?: boolean;
   psBase?: string;
-  identityToken?: string | null;
 }
 
 export default function ProductCard({
@@ -18,7 +17,6 @@ export default function ProductCard({
   onCheckout,
   isInIframe = false,
   psBase = "https://b2b.esgas.es",
-  identityToken,
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
@@ -30,16 +28,17 @@ export default function ProductCard({
 
   // Embebido en b2b.esgas.es: delega al padre vía postMessage (onCheckout).
   // El padre (nexionchat.php / widget.js) hace el fetch mismo-origen con la
-  // sesión real del cliente logueado — el único contexto en el que ese
-  // script llega a tener un carrito cargado.
+  // sesión real del cliente logueado.
   //
-  // Standalone (demo en Vercel, sin padre PS): navegamos directamente a la
-  // URL clásica de PrestaShop que añade el producto usando la sesión propia
-  // del navegador. /api/cart (Webservice) se intenta primero por si el
-  // backend ya identificó al cliente vía identityToken, pero su cartUrl de
-  // recover_cart solo sirve si esa sesión ya está autenticada como ese mismo
-  // cliente; si no, cae al enlace directo de abajo.
-  const handleAdd = async () => {
+  // Standalone (demo en Vercel, sin padre PS): navegamos el navegador
+  // directamente a addchat.php en b2b.esgas.es con redirect=1. Al ser una
+  // navegación de nivel superior al mismo dominio de la tienda, viaja con
+  // las cookies de sesión reales del visitante (logueado o invitado) y
+  // añade el producto usando el objeto Cart de PrestaShop; luego el propio
+  // script redirige a /carrito. No usamos identityToken porque no hace
+  // falta que el backend identifique al cliente: la sesión real del
+  // navegador ya lo hace.
+  const handleAdd = () => {
     if (adding) return;
     setAdding(true);
 
@@ -49,38 +48,11 @@ export default function ProductCard({
       return;
     }
 
-    // Fallback directo: navega a la URL clásica de PrestaShop que añade el
-    // producto al carrito usando la sesión real del navegador (funciona sin
-    // depender de que el backend consiga casar el carrito con un cliente).
-    const back = encodeURIComponent("/carrito");
-    const directAddUrl =
-      `${psBase}/index.php?controller=cart&add=1&id_product=${product.id}` +
+    const dest =
+      `${psBase}/addchat.php?id_product=${product.id}` +
       `&id_product_attribute=${product.idProductAttribute ?? 0}&qty=${qty}` +
-      `&action=add&back=${back}`;
-
-    try {
-      const res = await fetch("/api/cart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: [{
-            productId: product.id,
-            qty,
-            idProductAttribute: product.idProductAttribute ?? 0,
-          }],
-          ...(identityToken ? { identityToken } : {}),
-        }),
-      });
-      const data: { cartId?: string; cartUrl?: string; itemAddUrls?: string[] } =
-        await res.json().catch(() => ({}));
-      // itemAddUrls realiza la acción "add" real sobre la sesión del navegador;
-      // cartUrl (recover_cart) solo funciona si el cliente ya está identificado
-      // en esa sesión, así que es un peor fallback.
-      const dest = data.itemAddUrls?.[0] || data.cartUrl || directAddUrl;
-      window.location.href = dest;
-    } catch {
-      window.location.href = directAddUrl;
-    }
+      `&redirect=1`;
+    window.location.href = dest;
   };
 
   return (
