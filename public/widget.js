@@ -44,14 +44,42 @@
 
   // Variables del iframe (declaradas aquí para que el listener las vea)
   var iframeStyle = null;
+  var iframeEl    = null;
   var COLLAPSED   = "96px";
   var EXPANDED_W  = "412px";
   var EXPANDED_H  = "640px";
+  var tokenSent   = false;
+
+  // Pide la identidad del cliente logueado (mismo origen, cookies reales de
+  // sesión de PrestaShop) y se la pasa al chat firmada con HMAC, para que
+  // pueda mostrar precios/descuentos reales de su cuenta. Sin esto el chat
+  // no sabe quién es el cliente y funciona en modo anónimo/demo.
+  function sendIdentityToken() {
+    if (!iframeEl || !iframeEl.contentWindow) return;
+    fetch("/addchat.php?action=identity", { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.token) {
+          iframeEl.contentWindow.postMessage(
+            { type: "esgas-identity-token", token: data.token },
+            ORIGIN
+          );
+          tokenSent = true;
+        }
+      })
+      .catch(function () { /* modo anónimo si falla */ });
+  }
 
   // Listener global de mensajes del iframe
   window.addEventListener("message", function (ev) {
     if (ev.origin !== ORIGIN) return;
     var d = ev.data || {};
+
+    // El widget dentro del iframe avisa que está listo para recibir el token
+    if (d.type === "esgas-ready") {
+      if (!tokenSent) sendIdentityToken();
+      return;
+    }
 
     // Redimensionar iframe cuando el chat se abre/cierra
     if (d.type === "esgas-chat") {
@@ -118,6 +146,10 @@
     iframe.allow = "clipboard-write";
     iframe.setAttribute("frameborder", "0");
     iframe.setAttribute("scrolling", "no");
+    iframeEl = iframe; // exponer al listener de "esgas-ready"
+    iframe.addEventListener("load", function () {
+      setTimeout(sendIdentityToken, 80);
+    });
 
     var s = iframe.style;
     iframeStyle = s; // exponer al listener

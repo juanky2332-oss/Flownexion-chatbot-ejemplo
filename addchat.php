@@ -1,19 +1,28 @@
 <?php
 /**
- * Chatbot ESGAS v2 — endpoint añadir al carrito
+ * Chatbot ESGAS v2 — endpoint añadir al carrito + identidad del cliente
  * Subir a la RAÍZ del PrestaShop (mismo nivel que index.php)
  * URL: https://b2b.esgas.es/addchat.php
  *
  * Modos:
- *   redirect=0 (defecto): JSON {ok: bool} — para AJAX desde iframe
- *   redirect=1           : añade al carrito y redirige a /carrito — para navegación directa
+ *   (por defecto)  : añadir al carrito — JSON {ok, error}
+ *   action=identity: devuelve un token HMAC firmado con id_customer/id_group
+ *                    del cliente logueado, para que el chat sepa aplicar su
+ *                    descuento real. Sin esto el chat no puede saber quién
+ *                    es el cliente y muestra precios sin descuento.
+ *   redirect=1     : añade al carrito y redirige a /carrito (navegación directa)
+ *
+ * IMPORTANTE: cambia ADDCHAT_HMAC_SECRET por un valor propio y pon ese
+ * mismo valor en Vercel como variable de entorno HMAC_SECRET.
  */
 require_once(dirname(__FILE__) . '/config/config.inc.php');
 require_once(dirname(__FILE__) . '/init.php');
 
+const ADDCHAT_HMAC_SECRET = 'CAMBIA-ESTE-VALOR-POR-UNO-PROPIO';
+
 header('Cache-Control: no-store');
 
-// Leer parámetro redirect antes de cualquier output
+$action   = (string) Tools::getValue('action');
 $redirect = ((int) Tools::getValue('redirect', 0) === 1);
 
 if (!$redirect) {
@@ -25,6 +34,26 @@ if (!$redirect) {
         http_response_code(204);
         exit;
     }
+}
+
+if ($action === 'identity') {
+    $context = Context::getContext();
+    $token   = null;
+
+    if ($context->customer && $context->customer->isLogged()) {
+        $payload = json_encode([
+            'id_customer' => (int) $context->customer->id,
+            'id_group'    => (int) $context->customer->id_default_group,
+            'email'       => $context->customer->email,
+            'exp'         => time() + 900,
+        ], JSON_UNESCAPED_UNICODE);
+
+        $signature = hash_hmac('sha256', $payload, ADDCHAT_HMAC_SECRET);
+        $token     = base64_encode($payload) . '.' . $signature;
+    }
+
+    echo json_encode(['token' => $token]);
+    exit;
 }
 
 $id_product           = (int) Tools::getValue('id_product');
