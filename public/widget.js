@@ -71,10 +71,7 @@
     // las cookies de sesión de PrestaShop SE ENVÍAN correctamente.
     if (d.type === "esgas-add-to-cart") {
       var items = d.items || [];
-      if (!items.length) {
-        alert("ESGAS-DEBUG: widget.js recibio esgas-add-to-cart pero SIN items");
-        return;
-      }
+      if (!items.length) return;
       var item = items[0];
       var addUrl =
         "/addchat.php" +
@@ -83,9 +80,8 @@
         "&qty="                  + encodeURIComponent(item.qty || 1);
 
       fetch(addUrl, { credentials: "same-origin" })
-        .then(function (r)  { return r.text().then(function(t){ alert("ESGAS-DEBUG addchat.php -> " + addUrl + "\nHTTP " + r.status + "\nrespuesta: " + t); }); })
-        .catch(function (e) { alert("ESGAS-DEBUG addchat.php fetch FALLO: " + e); })
-        .finally(function() { window.location.href = "/carrito?action=show"; });
+        .then(function ()  { window.location.href = "/carrito?action=show"; })
+        .catch(function () { window.location.href = "/carrito?action=show"; });
       return;
     }
   });

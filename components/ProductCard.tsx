@@ -42,8 +42,6 @@ export default function ProductCard({
     setAdding(true);
     setAddError(false);
 
-    alert("ESGAS-DEBUG ProductCard.handleAdd\nisInIframe=" + isInIframe + "\nonCheckout disponible=" + !!onCheckout);
-
     if (isInIframe && onCheckout) {
       onCheckout(product, qty);
       setAdding(false);
@@ -64,7 +62,6 @@ export default function ProductCard({
         }),
       });
       const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
-      alert("ESGAS-DEBUG respuesta /api/cart:\n" + JSON.stringify(data));
       const dest = data.cartUrl || `${psBase}/carrito?action=show`;
       window.location.href = dest;
     } catch {
