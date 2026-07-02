@@ -208,7 +208,7 @@ class Nexionchat extends Module
         $output .= '      if(typeof prestashop!=="undefined"&&prestashop.emit){';
         $output .= '        prestashop.emit("updateCart",{reason:{idProduct:first.id_product,idProductAttribute:first.id_product_attribute||0}});';
         $output .= '      }';
-        $output .= '      if(res.cartUrl){setTimeout(function(){window.location.href=res.cartUrl;},600);}';
+        $output .= '      if(res.cartUrl){setTimeout(function(){window.open(res.cartUrl,"_blank");},600);}';
         $output .= '    });';
         $output .= '    return;';
         $output .= '  }';

@@ -128,6 +128,42 @@ export async function GET() {
           ? "✓ Hay productos 6205 en el catálogo"
           : "❌ No hay productos 6205 O filter[name] aún no funciona",
       };
+
+      // Test C: specific_prices del primer producto 6205 encontrado — para
+      // saber si el ws_key tiene permiso de lectura sobre este recurso y si
+      // hay filas de descuento manual asociadas al producto.
+      const firstId = Array.isArray(resB) && resB[0] ? Number(resB[0].id) : null;
+      if (firstId) {
+        const testC = await psGet(base, key, "specific_prices", {
+          display: "full", "filter[id_product]": `[${firstId}]`,
+        });
+        prestashop.testC_specific_prices = {
+          id_product_probado: firstId,
+          status: testC.status,
+          ok: testC.ok,
+          filas: testC.data?.specific_prices ?? testC.data,
+          conclusion: !testC.ok
+            ? `❌ HTTP ${testC.status}: el ws_key probablemente NO tiene permiso de lectura sobre "specific_prices" (revisar en Parámetros avanzados → Webservice → esta clave → permisos)`
+            : (Array.isArray(testC.data?.specific_prices) && testC.data.specific_prices.length > 0)
+              ? "✓ Hay filas de specific_prices para este producto"
+              : "⚠️ 0 filas — el descuento de este producto NO es un specific_price manual, es probablemente una regla de precios de catálogo (Descuentos de tienda)",
+        };
+      }
+
+      // Test D: specific_price_rules (reglas de "Descuentos de tienda") —
+      // solo para ver si el ws_key tiene acceso a este recurso y cuántas
+      // reglas activas hay, sin intentar evaluar condiciones todavía.
+      const testD = await psGet(base, key, "specific_price_rules", { display: "full" });
+      const rulesRaw = testD.data?.specific_price_rules;
+      prestashop.testD_specific_price_rules = {
+        status: testD.status,
+        ok: testD.ok,
+        total_reglas: Array.isArray(rulesRaw) ? rulesRaw.length : rulesRaw ? 1 : 0,
+        muestra: Array.isArray(rulesRaw) ? rulesRaw.slice(0, 3) : rulesRaw,
+        conclusion: !testD.ok
+          ? `❌ HTTP ${testD.status}: el ws_key NO tiene permiso de lectura sobre "specific_price_rules"`
+          : "✓ acceso OK — revisar 'muestra' para ver la forma real de las reglas y sus condiciones",
+      };
     }
   }
 

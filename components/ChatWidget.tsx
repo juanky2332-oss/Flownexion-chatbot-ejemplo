@@ -117,11 +117,7 @@ export default function ChatWidget({
   const handleCheckout = useCallback(
     (singleProduct?: Product, singleQty?: number) => {
       if (!singleProduct) {
-        if (detectIframe()) {
-          try { if (window.top && window.top !== window) (window.top as Window).location.href = CART_PAGE; } catch {}
-        } else {
-          window.open(CART_PAGE, "_blank", "noopener,noreferrer");
-        }
+        window.open(CART_PAGE, "_blank", "noopener,noreferrer");
         return;
       }
       if (detectIframe()) {
@@ -203,13 +199,7 @@ export default function ChatWidget({
   };
 
   const openCart = () => {
-    if (isInIframe) {
-      try { (window.top as Window).location.href = CART_PAGE; } catch {
-        window.open(CART_PAGE, "_blank", "noopener,noreferrer");
-      }
-    } else {
-      window.open(CART_PAGE, "_blank", "noopener,noreferrer");
-    }
+    window.open(CART_PAGE, "_blank", "noopener,noreferrer");
   };
 
   return (

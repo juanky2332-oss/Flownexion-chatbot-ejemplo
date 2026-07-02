@@ -79,15 +79,17 @@
         "&id_product_attribute=" + encodeURIComponent(item.id_product_attribute || 0) +
         "&qty="                  + encodeURIComponent(item.qty || 1);
 
+      // Abre el carrito en pestaña nueva (igual que "Ver ficha →") para no
+      // perder la conversación del chat al añadir un producto.
       fetch(addUrl, { credentials: "same-origin" })
         .then(function (r) { return r.json().catch(function () { return {}; }); })
         .then(function (data) {
           var status = data && data.ok ? "ok" : "fail";
           var extra = data && data.error ? "&chat_err=" + encodeURIComponent(data.error) : "";
-          window.location.href = "/carrito?action=show&chat_add=" + status + extra;
+          window.open("/carrito?action=show&chat_add=" + status + extra, "_blank");
         })
         .catch(function () {
-          window.location.href = "/carrito?action=show&chat_add=fetcherror";
+          window.open("/carrito?action=show&chat_add=fetcherror", "_blank");
         });
       return;
     }

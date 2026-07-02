@@ -63,7 +63,8 @@ export default function ProductCard({
       });
       const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
       const dest = data.cartUrl || `${psBase}/carrito?action=show`;
-      window.location.href = dest;
+      window.open(dest, "_blank", "noopener,noreferrer");
+      setAdding(false);
     } catch {
       setAddError(true);
       setAdding(false);
