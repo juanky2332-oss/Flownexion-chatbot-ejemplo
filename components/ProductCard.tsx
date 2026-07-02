@@ -27,17 +27,18 @@ export default function ProductCard({
     product.discountPct != null && product.discountPct > 0;
 
   // Embebido en b2b.esgas.es: delega al padre vía postMessage (onCheckout).
-  // El padre (nexionchat.php / widget.js) hace el fetch mismo-origen con la
-  // sesión real del cliente logueado.
+  // El padre (módulo nexionchat / widget.js) hace el fetch mismo-origen con
+  // la sesión real del cliente logueado contra el controlador del módulo.
   //
   // Standalone (demo en Vercel, sin padre PS): navegamos el navegador
-  // directamente a addchat.php en b2b.esgas.es con redirect=1. Al ser una
-  // navegación de nivel superior al mismo dominio de la tienda, viaja con
-  // las cookies de sesión reales del visitante (logueado o invitado) y
-  // añade el producto usando el objeto Cart de PrestaShop; luego el propio
-  // script redirige a /carrito. No usamos identityToken porque no hace
-  // falta que el backend identifique al cliente: la sesión real del
-  // navegador ya lo hace.
+  // directamente al controlador del módulo nexionchat que YA está instalado
+  // en b2b.esgas.es: /module/nexionchat/addandgo. Al ser un ModuleFrontController
+  // real de PrestaShop, pasa por FrontController::init() (crea la sesión/carrito
+  // correctamente), añade el producto y redirige a /carrito. Si el visitante no
+  // está logueado, el propio controlador lo manda a login y vuelve aquí. Es una
+  // navegación de nivel superior al dominio de la tienda, así que viaja con las
+  // cookies de sesión reales (SameSite=Lax). No hace falta subir nada al
+  // servidor: el módulo ya provee este endpoint.
   const handleAdd = () => {
     if (adding) return;
     setAdding(true);
@@ -49,9 +50,8 @@ export default function ProductCard({
     }
 
     const dest =
-      `${psBase}/addchat.php?id_product=${product.id}` +
-      `&id_product_attribute=${product.idProductAttribute ?? 0}&qty=${qty}` +
-      `&redirect=1`;
+      `${psBase}/module/nexionchat/addandgo?id_product=${product.id}` +
+      `&id_product_attribute=${product.idProductAttribute ?? 0}&qty=${qty}`;
     window.location.href = dest;
   };
 

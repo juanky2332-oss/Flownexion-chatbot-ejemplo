@@ -67,21 +67,33 @@
     }
 
     // Añadir producto al carrito desde el iframe.
-    // El fetch va a /addchat.php en el mismo origen (b2b.esgas.es), así que
-    // las cookies de sesión de PrestaShop SE ENVÍAN correctamente.
+    // POST same-origin al controlador del módulo nexionchat que YA está
+    // instalado en b2b.esgas.es (/module/nexionchat/addtocart). Al ser un
+    // ModuleFrontController real de PrestaShop, gestiona la sesión y el carrito
+    // correctamente con las cookies del cliente logueado. No usamos addchat.php:
+    // no requiere subir ningún fichero suelto al servidor.
     if (d.type === "esgas-add-to-cart") {
       var items = d.items || [];
       if (!items.length) return;
       var item = items[0];
-      var addUrl =
-        "/addchat.php" +
-        "?id_product="           + encodeURIComponent(item.id_product) +
-        "&id_product_attribute=" + encodeURIComponent(item.id_product_attribute || 0) +
-        "&qty="                  + encodeURIComponent(item.qty || 1);
+      var body = new URLSearchParams({
+        id_product:           String(item.id_product || 0),
+        id_product_attribute: String(item.id_product_attribute || 0),
+        qty:                  String(item.qty || 1),
+        ajax:                 "1"
+      });
 
-      fetch(addUrl, { credentials: "same-origin" })
-        .catch(function () {})
-        .finally(function() { window.location.href = "/carrito?action=show"; });
+      fetch("/module/nexionchat/addtocart", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+        credentials: "same-origin"
+      })
+        .then(function (r) { return r.json(); })
+        .catch(function () { return {}; })
+        .then(function (res) {
+          window.location.href = (res && res.cartUrl) ? res.cartUrl : "/carrito?action=show";
+        });
       return;
     }
   });
