@@ -3,7 +3,7 @@
     <name>nexionchat</name>
     <displayName><![CDATA[NexionChat — Asistente IA]]></displayName>
     <version><![CDATA[1.0.0]]></version>
-    <description><![CDATA[Chatbot conversacional con precios B2B por grupo de cliente. Embebe el asistente Carlos de ESGAS como iframe en todas las páginas.]]></description>
+    <description><![CDATA[Chatbot conversacional con precios B2B por grupo de cliente. Embebe el técnico virtual de ESGAS como iframe en todas las páginas.]]></description>
     <author><![CDATA[Flownexion]]></author>
     <tab>front_office_features</tab>
     <is_configurable>1</is_configurable>

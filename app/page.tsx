@@ -38,9 +38,9 @@ export default function Home() {
           <span className="text-esgas"> al instante</span>
         </h1>
         <p className="mt-4 max-w-xl text-base text-gray-600">
-          Habla con <strong>Carlos</strong>, nuestro asesor técnico-comercial.
-          Te ayuda a encontrar el rodamiento <strong>NTN/SNR</strong> exacto que
-          necesitas, comprueba el stock real y te lleva directo al pago.
+          Habla con el <strong>técnico de ESGAS</strong>. Te ayuda a encontrar el
+          rodamiento <strong>NTN/SNR</strong> exacto que necesitas, comprueba el
+          stock real y te lleva directo al pago.
         </p>
 
         <div className="mt-8 grid w-full gap-4 sm:grid-cols-3">
@@ -61,7 +61,7 @@ export default function Home() {
         </div>
 
         <p className="mt-10 text-sm text-gray-400">
-          👉 Pulsa el botón de abajo a la derecha para hablar con Carlos.
+          👉 Pulsa el botón de abajo a la derecha para hablar con el técnico.
         </p>
       </section>
 

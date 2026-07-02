@@ -80,4 +80,6 @@ export interface ChatRequest {
 export interface ChatResponse {
   output: string;
   products?: Product[];
+  /** true si el agente no pudo confirmar un dato y ofrece escalar a un técnico humano. */
+  needsHuman?: boolean;
 }

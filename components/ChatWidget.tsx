@@ -15,11 +15,14 @@ export interface ChatWidgetProps {
 }
 
 const WELCOME =
-  "Hola, soy **Carlos**, asesor técnico de **ESGAS** · NTN/SNR. ¿Qué rodamiento necesitas?";
+  "Hola, soy el **técnico de ESGAS** · NTN/SNR. ¿Qué rodamiento o pieza de transmisión necesitas?";
 
 const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
 const PS_BASE   = "https://b2b.esgas.es";
+
+const SUPPORT_PHONE = "968 676 983";
+const SUPPORT_EMAIL = "b2b@esgas.es";
 
 const QUICK_CHIPS = [
   "¿Tenéis el 6205 LLU en stock?",
@@ -165,7 +168,9 @@ export default function ChatWidget({
           ...(identityToken ? { identityToken } : {}),
         }),
       });
-      const data: { output?: string; products?: Product[] } = await res.json().catch(() => ({}));
+      const data: { output?: string; products?: Product[]; needsHuman?: boolean } = await res
+        .json()
+        .catch(() => ({}));
 
       setMessages((prev) => [
         ...prev,
@@ -174,12 +179,18 @@ export default function ChatWidget({
           role: "assistant",
           content: data.output ?? "Lo siento, no he podido procesar tu consulta. Inténtalo de nuevo.",
           products: data.products,
+          needsHuman: data.needsHuman,
         },
       ]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        { id: uid(), role: "assistant", content: "Ha habido un problema de conexión. ¿Puedes intentarlo de nuevo?" },
+        {
+          id: uid(),
+          role: "assistant",
+          content: "Ha habido un problema de conexión. ¿Puedes intentarlo de nuevo?",
+          needsHuman: true,
+        },
       ]);
     } finally {
       setLoading(false);
@@ -208,7 +219,7 @@ export default function ChatWidget({
         <div
           className="mb-3 flex h-[600px] w-[400px] max-w-[calc(100vw-2rem)] origin-bottom-right animate-scale-in flex-col overflow-hidden rounded-2xl bg-gray-50 shadow-2xl ring-1 ring-black/5 max-[420px]:h-[80vh]"
           role="dialog"
-          aria-label={`Chat con Carlos de ${companyName}`}
+          aria-label={`Chat técnico de ${companyName}`}
         >
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 text-white" style={{ backgroundColor: primaryColor }}>
@@ -219,7 +230,7 @@ export default function ChatWidget({
               }
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">Carlos · Asesor Técnico {companyName}</p>
+              <p className="truncate text-sm font-semibold">Técnico {companyName}</p>
               <div className="flex items-center gap-1.5 text-xs text-white/90">
                 <span className={`inline-block h-2 w-2 rounded-full ${
                   isLocked       ? "bg-red-400"
@@ -288,6 +299,8 @@ export default function ChatWidget({
                     isInIframe={isInIframe}
                     psBase={PS_BASE}
                     identityToken={identityToken}
+                    supportPhone={SUPPORT_PHONE}
+                    supportEmail={SUPPORT_EMAIL}
                   />
                 ))}
 
@@ -355,7 +368,7 @@ export default function ChatWidget({
 
       <button
         onClick={() => setOpen((o) => !o)}
-        aria-label={open ? "Cerrar chat" : "Abrir chat con Carlos"}
+        aria-label={open ? "Cerrar chat" : "Abrir chat técnico"}
         className="relative flex h-16 w-16 items-center justify-center rounded-full text-white shadow-xl ring-4 ring-white/40 transition-transform duration-200 hover:scale-105 active:scale-95"
         style={{ backgroundColor: primaryColor }}
       >

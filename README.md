@@ -1,11 +1,15 @@
-# ESGAS Chatbot — Carlos, Asesor Técnico-Comercial NTN/SNR
+# ESGAS Chatbot — Técnico ESGAS, Asesor NTN/SNR
 
 Chatbot de ventas técnicas para **ESGAS** (distribuidor oficial NTN/SNR en España),
 construido con **Next.js 14 + Vercel**. Sin n8n ni middleware externo: el agente IA
 (GPT-4o) y los proxys a la API de Prestashop viven 100% en este repositorio.
 
-El agente **Carlos** asesora técnicamente sobre rodamientos, consulta el catálogo y el
-**stock real** de Prestashop, y guía al cliente hasta el carrito/pago.
+El agente (identificado como **el técnico de ESGAS**, sin nombre propio) asesora
+técnicamente sobre rodamientos y transmisión industrial, consulta el catálogo y el
+**stock real** de Prestashop, y guía al cliente hasta el carrito/pago. Si no puede
+confirmar un dato con las fuentes verificadas (KB interno + catálogo + tablas
+técnicas), ofrece escalar la conversación a un técnico humano (teléfono/email) en
+vez de inventar la respuesta.
 
 ---
 
@@ -26,7 +30,8 @@ components/
   ProductCard.tsx       → Tarjeta de producto
 lib/
   prestashop.ts         → Cliente API Prestashop (server-only, usa env vars)
-  agent.ts              → System prompt + tool-calling del agente Carlos
+  agent.ts              → System prompt + tool-calling del agente (técnico ESGAS)
+  websearch.ts          → Búsqueda en fuentes oficiales (gpt-4o-search-preview)
   http.ts               → CORS, rate limiting, auth interna
   types.ts              → Tipos compartidos
 public/
@@ -103,7 +108,7 @@ del tema de Prestashop.
 // Request
 { "message": "Necesito un 6205 con sellado de goma", "sessionId": "uuid", "history": [] }
 // Response
-{ "output": "📦 **...**", "products": [ /* hasta 3 */ ] }
+{ "output": "📦 **...**", "products": [ /* hasta 3 */ ], "needsHuman": false }
 ```
 - Modelo `gpt-4o`, `temperature: 0.2`, `max_tokens: 800`.
 - CORS restringido a `ALLOWED_ORIGINS`. Rate limit: 30 req/min por IP.

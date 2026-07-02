@@ -6,7 +6,7 @@ import type { ChatRequest, Message, CartItem } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 45;
 
 export function OPTIONS(req: NextRequest) {
   return preflight(req);
@@ -68,14 +68,14 @@ export async function POST(req: NextRequest) {
   // Si hay secreto pero el token falla → sin pricing de grupo (no se falsifica identidad)
 
   try {
-    const { output, products } = await runAgent(
+    const { output, products, needsHuman } = await runAgent(
       message,
       history,
       undefined,
       cart,
       customerGroupId
     );
-    return NextResponse.json({ output, products }, { headers });
+    return NextResponse.json({ output, products, needsHuman }, { headers });
   } catch (err) {
     console.error("[/api/chat] error:", err);
     const msg = err instanceof Error ? err.message : "";

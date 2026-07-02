@@ -10,6 +10,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   products?: Product[];
+  needsHuman?: boolean;
 }
 
 interface ChatBubbleProps {
@@ -19,6 +20,8 @@ interface ChatBubbleProps {
   isInIframe?: boolean;
   psBase?: string;
   identityToken?: string | null;
+  supportPhone?: string;
+  supportEmail?: string;
 }
 
 export default function ChatBubble({
@@ -28,6 +31,8 @@ export default function ChatBubble({
   isInIframe,
   psBase,
   identityToken,
+  supportPhone,
+  supportEmail,
 }: ChatBubbleProps) {
   const isUser = message.role === "user";
 
@@ -92,6 +97,30 @@ export default function ChatBubble({
                 identityToken={identityToken}
               />
             ))}
+          </div>
+        )}
+
+        {!isUser && message.needsHuman && (supportPhone || supportEmail) && (
+          <div className="mt-1.5 flex flex-wrap gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <p className="w-full text-xs font-medium text-amber-800">
+              ¿Prefieres hablar con un técnico de ESGAS?
+            </p>
+            {supportPhone && (
+              <a
+                href={`tel:${supportPhone.replace(/\s+/g, "")}`}
+                className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-sm ring-1 ring-amber-300 transition hover:bg-amber-100"
+              >
+                📞 Llamar · {supportPhone}
+              </a>
+            )}
+            {supportEmail && (
+              <a
+                href={`mailto:${supportEmail}`}
+                className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-sm ring-1 ring-amber-300 transition hover:bg-amber-100"
+              >
+                ✉️ {supportEmail}
+              </a>
+            )}
           </div>
         )}
       </div>

@@ -24,7 +24,7 @@ class Nexionchat extends Module
         parent::__construct();
 
         $this->displayName = $this->l('NexionChat — Asistente IA');
-        $this->description = $this->l('Chatbot conversacional ESGAS. Embebe el asistente Carlos como widget flotante.');
+        $this->description = $this->l('Chatbot conversacional ESGAS. Embebe el técnico virtual de ESGAS como widget flotante.');
     }
 
     public function install()
