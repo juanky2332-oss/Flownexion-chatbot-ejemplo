@@ -30,13 +30,15 @@ export default function ProductCard({
   // El padre (widget.js) hace la navegación mismo-origen con la sesión real
   // del cliente logueado.
   //
-  // Standalone (demo en Vercel, sin padre PS): navegamos el navegador
-  // directamente a la URL NATIVA de PrestaShop (controller=cart&add=1), que
-  // forma parte del core y siempre existe en la tienda — no depende de ningún
-  // fichero ni módulo que haya que subir al servidor. Al ser una navegación de
-  // nivel superior al dominio de la tienda, viaja con las cookies de sesión
-  // reales del cliente logueado (SameSite=Lax): PrestaShop añade el producto a
-  // su carrito y redirige a /carrito.
+  // Standalone (demo en Vercel, dominio distinto a la tienda): NO se puede
+  // añadir al carrito de forma silenciosa. El navegador no permite tocar la
+  // sesión de b2b.esgas.es desde otro dominio, y PrestaShop bloquea la escritura
+  // directa al carrito con un token CSRF (clave secreta del servidor que aquí no
+  // tenemos). Cualquier intento de añadir cross-origin acaba en carrito vacío.
+  //
+  // La única vía FIABLE sin tocar el servidor es llevar al usuario a la ficha
+  // del producto en b2b.esgas.es, donde el botón nativo de la tienda —que sí
+  // lleva el token válido— añade al carrito con un clic y con su precio B2B.
   const handleAdd = () => {
     if (adding) return;
     setAdding(true);
@@ -47,13 +49,7 @@ export default function ProductCard({
       return;
     }
 
-    const dest =
-      `${psBase}/index.php?controller=cart&add=1` +
-      `&id_product=${product.id}` +
-      `&id_product_attribute=${product.idProductAttribute ?? 0}` +
-      `&qty=${qty}` +
-      `&action=add` +
-      `&back=${encodeURIComponent("/carrito")}`;
+    const dest = product.link || `${psBase}/index.php?controller=product&id_product=${product.id}`;
     window.location.href = dest;
   };
 
