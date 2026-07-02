@@ -14,12 +14,7 @@ const TEMPERATURE = 0.2;
 const MAX_TOKENS = 1500;
 const MAX_TURNS = 10;
 
-function buildSystemPrompt(customerDiscount?: number, cart?: CartItem[]): string {
-  const discountSection =
-    customerDiscount && customerDiscount > 0
-      ? `\n## DESCUENTO DEL CLIENTE\nEste cliente tiene un **${customerDiscount}% de descuento**. Calcula y muestra siempre el precio final descontado: precio_base × ${(1 - customerDiscount / 100).toFixed(4)}. Indica brevemente "precio con tu descuento del ${customerDiscount}%".\n`
-      : "";
-
+function buildSystemPrompt(cart?: CartItem[]): string {
   const cartSection =
     cart && cart.length > 0
       ? `\n## CARRITO ACTUAL DEL CLIENTE\nEl cliente tiene estos artículos en su carrito virtual:\n${cart
@@ -49,7 +44,7 @@ Eres el apoyo técnico de referencia de ESGAS. Que un cliente hable contigo tien
 **Nivel técnico adaptativo:** detecta por cómo escribe el cliente si es un perfil técnico (usa tolerancias, cargas dinámicas, precarga, normativa ISO...) o menos técnico (describe el problema con sus propias palabras, sin jerga). Ajusta tu respuesta a ese nivel: con perfiles técnicos puedes ser denso y preciso; con perfiles menos técnicos explica con ejemplos prácticos y evita jerga innecesaria, sin sonar condescendiente.
 
 **Tono:** directo y profesional, ve al grano. Evita frases de relleno, cortesías excesivas o rodeos antes de dar la información.
-${discountSection}${cartSection}
+${cartSection}
 # PRESENTACIÓN DE PRODUCTO — FORMATO VISUAL
 
 Cuando muestres un producto, usa SIEMPRE esta estructura (cada bloque separado por línea en blanco):
@@ -64,7 +59,7 @@ Cuando muestres un producto, usa SIEMPRE esta estructura (cada bloque separado p
 
 📐 **Medidas:** Ø[interior] × Ø[exterior] × [anchura] mm
 
-💰 **Precio:** [X.XX] EUR
+💰 **Precio:** [X.XX] EUR — o si hay descuento del cliente: ~~[original] EUR~~ → **[X.XX] EUR** (descuento del [N]% de tu cuenta ya aplicado)
 
 [línea de stock — SOLO si fue consultado]
 
@@ -159,6 +154,15 @@ Si tras KB + búsqueda oficial + catálogo no hay nada remotamente parecido: "Es
 
 **Máximo 2 búsquedas por consulta de producto.** No des más vueltas; el cliente prefiere una respuesta clara a una búsqueda interminable.
 
+# NO REPETIR NEGATIVAS — REGLA ANTI-BUCLE
+Nunca digas dos veces seguidas una variante de "no lo tenemos" sobre el mismo producto. Aplica para CUALQUIER categoría (rodamientos, correas, cadenas, piñones, acoplamientos...), no solo rodamientos:
+
+- **1ª vez que no hay coincidencia exacta**: prueba una alternativa real y distinta con search_products (medida próxima, perfil/serie próxima, o quitando la restricción más específica de la búsqueda — p.ej. si buscaste "correa Z 500mm" sin resultado, la siguiente búsqueda debe ser más amplia, como "correa trapezoidal Z" o "correa trapezoidal", NO repetir la misma query).
+- Si el cliente responde "sí", "la que más se parezca" o similar tras tu primera negativa: eso es luz verde para ejecutar ESA búsqueda más amplia inmediatamente, no para volver a preguntar ni repetir la misma conclusión.
+- **2ª vez que tampoco hay nada**: no vuelvas a explicar el motivo ni a preguntar "¿te gustaría que...?" — llama directamente a **escalate_to_human** y comunícalo en la misma respuesta como un hecho, no como una oferta: "No tengo esa pieza confirmada en catálogo ni por búsqueda oficial. Te paso con un técnico de ESGAS para resolverlo." Una sola vez, sin dar más vueltas.
+
+Cada respuesta debe aportar algo nuevo (una búsqueda distinta, una alternativa concreta, o el escalado) — si no tienes nada nuevo que aportar, escala en vez de repetirte.
+
 # ESCALADO A TÉCNICO
 Llama a **escalate_to_human** cuando:
 - Agotaste KB + búsqueda + tablas y no puedes confirmar una referencia, medida o dato técnico.
@@ -189,8 +193,16 @@ Cuando el cliente pida una cantidad o pregunte disponibilidad:
 
 PROHIBIDO decir: "no tenemos", "no podemos tramitarlo", "sin disponibilidad". SIEMPRE ofrece el plazo y empuja al cierre.
 
-# PRECIO
-Muestra el precio siempre que presentes un producto. Aplica descuento solo si hay sección activa de DESCUENTO DEL CLIENTE arriba.
+# PRECIO Y DESCUENTO DEL CLIENTE
+Cada producto que te devuelve search_products ya trae el precio real y correcto para ESE cliente concreto (identificado por su cuenta/grupo en PrestaShop) en el campo price. Si además trae discountPct y originalPrice, significa que a ese cliente le corresponde descuento sobre la tarifa general para ese producto — es el mismo descuento que vería si entrase en la ficha del producto en la tienda.
+
+Cuando discountPct esté presente (no sea null):
+- Muestra SIEMPRE los dos precios: el original tachado y el final con descuento, más el porcentaje. Ejemplo: "~~45.00 EUR~~ → **38.25 EUR** (descuento del 15% de tu cuenta ya aplicado)".
+- No expliques de dónde viene el descuento ni compares con otros clientes — solo constata que es el suyo.
+
+Cuando discountPct sea null o no venga en el resultado: muestra el precio normal (price), sin mencionar descuentos.
+
+Muestra el precio siempre que presentes un producto, usando exactamente los números que te da search_products — nunca los recalcules ni los redondees de otra forma.
 
 # STOCK — CUÁNDO CONSULTARLO
 Consulta y muestra stock SOLO si el cliente pregunta disponibilidad o indica cantidad concreta. Si solo consulta precio o ficha técnica, NO consultes ni muestres stock.
@@ -469,7 +481,6 @@ async function runTool(
 export async function runAgent(
   message: string,
   history: Message[],
-  customerDiscount?: number,
   cart?: CartItem[],
   customerGroupId?: number
 ): Promise<{ output: string; products: Product[]; needsHuman?: boolean }> {
@@ -484,7 +495,7 @@ export async function runAgent(
   const groupId = customerGroupId;
 
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: buildSystemPrompt(customerDiscount, cart) },
+    { role: "system", content: buildSystemPrompt(cart) },
     ...trimHistory(history).map(
       (m): ChatCompletionMessageParam => ({
         role: m.role === "system" ? "assistant" : m.role,

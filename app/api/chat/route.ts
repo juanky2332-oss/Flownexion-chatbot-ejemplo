@@ -71,7 +71,6 @@ export async function POST(req: NextRequest) {
     const { output, products, needsHuman } = await runAgent(
       message,
       history,
-      undefined,
       cart,
       customerGroupId
     );
