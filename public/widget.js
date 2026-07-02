@@ -67,33 +67,24 @@
     }
 
     // Añadir producto al carrito desde el iframe.
-    // POST same-origin al controlador del módulo nexionchat que YA está
-    // instalado en b2b.esgas.es (/module/nexionchat/addtocart). Al ser un
-    // ModuleFrontController real de PrestaShop, gestiona la sesión y el carrito
-    // correctamente con las cookies del cliente logueado. No usamos addchat.php:
-    // no requiere subir ningún fichero suelto al servidor.
+    // Navegación same-origin a la URL NATIVA de PrestaShop (controller=cart&add=1),
+    // que forma parte del core y siempre existe — no depende de addchat.php ni de
+    // ningún controlador de módulo que haya que subir al servidor. Al correr en
+    // b2b.esgas.es, viaja con las cookies de sesión del cliente logueado y PS
+    // añade el producto a su carrito y redirige a /carrito.
     if (d.type === "esgas-add-to-cart") {
       var items = d.items || [];
       if (!items.length) return;
       var item = items[0];
-      var body = new URLSearchParams({
-        id_product:           String(item.id_product || 0),
-        id_product_attribute: String(item.id_product_attribute || 0),
-        qty:                  String(item.qty || 1),
-        ajax:                 "1"
-      });
+      var addUrl =
+        "/index.php?controller=cart&add=1" +
+        "&id_product="           + encodeURIComponent(item.id_product) +
+        "&id_product_attribute=" + encodeURIComponent(item.id_product_attribute || 0) +
+        "&qty="                  + encodeURIComponent(item.qty || 1) +
+        "&action=add" +
+        "&back="                 + encodeURIComponent("/carrito?action=show");
 
-      fetch("/module/nexionchat/addtocart", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-        credentials: "same-origin"
-      })
-        .then(function (r) { return r.json(); })
-        .catch(function () { return {}; })
-        .then(function (res) {
-          window.location.href = (res && res.cartUrl) ? res.cartUrl : "/carrito?action=show";
-        });
+      window.location.href = addUrl;
       return;
     }
   });
