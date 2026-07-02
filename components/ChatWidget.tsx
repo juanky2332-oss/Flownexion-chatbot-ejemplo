@@ -121,7 +121,6 @@ export default function ChatWidget({
         }
         return;
       }
-      alert("ESGAS-DEBUG ChatWidget.handleCheckout\ndetectIframe()=" + detectIframe());
       if (detectIframe()) {
         window.parent.postMessage(
           {
@@ -287,7 +286,6 @@ export default function ChatWidget({
                     onCheckout={handleCheckout}
                     isInIframe={isInIframe}
                     psBase={PS_BASE}
-                    identityToken={identityToken}
                   />
                 ))}
 

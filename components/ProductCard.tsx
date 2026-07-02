@@ -9,7 +9,6 @@ interface ProductCardProps {
   onCheckout?: (product?: Product, qty?: number) => void;
   isInIframe?: boolean;
   psBase?: string;
-  identityToken?: string | null;
 }
 
 export default function ProductCard({
@@ -18,11 +17,9 @@ export default function ProductCard({
   onCheckout,
   isInIframe = false,
   psBase = "https://b2b.esgas.es",
-  identityToken,
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState(false);
 
   const changeQty = (delta: number) =>
     setQty((prev) => Math.max(1, prev + delta));
@@ -30,19 +27,21 @@ export default function ProductCard({
     product.discountPct != null && product.discountPct > 0;
 
   // Embebido en b2b.esgas.es: delega al padre vía postMessage (onCheckout).
-  // El padre (nexionchat.php / widget.js) hace el fetch mismo-origen a
-  // addchat.php con la sesión real del cliente logueado — el único contexto
-  // en el que ese script llega a tener un carrito cargado.
+  // El padre (módulo nexionchat / widget.js) hace el fetch mismo-origen con
+  // la sesión real del cliente logueado contra el controlador del módulo.
   //
-  // Standalone (demo en Vercel, sin padre PS): no hay forma de que un fetch
-  // cross-origin lleve la sesión real de b2b.esgas.es, así que usamos /api/cart
-  // (Webservice API) como mejor esfuerzo.
-  const handleAdd = async () => {
+  // Standalone (demo en Vercel, sin padre PS): navegamos el navegador
+  // directamente al controlador del módulo nexionchat que YA está instalado
+  // en b2b.esgas.es: /module/nexionchat/addandgo. Al ser un ModuleFrontController
+  // real de PrestaShop, pasa por FrontController::init() (crea la sesión/carrito
+  // correctamente), añade el producto y redirige a /carrito. Si el visitante no
+  // está logueado, el propio controlador lo manda a login y vuelve aquí. Es una
+  // navegación de nivel superior al dominio de la tienda, así que viaja con las
+  // cookies de sesión reales (SameSite=Lax). No hace falta subir nada al
+  // servidor: el módulo ya provee este endpoint.
+  const handleAdd = () => {
     if (adding) return;
     setAdding(true);
-    setAddError(false);
-
-    alert("ESGAS-DEBUG ProductCard.handleAdd\nisInIframe=" + isInIframe + "\nonCheckout disponible=" + !!onCheckout);
 
     if (isInIframe && onCheckout) {
       onCheckout(product, qty);
@@ -50,27 +49,10 @@ export default function ProductCard({
       return;
     }
 
-    try {
-      const res = await fetch("/api/cart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: [{
-            productId: product.id,
-            qty,
-            idProductAttribute: product.idProductAttribute ?? 0,
-          }],
-          ...(identityToken ? { identityToken } : {}),
-        }),
-      });
-      const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
-      alert("ESGAS-DEBUG respuesta /api/cart:\n" + JSON.stringify(data));
-      const dest = data.cartUrl || `${psBase}/carrito?action=show`;
-      window.location.href = dest;
-    } catch {
-      setAddError(true);
-      setAdding(false);
-    }
+    const dest =
+      `${psBase}/module/nexionchat/addandgo?id_product=${product.id}` +
+      `&id_product_attribute=${product.idProductAttribute ?? 0}&qty=${qty}`;
+    window.location.href = dest;
   };
 
   return (
@@ -200,12 +182,6 @@ export default function ProductCard({
           Ver ficha →
         </a>
       </div>
-
-      {addError && (
-        <p className="mt-1.5 text-xs text-red-600">
-          No se pudo añadir al carrito. Por favor, inténtalo de nuevo.
-        </p>
-      )}
     </div>
   );
 }
