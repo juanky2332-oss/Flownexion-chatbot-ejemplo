@@ -114,26 +114,26 @@ export async function GET() {
           : "❌ filter[name] sigue sin funcionar",
       };
 
-      // Test B: filter[name]=%6205%
-      const testB = await psGet(base, key, "products", {
-        display: "[id,name,price]", "filter[name]": "%6205%", limit: "5",
-      });
-      const resB = testB.data?.products ?? [];
-      prestashop.testB_busqueda_6205 = {
-        total: Array.isArray(resB) ? resB.length : 0,
-        resultados: (Array.isArray(resB) ? resB : []).slice(0, 5).map((p: any) => ({
-          id: Number(p.id), name: plainText(p.name), price: p.price,
-        })),
-        conclusion: Array.isArray(resB) && resB.length > 0
-          ? "✓ Hay productos 6205 en el catálogo"
-          : "❌ No hay productos 6205 O filter[name] aún no funciona",
+      // Test B: filter[name] está roto en este Prestashop (confirmado), así
+      // que buscamos "6205" igual que lo hace searchProducts() de verdad:
+      // traer TODOS los nombres y filtrar en JS, sin depender de filter[name].
+      const allNamesRes = await psGet(base, key, "products", { display: "[id,name]" });
+      const allNamesList: Array<{ id: number; name: string }> = (
+        allNamesRes.data?.products ?? []
+      ).map((p: any) => ({ id: Number(p.id), name: plainText(p.name) }));
+      const matches6205 = allNamesList.filter((p) => p.name.toLowerCase().includes("6205"));
+      prestashop.testB_busqueda_6205_clientside = {
+        total: matches6205.length,
+        resultados: matches6205.slice(0, 5),
+        conclusion: matches6205.length > 0
+          ? "✓ Hay productos 6205 (buscando en JS, como hace el chatbot de verdad)"
+          : "❌ No hay productos 6205 en el catálogo",
       };
 
-      // Test C: specific_prices del primer producto 6205 encontrado — para
-      // saber si el ws_key tiene permiso de lectura sobre este recurso y si
-      // hay filas de descuento manual asociadas al producto.
-      const firstId = Array.isArray(resB) && resB[0] ? Number(resB[0].id) : null;
+      const firstId = matches6205[0]?.id ?? null;
+
       if (firstId) {
+        // Test C: specific_prices del producto de prueba.
         const testC = await psGet(base, key, "specific_prices", {
           display: "full", "filter[id_product]": `[${firstId}]`,
         });
@@ -143,27 +143,75 @@ export async function GET() {
           ok: testC.ok,
           filas: testC.data?.specific_prices ?? testC.data,
           conclusion: !testC.ok
-            ? `❌ HTTP ${testC.status}: el ws_key probablemente NO tiene permiso de lectura sobre "specific_prices" (revisar en Parámetros avanzados → Webservice → esta clave → permisos)`
+            ? `❌ HTTP ${testC.status}: el ws_key probablemente NO tiene permiso de lectura sobre "specific_prices"`
             : (Array.isArray(testC.data?.specific_prices) && testC.data.specific_prices.length > 0)
               ? "✓ Hay filas de specific_prices para este producto"
-              : "⚠️ 0 filas — el descuento de este producto NO es un specific_price manual, es probablemente una regla de precios de catálogo (Descuentos de tienda)",
+              : "⚠️ 0 filas — el descuento de este producto NO es un specific_price manual, es una regla de precios de catálogo (Descuentos de tienda)",
         };
+
+        // Test E: datos completos del producto de prueba — sobre todo
+        // id_supplier, para poder cruzar con las reglas de precio por
+        // "grupo de artículo" (proveedor) que se ven en testD.
+        const testE = await psGet(base, key, "products", {
+          display: "full", "filter[id]": `[${firstId}]`,
+        });
+        const rawProduct = (testE.data?.products ?? [])[0] ?? testE.data?.product ?? null;
+        prestashop.testE_producto_completo = {
+          id_supplier: rawProduct?.id_supplier ?? null,
+          id_manufacturer: rawProduct?.id_manufacturer ?? null,
+          reference: plainText(rawProduct?.reference),
+          price: rawProduct?.price ?? null,
+          claves_disponibles: rawProduct ? Object.keys(rawProduct) : [],
+        };
+
+        if (rawProduct?.id_supplier && Number(rawProduct.id_supplier) > 0) {
+          const supplierRes = await psGet(base, key, "suppliers", {
+            display: "full", "filter[id]": `[${rawProduct.id_supplier}]`,
+          });
+          prestashop.testE_proveedor = supplierRes.data?.suppliers?.[0] ?? supplierRes.data ?? null;
+        }
       }
 
-      // Test D: specific_price_rules (reglas de "Descuentos de tienda") —
-      // solo para ver si el ws_key tiene acceso a este recurso y cuántas
-      // reglas activas hay, sin intentar evaluar condiciones todavía.
+      // Test D: specific_price_rules (reglas de "Descuentos de tienda").
       const testD = await psGet(base, key, "specific_price_rules", { display: "full" });
       const rulesRaw = testD.data?.specific_price_rules;
+      const rulesList = Array.isArray(rulesRaw) ? rulesRaw : rulesRaw ? [rulesRaw] : [];
       prestashop.testD_specific_price_rules = {
         status: testD.status,
         ok: testD.ok,
-        total_reglas: Array.isArray(rulesRaw) ? rulesRaw.length : rulesRaw ? 1 : 0,
-        muestra: Array.isArray(rulesRaw) ? rulesRaw.slice(0, 3) : rulesRaw,
+        total_reglas: rulesList.length,
+        muestra: rulesList.slice(0, 3),
         conclusion: !testD.ok
           ? `❌ HTTP ${testD.status}: el ws_key NO tiene permiso de lectura sobre "specific_price_rules"`
-          : "✓ acceso OK — revisar 'muestra' para ver la forma real de las reglas y sus condiciones",
+          : "✓ acceso OK",
       };
+
+      // Test F: grupos de clientes — para ver el nombre real del id_group
+      // que aparece en las reglas (ej. "CLIENTE GR" → ¿grupo id=4 se llama "GR"?).
+      const groupsRes = await psGet(base, key, "groups", { display: "full" });
+      prestashop.testF_grupos_cliente = groupsRes.data?.groups ?? groupsRes.data;
+
+      // Test G: condiciones de una regla concreta — para saber cómo vincula
+      // Prestashop cada specific_price_rule a productos concretos (por
+      // proveedor, categoría, etc). Probamos el recurso más probable; si da
+      // 404/403 no pasa nada, es solo diagnóstico.
+      if (rulesList[0]?.id) {
+        const testG = await psGet(base, key, "specific_price_rule_conditions", {
+          display: "full", "filter[id_specific_price_rule]": `[${rulesList[0].id}]`,
+        });
+        prestashop.testG_condiciones_regla = {
+          id_regla_probada: rulesList[0].id,
+          status: testG.status,
+          ok: testG.ok,
+          datos: testG.data,
+        };
+      }
+
+      // Test H: listado de recursos que el ws_key puede leer, tal cual lo
+      // expone Prestashop en la raíz de /api — por si specific_price_rule_conditions
+      // se llama de otra forma.
+      const rootRes = await psGet(base, key, "", {});
+      prestashop.testH_recursos_disponibles = rootRes.data;
     }
   }
 
