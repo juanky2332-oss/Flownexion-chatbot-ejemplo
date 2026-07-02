@@ -121,7 +121,6 @@ export default function ChatWidget({
         }
         return;
       }
-      alert("ESGAS-DEBUG ChatWidget.handleCheckout\ndetectIframe()=" + detectIframe());
       if (detectIframe()) {
         window.parent.postMessage(
           {

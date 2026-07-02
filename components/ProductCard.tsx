@@ -22,7 +22,6 @@ export default function ProductCard({
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState(false);
 
   const changeQty = (delta: number) =>
     setQty((prev) => Math.max(1, prev + delta));
@@ -30,25 +29,34 @@ export default function ProductCard({
     product.discountPct != null && product.discountPct > 0;
 
   // Embebido en b2b.esgas.es: delega al padre vía postMessage (onCheckout).
-  // El padre (nexionchat.php / widget.js) hace el fetch mismo-origen a
-  // addchat.php con la sesión real del cliente logueado — el único contexto
-  // en el que ese script llega a tener un carrito cargado.
+  // El padre (nexionchat.php / widget.js) hace el fetch mismo-origen con la
+  // sesión real del cliente logueado — el único contexto en el que ese
+  // script llega a tener un carrito cargado.
   //
-  // Standalone (demo en Vercel, sin padre PS): no hay forma de que un fetch
-  // cross-origin lleve la sesión real de b2b.esgas.es, así que usamos /api/cart
-  // (Webservice API) como mejor esfuerzo.
+  // Standalone (demo en Vercel, sin padre PS): navegamos directamente a la
+  // URL clásica de PrestaShop que añade el producto usando la sesión propia
+  // del navegador. /api/cart (Webservice) se intenta primero por si el
+  // backend ya identificó al cliente vía identityToken, pero su cartUrl de
+  // recover_cart solo sirve si esa sesión ya está autenticada como ese mismo
+  // cliente; si no, cae al enlace directo de abajo.
   const handleAdd = async () => {
     if (adding) return;
     setAdding(true);
-    setAddError(false);
-
-    alert("ESGAS-DEBUG ProductCard.handleAdd\nisInIframe=" + isInIframe + "\nonCheckout disponible=" + !!onCheckout);
 
     if (isInIframe && onCheckout) {
       onCheckout(product, qty);
       setAdding(false);
       return;
     }
+
+    // Fallback directo: navega a la URL clásica de PrestaShop que añade el
+    // producto al carrito usando la sesión real del navegador (funciona sin
+    // depender de que el backend consiga casar el carrito con un cliente).
+    const back = encodeURIComponent("/carrito");
+    const directAddUrl =
+      `${psBase}/index.php?controller=cart&add=1&id_product=${product.id}` +
+      `&id_product_attribute=${product.idProductAttribute ?? 0}&qty=${qty}` +
+      `&action=add&back=${back}`;
 
     try {
       const res = await fetch("/api/cart", {
@@ -63,13 +71,15 @@ export default function ProductCard({
           ...(identityToken ? { identityToken } : {}),
         }),
       });
-      const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
-      alert("ESGAS-DEBUG respuesta /api/cart:\n" + JSON.stringify(data));
-      const dest = data.cartUrl || `${psBase}/carrito?action=show`;
+      const data: { cartId?: string; cartUrl?: string; itemAddUrls?: string[] } =
+        await res.json().catch(() => ({}));
+      // itemAddUrls realiza la acción "add" real sobre la sesión del navegador;
+      // cartUrl (recover_cart) solo funciona si el cliente ya está identificado
+      // en esa sesión, así que es un peor fallback.
+      const dest = data.itemAddUrls?.[0] || data.cartUrl || directAddUrl;
       window.location.href = dest;
     } catch {
-      setAddError(true);
-      setAdding(false);
+      window.location.href = directAddUrl;
     }
   };
 
@@ -200,12 +210,6 @@ export default function ProductCard({
           Ver ficha →
         </a>
       </div>
-
-      {addError && (
-        <p className="mt-1.5 text-xs text-red-600">
-          No se pudo añadir al carrito. Por favor, inténtalo de nuevo.
-        </p>
-      )}
     </div>
   );
 }
