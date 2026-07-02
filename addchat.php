@@ -91,8 +91,6 @@ try {
 }
 
 if ($redirect) {
-    // Redirigir siempre al carrito, aunque ok=false
-    // (el usuario verá el carrito vacío si hubo error, pero no se queda en JSON)
     Tools::redirect('index.php?controller=cart&action=show');
 } else {
     echo json_encode(['ok' => $ok, 'error' => $error]);
