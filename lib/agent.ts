@@ -433,7 +433,8 @@ async function runTool(
   args: any,
   collected: Product[],
   escalation: EscalationState,
-  groupId?: number
+  groupId?: number,
+  idCustomer?: number
 ): Promise<string> {
   if (name === "find_equivalence") {
     const results = findEquivalence(String(args?.query ?? ""));
@@ -447,7 +448,7 @@ async function runTool(
     return await searchOfficialSource(String(args?.query ?? ""));
   }
   if (name === "search_products") {
-    const products = await searchProducts(String(args?.query ?? ""), groupId);
+    const products = await searchProducts(String(args?.query ?? ""), groupId, idCustomer);
     for (const p of products.slice(0, 3)) {
       if (!collected.some((c) => c.id === p.id)) collected.push(p);
     }
@@ -482,7 +483,8 @@ export async function runAgent(
   message: string,
   history: Message[],
   cart?: CartItem[],
-  customerGroupId?: number
+  customerGroupId?: number,
+  customerId?: number
 ): Promise<{ output: string; products: Product[]; needsHuman?: boolean }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -539,7 +541,7 @@ export async function runAgent(
       }
       let result: string;
       try {
-        result = await runTool(call.function.name, parsedArgs, collected, escalation, groupId);
+        result = await runTool(call.function.name, parsedArgs, collected, escalation, groupId, customerId);
       } catch (err) {
         result = JSON.stringify({
           error: err instanceof Error ? err.message : "Error en la herramienta",

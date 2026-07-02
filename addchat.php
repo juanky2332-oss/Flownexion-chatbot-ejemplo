@@ -31,38 +31,63 @@ $id_product           = (int) Tools::getValue('id_product');
 $id_product_attribute = (int) Tools::getValue('id_product_attribute', 0);
 $qty                  = min(max((int) Tools::getValue('qty', 1), 1), 999);
 
-$ok = false;
+$ok    = false;
+$error = null;
 
-if ($id_product > 0) {
-    $context = Context::getContext();
-    $cart    = $context->cart;
+try {
+    if ($id_product <= 0) {
+        $error = 'id_product invalido';
+    } else {
+        $context = Context::getContext();
+        $cart    = $context->cart;
 
-    // Si no hay carrito cargado en la sesión, crear uno nuevo
-    if (!Validate::isLoadedObject($cart)) {
-        $cart              = new Cart();
-        $cart->id_lang     = (int) $context->language->id;
-        $cart->id_currency = (int) $context->currency->id;
-        $cart->id_shop     = (int) $context->shop->id;
-        if ($context->customer && (int) $context->customer->id > 0) {
-            $cart->id_customer = (int) $context->customer->id;
+        // Si no hay carrito cargado en la sesión, crear uno nuevo
+        if (!Validate::isLoadedObject($cart)) {
+            $cart              = new Cart();
+            $cart->id_lang     = (int) $context->language->id;
+            $cart->id_currency = (int) $context->currency->id;
+            $cart->id_shop     = (int) $context->shop->id;
+            if ($context->customer && (int) $context->customer->id > 0) {
+                $cart->id_customer = (int) $context->customer->id;
+
+                // Sin id_address_delivery, Cart::updateQty() puede no llegar a
+                // crear la línea del carrito (mismo fix que ya usa el módulo
+                // nexionchat en controllers/front/addtocart.php).
+                $idAddress = (int) Address::getFirstCustomerAddressId(
+                    (int) $context->customer->id
+                );
+                if ($idAddress) {
+                    $cart->id_address_delivery = $idAddress;
+                    $cart->id_address_invoice  = $idAddress;
+                }
+            }
+            $cart->add();
+            if ($cart->id) {
+                $context->cart             = $cart;
+                $context->cookie->id_cart  = (int) $cart->id;
+                $context->cookie->write();
+            }
         }
-        $cart->add();
-        if ($cart->id) {
-            $context->cart              = $cart;
-            $context->cookie->id_cart  = (int) $cart->id;
-            $context->cookie->write();
+
+        if (!Validate::isLoadedObject($cart)) {
+            $error = 'no se pudo crear o cargar el carrito';
+        } else {
+            $result = $cart->updateQty(
+                $qty,
+                $id_product,
+                $id_product_attribute ?: null,
+                false,
+                'up'
+            );
+            $ok = (bool) $result;
+            if (!$ok) {
+                $error = 'updateQty devolvio ' . var_export($result, true)
+                    . ' (revisar stock, combinacion o direccion del cliente)';
+            }
         }
     }
-
-    if (Validate::isLoadedObject($cart)) {
-        $ok = (bool) $cart->updateQty(
-            $qty,
-            $id_product,
-            $id_product_attribute,
-            false,
-            'up'
-        );
-    }
+} catch (Exception $e) {
+    $error = $e->getMessage();
 }
 
 if ($redirect) {
@@ -70,5 +95,5 @@ if ($redirect) {
     // (el usuario verá el carrito vacío si hubo error, pero no se queda en JSON)
     Tools::redirect('index.php?controller=cart&action=show');
 } else {
-    echo json_encode(['ok' => $ok]);
+    echo json_encode(['ok' => $ok, 'error' => $error]);
 }

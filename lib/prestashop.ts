@@ -228,6 +228,58 @@ async function psGetBestSpecificPrice(
   }
 }
 
+// ─── Precio real vía priceinfo.php (Product::getPriceStatic) ────────────────
+// Fuente primaria de precio: usa la misma función que PrestaShop usa para
+// pintar la ficha del producto (specific_prices + reglas de precios de
+// catálogo), así que nunca puede divergir de lo que ve el cliente en la web.
+// Si el endpoint no está desplegado o no responde, se degrada de forma
+// silenciosa a psGetBestSpecificPrice (fuente secundaria, menos completa).
+
+const PRICE_SECRET = process.env.PRESTASHOP_PRICE_SECRET ?? "";
+
+interface RealPriceEntry {
+  price: number;
+  originalPrice: number;
+  discountPct: number | null;
+}
+
+async function psGetRealPrices(
+  ids: number[],
+  idCustomer?: number
+): Promise<Record<number, RealPriceEntry>> {
+  if (!PRICE_SECRET || ids.length === 0) return {};
+  try {
+    const url = new URL(`${STORE_URL}/priceinfo.php`);
+    url.searchParams.set("ids", ids.join(","));
+    url.searchParams.set("secret", PRICE_SECRET);
+    if (idCustomer) url.searchParams.set("id_customer", String(idCustomer));
+
+    const res = await fetch(url.toString(), { headers: PS_HEADERS, cache: "no-store" });
+    if (!res.ok) return {};
+    const data = await res.json().catch(() => ({}));
+
+    const out: Record<number, RealPriceEntry> = {};
+    for (const id of ids) {
+      const entry = data?.[id] ?? data?.[String(id)];
+      if (
+        entry &&
+        typeof entry.price === "number" &&
+        typeof entry.originalPrice === "number"
+      ) {
+        out[id] = {
+          price: entry.price,
+          originalPrice: entry.originalPrice,
+          discountPct:
+            typeof entry.discountPct === "number" ? entry.discountPct / 100 : null,
+        };
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 // ─── Dirección válida para cart_rows ─────────────────────────────────────────
 
 async function getValidAddressId(customerId?: number): Promise<number> {
@@ -287,7 +339,11 @@ export async function psGetCustomer(email: string): Promise<PSCustomer | null> {
   }
 }
 
-export async function searchProducts(query: string, groupId?: number): Promise<Product[]> {
+export async function searchProducts(
+  query: string,
+  groupId?: number,
+  idCustomer?: number
+): Promise<Product[]> {
   if (DEMO_MODE) return demoSearch(query);
   assertConfig();
 
@@ -326,23 +382,34 @@ export async function searchProducts(query: string, groupId?: number): Promise<P
     }
   } catch { /* ignorar */ }
 
+  const rawList = rawProducts.length > 0 ? rawProducts : matched.map((p) => ({ id: p.id, name: p.name }));
+  const realPrices = await psGetRealPrices(
+    rawList.map((raw: any) => Number(raw?.id ?? 0)).filter((id: number) => id > 0),
+    idCustomer
+  );
+
   const products = await Promise.all(
-    (rawProducts.length > 0 ? rawProducts : matched.map((p) => ({ id: p.id, name: p.name }))).map(
+    rawList.map(
       async (raw: any) => {
         const basePrice = Number.parseFloat(raw?.price ?? "0") || 0;
         const product = normalizeProduct(raw, basePrice);
-        if (basePrice > 0) {
-          const { price: discountedPrice, discountPct } = await psGetBestSpecificPrice(
-            product.id, basePrice, groupId
-          );
-          return {
-            ...product,
-            price: discountedPrice,
-            originalPrice: basePrice,
-            discountPct,
-          };
+        if (basePrice <= 0) return product;
+
+        const real = realPrices[product.id];
+        if (real) {
+          return { ...product, ...real };
         }
-        return product;
+
+        // Fallback si priceinfo.php no está desplegado/configurado todavía.
+        const { price: discountedPrice, discountPct } = await psGetBestSpecificPrice(
+          product.id, basePrice, groupId
+        );
+        return {
+          ...product,
+          price: discountedPrice,
+          originalPrice: basePrice,
+          discountPct,
+        };
       }
     )
   );

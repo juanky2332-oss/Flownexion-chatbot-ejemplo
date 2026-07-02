@@ -55,9 +55,11 @@ export async function POST(req: NextRequest) {
 
   // Identidad: el token HMAC firmado tiene prioridad absoluta sobre cualquier dato del body
   let customerGroupId: number | undefined;
+  let customerId: number | undefined;
   const claims = verifyIdentityToken(body?.identityToken ?? "");
   if (claims) {
     customerGroupId = claims.id_group;
+    customerId = claims.id_customer;
   } else if (!process.env.HMAC_SECRET) {
     // Sin secreto configurado (demo/dev): acepta customerGroupId del body
     customerGroupId =
@@ -72,7 +74,8 @@ export async function POST(req: NextRequest) {
       message,
       history,
       cart,
-      customerGroupId
+      customerGroupId,
+      customerId
     );
     return NextResponse.json({ output, products, needsHuman }, { headers });
   } catch (err) {

@@ -80,8 +80,15 @@
         "&qty="                  + encodeURIComponent(item.qty || 1);
 
       fetch(addUrl, { credentials: "same-origin" })
-        .then(function ()  { window.location.href = "/carrito?action=show"; })
-        .catch(function () { window.location.href = "/carrito?action=show"; });
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          var status = data && data.ok ? "ok" : "fail";
+          var extra = data && data.error ? "&chat_err=" + encodeURIComponent(data.error) : "";
+          window.location.href = "/carrito?action=show&chat_add=" + status + extra;
+        })
+        .catch(function () {
+          window.location.href = "/carrito?action=show&chat_add=fetcherror";
+        });
       return;
     }
   });
