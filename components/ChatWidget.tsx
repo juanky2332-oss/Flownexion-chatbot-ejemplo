@@ -68,6 +68,7 @@ export default function ChatWidget({
   ]);
 
   const [identityToken, setIdentityToken] = useState<string | null>(null);
+  const [customerId, setCustomerId] = useState<number | null>(null);
   const [tokenChecked, setTokenChecked] = useState(false);
   const [isInIframe, setIsInIframe] = useState(false);
 
@@ -95,6 +96,10 @@ export default function ChatWidget({
         setIdentityToken(event.data.token);
         setTokenChecked(true);
       }
+      if (event.data?.type === "esgas-customer-id" && typeof event.data.id === "number") {
+        setCustomerId(event.data.id);
+        setTokenChecked(true);
+      }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -111,32 +116,10 @@ export default function ChatWidget({
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
-  const isLocked   = requireAuth && isInIframe && tokenChecked && !identityToken;
+  const isLocked   = requireAuth && isInIframe && tokenChecked && !identityToken && !customerId;
   const tokenEmail = identityToken ? decodeTokenEmail(identityToken) : null;
+  const isIdentified = Boolean(identityToken || customerId);
 
-  const handleCheckout = useCallback(
-    (singleProduct?: Product, singleQty?: number) => {
-      if (!singleProduct) {
-        window.open(CART_PAGE, "_blank", "noopener,noreferrer");
-        return;
-      }
-      if (detectIframe()) {
-        window.parent.postMessage(
-          {
-            type: "esgas-add-to-cart",
-            items: [{
-              id_product:           singleProduct.id,
-              qty:                  singleQty ?? 1,
-              id_product_attribute: singleProduct.idProductAttribute ?? 0,
-              name:                 singleProduct.name,
-            }],
-          },
-          "*"
-        );
-      }
-    },
-    []
-  );
 
   const send = useCallback(async (overrideText?: string) => {
     const text = (overrideText !== undefined ? overrideText : input).trim();
@@ -161,6 +144,7 @@ export default function ChatWidget({
           sessionId,
           history,
           ...(identityToken ? { identityToken } : {}),
+          ...(!identityToken && customerId ? { customerId } : {}),
         }),
       });
       const data: { output?: string; products?: Product[]; needsHuman?: boolean } = await res
@@ -222,18 +206,20 @@ export default function ChatWidget({
               <p className="truncate text-sm font-semibold">Técnico {companyName}</p>
               <div className="flex items-center gap-1.5 text-xs text-white/90">
                 <span className={`inline-block h-2 w-2 rounded-full ${
-                  isLocked       ? "bg-red-400"
-                  : identityToken  ? "bg-green-400"
-                  : tokenChecked   ? "bg-yellow-300"
+                  isLocked      ? "bg-red-400"
+                  : isIdentified  ? "bg-green-400"
+                  : tokenChecked  ? "bg-yellow-300"
                   : "animate-pulse bg-yellow-400"
                 }`} />
                 {isLocked
                   ? <span>Acceso restringido</span>
                   : identityToken && tokenEmail
                     ? <span className="truncate">{tokenEmail} · B2B</span>
-                    : tokenChecked
-                      ? <span>Demo</span>
-                      : <span>Identificando…</span>
+                    : customerId
+                      ? <span>Cliente B2B</span>
+                      : tokenChecked
+                        ? <span>Demo</span>
+                        : <span>Identificando…</span>
                 }
               </div>
             </div>
@@ -284,10 +270,9 @@ export default function ChatWidget({
                     key={m.id}
                     message={m}
                     primaryColor={primaryColor}
-                    onCheckout={handleCheckout}
-                    isInIframe={isInIframe}
                     psBase={PS_BASE}
                     identityToken={identityToken}
+                    customerId={customerId}
                     supportPhone={SUPPORT_PHONE}
                     supportEmail={SUPPORT_EMAIL}
                   />

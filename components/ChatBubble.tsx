@@ -16,10 +16,9 @@ export interface ChatMessage {
 interface ChatBubbleProps {
   message: ChatMessage;
   primaryColor?: string;
-  onCheckout?: (product?: Product, qty?: number) => void;
-  isInIframe?: boolean;
   psBase?: string;
   identityToken?: string | null;
+  customerId?: number | null;
   supportPhone?: string;
   supportEmail?: string;
 }
@@ -27,10 +26,9 @@ interface ChatBubbleProps {
 export default function ChatBubble({
   message,
   primaryColor = "#0066cc",
-  onCheckout,
-  isInIframe,
   psBase,
   identityToken,
+  customerId,
   supportPhone,
   supportEmail,
 }: ChatBubbleProps) {
@@ -91,10 +89,9 @@ export default function ChatBubble({
                 key={p.id}
                 product={p}
                 primaryColor={primaryColor}
-                onCheckout={onCheckout}
-                isInIframe={isInIframe}
                 psBase={psBase}
                 identityToken={identityToken}
+                customerId={customerId}
               />
             ))}
           </div>

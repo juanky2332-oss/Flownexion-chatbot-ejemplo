@@ -72,6 +72,14 @@ export interface ChatRequest {
   identityToken?: string;
   /** Fallback de groupId solo cuando HMAC_SECRET no está configurado (demo/dev). */
   customerGroupId?: number;
+  /**
+   * id_customer leído directamente de window.prestashop.customer.id en la
+   * página real de Prestashop (sin firmar). Se usa solo si no hay
+   * identityToken válido: el backend resuelve su grupo real contra la
+   * Webservice API (fuente de verdad propia), nunca confía en un grupo
+   * que venga del cliente.
+   */
+  customerId?: number;
   /** Estado actual del carrito virtual del chatbot. */
   cart?: CartItem[];
 }

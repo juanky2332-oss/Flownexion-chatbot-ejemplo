@@ -339,6 +339,38 @@ export async function psGetCustomer(email: string): Promise<PSCustomer | null> {
   }
 }
 
+/**
+ * Resuelve el cliente real por id_customer contra la Webservice API (fuente
+ * de verdad propia, con nuestra ws_key). Se usa cuando no hay identityToken
+ * firmado: el id_customer viaja sin firmar desde window.prestashop.customer.id
+ * (leído en el navegador por widget.js), pero el grupo real NUNCA se confía
+ * del cliente — siempre se vuelve a consultar aquí.
+ */
+export async function psGetCustomerById(id: number): Promise<PSCustomer | null> {
+  if (DEMO_MODE || !id || id <= 0) return null;
+  try {
+    const url = buildUrl("customers", {
+      display: "[id,id_default_group,firstname,lastname,email,secure_key]",
+      filters: { "filter[id]": `[${id}]` },
+    });
+    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    const c = data?.customers?.[0];
+    if (!c || Number(c.id) !== id) return null;
+    return {
+      id: Number(c.id),
+      groupId: Number(c.id_default_group),
+      firstName: c.firstname,
+      lastName: c.lastname,
+      email: c.email,
+      secureKey: String(c.secure_key ?? "").trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function searchProducts(
   query: string,
   groupId?: number,

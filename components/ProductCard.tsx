@@ -6,19 +6,17 @@ import type { Product } from "@/lib/types";
 interface ProductCardProps {
   product: Product;
   primaryColor?: string;
-  onCheckout?: (product?: Product, qty?: number) => void;
-  isInIframe?: boolean;
   psBase?: string;
   identityToken?: string | null;
+  customerId?: number | null;
 }
 
 export default function ProductCard({
   product,
   primaryColor = "#0066cc",
-  onCheckout,
-  isInIframe = false,
   psBase = "https://b2b.esgas.es",
   identityToken,
+  customerId,
 }: ProductCardProps) {
   const [qty, setQty] = useState(Math.max(1, product.qty ?? 1));
   const [adding, setAdding] = useState(false);
@@ -29,27 +27,34 @@ export default function ProductCard({
   const hasDiscount =
     product.discountPct != null && product.discountPct > 0;
 
-  // Embebido en b2b.esgas.es: delega al padre vía postMessage (onCheckout).
-  // El padre (nexionchat.php / widget.js) hace el fetch mismo-origen a
-  // addchat.php con la sesión real del cliente logueado — el único contexto
-  // en el que ese script llega a tener un carrito cargado.
+  // Mecanismo confirmado funcionando (tag carrito-funciona-2026-07-01):
+  // abrir addchat.php como navegación de pestaña nueva de verdad (no un
+  // fetch dentro del iframe) hace que el navegador SÍ envíe las cookies de
+  // sesión reales de Prestashop (SameSite=Lax las permite en navegaciones
+  // de nivel superior). No depende de widget.js ni de ningún archivo nuevo
+  // en Prestashop — usa el addchat.php que ya está desplegado tal cual.
   //
-  // Standalone (demo en Vercel, sin padre PS): no hay forma de que un fetch
-  // cross-origin lleve la sesión real de b2b.esgas.es, así que usamos /api/cart
-  // (Webservice API) como mejor esfuerzo.
-  const handleAdd = async () => {
+  // Para saber cuándo Prestashop ya procesó el Cart::updateQty() del popup
+  // (y así navegarlo al carrito sin que se vea el JSON), lanzamos en
+  // paralelo un fetch de solo-señal (mode:no-cors) al mismo endpoint: no
+  // necesita leer la respuesta, solo que el servidor haya contestado ya.
+  const handleAdd = () => {
     if (adding) return;
     setAdding(true);
     setAddError(false);
 
-    if (isInIframe && onCheckout) {
-      onCheckout(product, qty);
-      setAdding(false);
-      return;
-    }
+    const cartPage = `${psBase}/carrito?action=show`;
+    const addchatUrl =
+      `${psBase}/addchat.php` +
+      `?id_product=${encodeURIComponent(product.id)}` +
+      `&id_product_attribute=${encodeURIComponent(product.idProductAttribute ?? 0)}` +
+      `&qty=${encodeURIComponent(qty)}`;
 
-    try {
-      const res = await fetch("/api/cart", {
+    const popup = window.open(addchatUrl, "_blank");
+
+    if (!popup) {
+      // Popup bloqueado por el navegador: mejor esfuerzo vía Webservice API.
+      fetch("/api/cart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -59,16 +64,34 @@ export default function ProductCard({
             idProductAttribute: product.idProductAttribute ?? 0,
           }],
           ...(identityToken ? { identityToken } : {}),
+          ...(!identityToken && customerId ? { customerId } : {}),
         }),
-      });
-      const data: { cartId?: string; cartUrl?: string } = await res.json().catch(() => ({}));
-      const dest = data.cartUrl || `${psBase}/carrito?action=show`;
-      window.open(dest, "_blank", "noopener,noreferrer");
-      setAdding(false);
-    } catch {
-      setAddError(true);
-      setAdding(false);
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data: { cartUrl?: string }) => {
+          window.open(data.cartUrl || cartPage, "_blank", "noopener,noreferrer");
+          setAdding(false);
+        })
+        .catch(() => {
+          setAddError(true);
+          setAdding(false);
+        });
+      return;
     }
+
+    const goToCart = () => {
+      try {
+        if (!popup.closed) popup.location.href = cartPage;
+        else window.open(cartPage, "_blank");
+      } catch {
+        window.open(cartPage, "_blank");
+      }
+      setAdding(false);
+    };
+
+    fetch(addchatUrl, { mode: "no-cors", cache: "no-store" })
+      .then(goToCart)
+      .catch(() => setTimeout(goToCart, 600));
   };
 
   return (

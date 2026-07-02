@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
 import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
+import { psGetCustomerById } from "@/lib/prestashop";
 import type { ChatRequest, Message, CartItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -60,14 +61,30 @@ export async function POST(req: NextRequest) {
   if (claims) {
     customerGroupId = claims.id_group;
     customerId = claims.id_customer;
-  } else if (!process.env.HMAC_SECRET) {
-    // Sin secreto configurado (demo/dev): acepta customerGroupId del body
-    customerGroupId =
-      typeof body?.customerGroupId === "number" && body.customerGroupId > 0
-        ? body.customerGroupId
+  } else {
+    // Sin token firmado (no hay módulo Prestashop instalado que lo genere):
+    // el id_customer llega sin firmar desde window.prestashop.customer.id,
+    // pero el grupo NUNCA se confía del cliente — se vuelve a resolver aquí
+    // contra la Webservice API con nuestra propia ws_key.
+    const rawId =
+      typeof body?.customerId === "number" && body.customerId > 0
+        ? body.customerId
         : undefined;
+    if (rawId) {
+      const real = await psGetCustomerById(rawId);
+      if (real) {
+        customerId = real.id;
+        customerGroupId = real.groupId;
+      }
+    } else if (!process.env.HMAC_SECRET) {
+      // Sin secreto configurado y sin customerId (demo/dev): acepta
+      // customerGroupId directo del body.
+      customerGroupId =
+        typeof body?.customerGroupId === "number" && body.customerGroupId > 0
+          ? body.customerGroupId
+          : undefined;
+    }
   }
-  // Si hay secreto pero el token falla → sin pricing de grupo (no se falsifica identidad)
 
   try {
     const { output, products, needsHuman } = await runAgent(

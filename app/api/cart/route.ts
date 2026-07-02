@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { psCreateCart, psGetCustomer, CART_PAGE_URL } from "@/lib/prestashop";
+import { psCreateCart, psGetCustomer, psGetCustomerById, CART_PAGE_URL } from "@/lib/prestashop";
 import { corsHeaders, preflight } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
 
@@ -33,19 +33,37 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let customerId = body?.customerId;
-  let customerSecureKey = body?.customerSecureKey;
+  let customerId: number | undefined;
+  let customerSecureKey: string | undefined;
 
   // Prioridad 1: email real del cliente logueado, verificado server-side desde
   // el token de identidad HMAC (nunca nos fiamos de un email que llegue suelto
-  // del cliente). Prioridad 2: TEST_CUSTOMER_EMAIL, para probar el flujo
-  // standalone sin estar logueado en b2b.esgas.es.
+  // del cliente).
   const verifiedClaims = body?.identityToken ? verifyIdentityToken(body.identityToken) : null;
-  const lookupEmail = verifiedClaims?.email?.trim() || process.env.TEST_CUSTOMER_EMAIL?.trim();
-  if ((!customerId || !customerSecureKey) && lookupEmail) {
-    console.log("[api/cart] buscando cliente:", lookupEmail);
+  const lookupEmail = verifiedClaims?.email?.trim();
+  if (lookupEmail) {
     const customer = await psGetCustomer(lookupEmail);
-    console.log("[api/cart] cliente encontrado:", customer ? `id=${customer.id} key=${customer.secureKey?.slice(0,8)}…` : "NULL");
+    if (customer) {
+      customerId = customer.id;
+      customerSecureKey = customer.secureKey;
+    }
+  }
+
+  // Prioridad 2: id_customer sin firmar (window.prestashop.customer.id leído
+  // en el navegador cuando no hay token HMAC disponible). Se vuelve a
+  // resolver aquí contra la Webservice API — nunca se confía tal cual.
+  if (!customerId && typeof body?.customerId === "number" && body.customerId > 0) {
+    const customer = await psGetCustomerById(body.customerId);
+    if (customer) {
+      customerId = customer.id;
+      customerSecureKey = customer.secureKey;
+    }
+  }
+
+  // Prioridad 3: TEST_CUSTOMER_EMAIL, solo para probar el flujo standalone
+  // sin estar logueado en b2b.esgas.es.
+  if (!customerId && process.env.TEST_CUSTOMER_EMAIL?.trim()) {
+    const customer = await psGetCustomer(process.env.TEST_CUSTOMER_EMAIL.trim());
     if (customer) {
       customerId = customer.id;
       customerSecureKey = customer.secureKey;

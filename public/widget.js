@@ -50,24 +50,23 @@
   var EXPANDED_H  = "640px";
   var tokenSent   = false;
 
-  // Pide la identidad del cliente logueado (mismo origen, cookies reales de
-  // sesión de PrestaShop) y se la pasa al chat firmada con HMAC, para que
-  // pueda mostrar precios/descuentos reales de su cuenta. Sin esto el chat
-  // no sabe quién es el cliente y funciona en modo anónimo/demo.
+  // Prestashop expone de forma nativa window.prestashop.customer en toda
+  // página del tema (sin instalar nada nuestro) cuando hay sesión activa.
+  // Se lo pasamos al chat sin firmar: el backend vuelve a resolver el grupo
+  // real contra su propia Webservice API, nunca confía en un grupo que
+  // venga del navegador. Sin esto el chat no sabe quién es el cliente.
   function sendIdentityToken() {
     if (!iframeEl || !iframeEl.contentWindow) return;
-    fetch("/addchat.php?action=identity", { credentials: "same-origin" })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data && data.token) {
-          iframeEl.contentWindow.postMessage(
-            { type: "esgas-identity-token", token: data.token },
-            ORIGIN
-          );
-          tokenSent = true;
-        }
-      })
-      .catch(function () { /* modo anónimo si falla */ });
+    try {
+      var c = window.prestashop && window.prestashop.customer;
+      if (c && c.is_logged && c.id) {
+        iframeEl.contentWindow.postMessage(
+          { type: "esgas-customer-id", id: Number(c.id) },
+          ORIGIN
+        );
+        tokenSent = true;
+      }
+    } catch (e) { /* modo anónimo si no está disponible */ }
   }
 
   // Listener global de mensajes del iframe
