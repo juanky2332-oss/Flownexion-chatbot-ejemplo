@@ -331,7 +331,7 @@ export async function searchProducts(query: string, groupId?: number): Promise<P
       async (raw: any) => {
         const basePrice = Number.parseFloat(raw?.price ?? "0") || 0;
         const product = normalizeProduct(raw, basePrice);
-        if (groupId !== undefined && basePrice > 0) {
+        if (basePrice > 0) {
           const { price: discountedPrice, discountPct } = await psGetBestSpecificPrice(
             product.id, basePrice, groupId
           );
