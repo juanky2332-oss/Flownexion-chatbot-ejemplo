@@ -3,6 +3,7 @@
 
 import "server-only";
 import type { Product, StockInfo, PSCustomer } from "./types";
+import { matchDescuento } from "./kb";
 
 const BASE_URL = (process.env.PRESTASHOP_BASE_URL ?? "")
   .replace(/\/api\/?$/, "")
@@ -160,6 +161,81 @@ async function getAllNames(): Promise<Array<{ id: number; name: string }>> {
   } catch {
     return [];
   }
+}
+
+// ─── Nombres reales de proveedor y grupo de cliente (para cruce con precios.json) ──
+
+let _supplierCache: Map<number, string> | null = null;
+let _supplierCacheTs = 0;
+
+async function getSupplierName(id: number): Promise<string | null> {
+  if (!id) return null;
+  if (_supplierCache && Date.now() - _supplierCacheTs < NAME_CACHE_TTL) {
+    return _supplierCache.get(id) ?? null;
+  }
+  try {
+    const url = buildUrl("suppliers", { display: "[id,name]" });
+    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    if (!res.ok) return _supplierCache?.get(id) ?? null;
+    const data = await res.json().catch(() => ({}));
+    const map = new Map<number, string>();
+    for (const s of data?.suppliers ?? []) map.set(Number(s.id), plainText(s.name));
+    _supplierCache = map;
+    _supplierCacheTs = Date.now();
+    return map.get(id) ?? null;
+  } catch {
+    return _supplierCache?.get(id) ?? null;
+  }
+}
+
+let _groupCache: Map<number, string> | null = null;
+let _groupCacheTs = 0;
+
+async function getGroupName(id: number): Promise<string | null> {
+  if (!id) return null;
+  if (_groupCache && Date.now() - _groupCacheTs < NAME_CACHE_TTL) {
+    return _groupCache.get(id) ?? null;
+  }
+  try {
+    const url = buildUrl("groups", { display: "[id,name]" });
+    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    if (!res.ok) return _groupCache?.get(id) ?? null;
+    const data = await res.json().catch(() => ({}));
+    const map = new Map<number, string>();
+    for (const g of data?.groups ?? []) map.set(Number(g.id), plainText(g.name));
+    _groupCache = map;
+    _groupCacheTs = Date.now();
+    return map.get(id) ?? null;
+  } catch {
+    return _groupCache?.get(id) ?? null;
+  }
+}
+
+/**
+ * Descuento por regla de catálogo real (data/kb/precios.json), cruzando el
+ * proveedor real del producto y el grupo real del cliente (ambos leídos en
+ * vivo de la Webservice). Es la vía que sí ve las 54 specific_price_rules
+ * confirmadas ("GRUPO XX CLIENTE GR/MD/PQ") — specific_prices (más abajo)
+ * NO las ve porque son reglas de catálogo, no precios manuales por producto.
+ * No hay acceso al servidor de Prestashop para desplegar priceinfo.php
+ * (Product::getPriceStatic), así que esta es la fuente correcta disponible.
+ */
+async function psGetCatalogDiscount(
+  supplierId: number,
+  groupId: number | undefined,
+  basePrice: number
+): Promise<{ price: number; discountPct: number | null } | null> {
+  if (!supplierId || groupId === undefined || basePrice <= 0) return null;
+  const [supplierName, groupName] = await Promise.all([
+    getSupplierName(supplierId),
+    getGroupName(groupId),
+  ]);
+  const pct = matchDescuento(supplierName, groupName);
+  if (pct === null) return null;
+  return {
+    price: Math.round(basePrice * (1 - pct / 100) * 100) / 100,
+    discountPct: pct / 100,
+  };
 }
 
 // ─── B2B: precios específicos por grupo ──────────────────────────────────────
@@ -432,7 +508,20 @@ export async function searchProducts(
           return { ...product, ...real };
         }
 
-        // Fallback si priceinfo.php no está desplegado/configurado todavía.
+        // Vía correcta: cruce con la regla de catálogo real del producto
+        // (proveedor real × grupo real del cliente) contra precios.json.
+        const supplierId = Number(raw?.id_supplier ?? 0);
+        const catalogDiscount = await psGetCatalogDiscount(supplierId, groupId, basePrice);
+        if (catalogDiscount) {
+          return {
+            ...product,
+            price: catalogDiscount.price,
+            originalPrice: basePrice,
+            discountPct: catalogDiscount.discountPct,
+          };
+        }
+
+        // Último fallback: specific_prices manuales por producto (no reglas de catálogo).
         const { price: discountedPrice, discountPct } = await psGetBestSpecificPrice(
           product.id, basePrice, groupId
         );

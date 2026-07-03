@@ -104,3 +104,51 @@ export function findApplications(query: string): { referencia: string; info: str
 export function getPrecios(): PrecioRow[] {
   return loadPrecios();
 }
+
+function normLoose(s: unknown): string {
+  return String(s ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // quitar acentos
+    .trim()
+    .toUpperCase();
+}
+
+function codesEqual(a: string, b: string): boolean {
+  if (a === b) return true;
+  const na = Number(a);
+  const nb = Number(b);
+  return !Number.isNaN(na) && !Number.isNaN(nb) && na === nb;
+}
+
+/**
+ * Cruza el nombre real del proveedor de un producto y el nombre real del
+ * grupo de cliente (ambos leídos en vivo de la Webservice de Prestashop)
+ * contra las reglas de descuento de catálogo confirmadas por el cliente en
+ * data/kb/precios.json. Acepta variantes de formato ("Grupo 01" o "01",
+ * "Cliente GR" o "GR") para no depender de adivinar el valor exacto.
+ * Devuelve null si no hay coincidencia — nunca inventa un descuento.
+ */
+export function matchDescuento(
+  supplierName: string | null | undefined,
+  groupName: string | null | undefined
+): number | null {
+  if (!supplierName || !groupName) return null;
+
+  const supplierCode = normLoose(supplierName).replace(/^GRUPO\s+/, "").trim();
+  if (!supplierCode) return null;
+
+  const groupNorm = normLoose(groupName);
+  const tierMatch = groupNorm.match(/\b(GR|MD|PQ)\b\s*$/);
+  const tier = tierMatch ? tierMatch[1] : groupNorm.replace(/^CLIENTE\s+/, "").trim();
+  if (!tier) return null;
+
+  for (const row of loadPrecios()) {
+    const reglaMatch = normLoose(row.regla).match(/^GRUPO\s+(.+?)\s+CLIENTE\s+(GR|MD|PQ)$/);
+    if (!reglaMatch) continue;
+    const [, reglaCode, reglaTier] = reglaMatch;
+    if (reglaTier === tier && codesEqual(reglaCode, supplierCode)) {
+      return row.pct;
+    }
+  }
+  return null;
+}
