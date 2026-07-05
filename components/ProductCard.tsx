@@ -11,6 +11,14 @@ interface ProductCardProps {
   customerId?: number | null;
 }
 
+function detectIframe(): boolean {
+  try {
+    return window.top !== window.self;
+  } catch {
+    return true;
+  }
+}
+
 export default function ProductCard({
   product,
   primaryColor = "#0066cc",
@@ -27,12 +35,46 @@ export default function ProductCard({
   const hasDiscount =
     product.discountPct != null && product.discountPct > 0;
 
-  // Mecanismo confirmado funcionando (tag carrito-funciona-2026-07-01):
-  // abrir addchat.php como navegación de pestaña nueva de verdad (no un
-  // fetch dentro del iframe) hace que el navegador SÍ envíe las cookies de
-  // sesión reales de Prestashop (SameSite=Lax las permite en navegaciones
-  // de nivel superior). No depende de widget.js ni de ningún archivo nuevo
-  // en Prestashop — usa el addchat.php que ya está desplegado tal cual.
+  const cartPage = `${psBase}/carrito?action=show`;
+
+  // Vía Webservice API (server-to-server): no depende de ninguna cookie del
+  // navegador, así que funciona tanto de fallback (popup bloqueado) como en
+  // pruebas standalone fuera de b2b.esgas.es. Resuelve el cliente igual que
+  // /api/chat: identityToken > customerId sin firmar > TEST_CUSTOMER_EMAIL.
+  const addViaApi = () => {
+    fetch("/api/cart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: [{
+          productId: product.id,
+          qty,
+          idProductAttribute: product.idProductAttribute ?? 0,
+        }],
+        ...(identityToken ? { identityToken } : {}),
+        ...(!identityToken && customerId ? { customerId } : {}),
+      }),
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data: { cartUrl?: string }) => {
+        window.open(data.cartUrl || cartPage, "_blank", "noopener,noreferrer");
+        setAdding(false);
+      })
+      .catch(() => {
+        setAddError(true);
+        setAdding(false);
+      });
+  };
+
+  // Mecanismo confirmado funcionando embebido en b2b.esgas.es (tag
+  // carrito-funciona-2026-07-01): abrir addchat.php como navegación de
+  // pestaña nueva de verdad (no un fetch dentro del iframe) hace que el
+  // navegador SÍ envíe las cookies de sesión reales de Prestashop
+  // (SameSite=Lax las permite en navegaciones de nivel superior). Esto
+  // SOLO puede funcionar si el navegador ya tiene esa sesión real, es
+  // decir, embebido de verdad en la tienda — por eso se usa solo dentro
+  // de un iframe; fuera (pruebas standalone) no hay ninguna sesión que
+  // enviar y se usa addViaApi() directamente.
   //
   // Para saber cuándo Prestashop ya procesó el Cart::updateQty() del popup
   // (y así navegarlo al carrito sin que se vea el JSON), lanzamos en
@@ -43,7 +85,11 @@ export default function ProductCard({
     setAdding(true);
     setAddError(false);
 
-    const cartPage = `${psBase}/carrito?action=show`;
+    if (!detectIframe()) {
+      addViaApi();
+      return;
+    }
+
     const addchatUrl =
       `${psBase}/addchat.php` +
       `?id_product=${encodeURIComponent(product.id)}` +
@@ -54,28 +100,7 @@ export default function ProductCard({
 
     if (!popup) {
       // Popup bloqueado por el navegador: mejor esfuerzo vía Webservice API.
-      fetch("/api/cart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: [{
-            productId: product.id,
-            qty,
-            idProductAttribute: product.idProductAttribute ?? 0,
-          }],
-          ...(identityToken ? { identityToken } : {}),
-          ...(!identityToken && customerId ? { customerId } : {}),
-        }),
-      })
-        .then((res) => res.json().catch(() => ({})))
-        .then((data: { cartUrl?: string }) => {
-          window.open(data.cartUrl || cartPage, "_blank", "noopener,noreferrer");
-          setAdding(false);
-        })
-        .catch(() => {
-          setAddError(true);
-          setAdding(false);
-        });
+      addViaApi();
       return;
     }
 
