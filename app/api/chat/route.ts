@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
 import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
-import { psGetCustomerById } from "@/lib/prestashop";
+import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
 import type { ChatRequest, Message, CartItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -83,6 +83,18 @@ export async function POST(req: NextRequest) {
         typeof body?.customerGroupId === "number" && body.customerGroupId > 0
           ? body.customerGroupId
           : undefined;
+    }
+  }
+
+  // Sin ninguna identidad real (probando standalone en el deploy de Vercel,
+  // sin login en b2b.esgas.es): igual que /api/cart, cae al cliente de
+  // pruebas configurado en TEST_CUSTOMER_EMAIL para poder verificar el
+  // precio con descuento antes de embeber el chat en la tienda real.
+  if (!customerId && process.env.TEST_CUSTOMER_EMAIL?.trim()) {
+    const testCustomer = await psGetCustomer(process.env.TEST_CUSTOMER_EMAIL.trim());
+    if (testCustomer) {
+      customerId = testCustomer.id;
+      customerGroupId = testCustomer.groupId;
     }
   }
 
