@@ -1,8 +1,13 @@
 // ─────────────────────────────────────────────────────────────
 // Endpoint de diagnóstico. GET /api/health
+// Requiere Bearer interno (INTERNAL_API_SECRET): expone datos internos
+// (reglas de descuento B2B, catálogo, recursos de la Webservice) que NUNCA
+// deben quedar accesibles sin autenticación. Llamar con:
+//   curl -H "Authorization: Bearer <INTERNAL_API_SECRET>" https://<tu-dominio>/api/health
 // ─────────────────────────────────────────────────────────────
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { hasInternalAuth } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,7 +71,11 @@ async function psGet(base: string, key: string, resource: string, params: Record
   return { ok: res.ok, status: res.status, data, url: url.replace(key, "***") };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!hasInternalAuth(req)) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
   const rawBase = process.env.PRESTASHOP_BASE_URL ?? null;
   const key = process.env.PRESTASHOP_API_KEY ?? null;
   const base = rawBase ? rawBase.replace(/\/api\/?$/, "").replace(/\/$/, "") : null;
@@ -170,6 +179,56 @@ export async function GET() {
           });
           prestashop.testE_proveedor = supplierRes.data?.suppliers?.[0] ?? supplierRes.data ?? null;
         }
+
+        // Test I: política real de "pedido sin stock" (backorder).
+        // out_of_stock por producto: 0 = Denegar pedidos, 1 = Permitir pedidos,
+        // 2 = Usar el valor por defecto de la tienda (PS_ORDER_OUT_OF_STOCK).
+        const OUT_OF_STOCK_LABELS: Record<string, string> = {
+          "0": "Denegar pedidos (NO se puede pedir sin stock)",
+          "1": "Permitir pedidos (SÍ se puede pedir sin stock)",
+          "2": "Usar el valor por defecto de la tienda",
+        };
+        const rawOutOfStock = String(rawProduct?.out_of_stock ?? "");
+        const stockAvail = await psGet(base, key, "stock_availables", {
+          display: "full", "filter[id_product]": `[${firstId}]`,
+        });
+        const stockRow = (stockAvail.data?.stock_availables ?? [])[0] ?? null;
+
+        const configRes = await psGet(base, key, "configurations", {
+          display: "full", "filter[name]": "[PS_ORDER_OUT_OF_STOCK]",
+        });
+        const configRow = (configRes.data?.configurations ?? [])[0] ?? null;
+        const rawGlobalDefault = String(configRow?.value ?? "");
+
+        prestashop.testI_politica_backorder = {
+          id_product_probado: firstId,
+          producto_out_of_stock_raw: rawProduct?.out_of_stock ?? null,
+          producto_out_of_stock_significado:
+            OUT_OF_STOCK_LABELS[rawOutOfStock] ?? "Desconocido/no accesible",
+          stock_availables_out_of_stock: stockRow
+            ? {
+                raw: stockRow.out_of_stock,
+                significado: OUT_OF_STOCK_LABELS[String(stockRow.out_of_stock ?? "")] ?? "Desconocido",
+                quantity: stockRow.quantity,
+              }
+            : null,
+          configuracion_global_PS_ORDER_OUT_OF_STOCK: configRow
+            ? {
+                raw: rawGlobalDefault,
+                significado: OUT_OF_STOCK_LABELS[rawGlobalDefault] ?? "Desconocido",
+              }
+            : {
+                error: !configRes.ok
+                  ? `HTTP ${configRes.status}: el ws_key probablemente no tiene permiso sobre "configurations"`
+                  : "No se encontró la clave PS_ORDER_OUT_OF_STOCK",
+              },
+          conclusion:
+            rawOutOfStock === "1" || (rawOutOfStock === "2" && rawGlobalDefault === "1")
+              ? "✓ Backorder PERMITIDO para este producto: el chatbot puede prometer pedir de más sobre el stock real."
+              : rawOutOfStock === "0" || (rawOutOfStock === "2" && rawGlobalDefault === "0")
+                ? "❌ Backorder DENEGADO para este producto: PrestaShop puede rechazar o capar el pedido si se pide más cantidad de la que hay en stock."
+                : "⚠️ No se pudo determinar con certeza — revisar manualmente en el admin de PrestaShop (Catálogo > Productos > [producto] > pestaña Cantidades).",
+        };
       }
 
       // Test D: specific_price_rules (reglas de "Descuentos de tienda").

@@ -44,14 +44,16 @@ const DEMO_CATALOG: Array<Product & { stock: number }> = DEMO_SEED.map((p) => ({
   ...p, ...demoLinks(p.reference),
 }));
 
-function stripStock(p: Product & { stock: number }): Product {
-  const { stock: _stock, ...rest } = p;
-  return rest;
-}
-
+// El stock viaja SIEMPRE en cada producto devuelto (aquí y en modo real, ver
+// getStockBulk más abajo): así la tarjeta de producto puede mostrar de
+// entrada si hay o no unidades disponibles, sin depender de que el cliente
+// pregunte explícitamente por disponibilidad. Antes se limpiaba con
+// stripStock() y solo se rellenaba si el agente llamaba a get_stock — eso
+// dejaba sin indicador de stock a los productos que solo se listan para
+// comparar, que es justo cuando más falta hace saber cuál elegir.
 function demoSearch(query: string): Product[] {
   const q = query.trim().toLowerCase();
-  if (!q) return DEMO_CATALOG.slice(0, 5).map(stripStock);
+  if (!q) return DEMO_CATALOG.slice(0, 5);
   const norm = (s: string) => s.toLowerCase().replace(/[^0-9a-z]/g, "");
   const qNorm = norm(q);
   const matches = DEMO_CATALOG.filter(
@@ -60,7 +62,7 @@ function demoSearch(query: string): Product[] {
       norm(p.name).includes(qNorm) ||
       norm(p.reference).includes(qNorm)
   );
-  return (matches.length > 0 ? matches : DEMO_CATALOG.slice(0, 3)).map(stripStock);
+  return matches.length > 0 ? matches : DEMO_CATALOG.slice(0, 3);
 }
 
 function assertConfig() {
@@ -535,7 +537,40 @@ export async function searchProducts(
     )
   );
 
-  return products.filter((p) => p.id > 0).slice(0, 3);
+  const finalProducts = products.filter((p) => p.id > 0).slice(0, 3);
+  const stockMap = await getStockBulk(finalProducts.map((p) => p.id));
+  return finalProducts.map((p) =>
+    p.id in stockMap ? { ...p, stock: stockMap[p.id] } : p
+  );
+}
+
+/**
+ * Stock de varios productos a la vez, para adjuntarlo automáticamente a
+ * cada resultado de búsqueda (ver comentario en demoSearch). Si la llamada
+ * falla, devuelve {} y los productos se quedan sin campo stock (sin
+ * indicador) en vez de mostrar "sin stock" de forma incorrecta.
+ */
+async function getStockBulk(ids: number[]): Promise<Record<number, number>> {
+  if (ids.length === 0) return {};
+  try {
+    const url = buildUrl("stock_availables", {
+      display: "full",
+      filters: { "filter[id_product]": `[${ids.join("|")}]` },
+    });
+    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    if (!res.ok) return {};
+    const data = await res.json().catch(() => ({}));
+    const list = Array.isArray(data?.stock_availables) ? data.stock_availables : [];
+    const out: Record<number, number> = {};
+    for (const row of list) {
+      const pid = Number(row?.id_product ?? 0);
+      if (!pid) continue;
+      out[pid] = (out[pid] ?? 0) + (Number(row?.quantity) || 0);
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 export async function getStock(idProduct: number): Promise<StockInfo> {

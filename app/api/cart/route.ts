@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { psCreateCart, psGetCustomer, psGetCustomerById, CART_PAGE_URL } from "@/lib/prestashop";
-import { corsHeaders, preflight } from "@/lib/http";
+import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
 
 export const runtime = "nodejs";
@@ -12,6 +12,11 @@ export function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const headers = corsHeaders(req);
+
+  const ip = getClientIp(req);
+  if (isRateLimited(ip)) {
+    return NextResponse.json({ error: "Demasiadas peticiones" }, { status: 429, headers });
+  }
 
   let body: {
     items?: { productId: number; qty: number; idProductAttribute?: number }[];
@@ -50,9 +55,23 @@ export async function POST(req: NextRequest) {
   }
 
   // Prioridad 2: id_customer sin firmar (window.prestashop.customer.id leído
-  // en el navegador cuando no hay token HMAC disponible). Se vuelve a
-  // resolver aquí contra la Webservice API — nunca se confía tal cual.
+  // en el navegador cuando no hay token HMAC disponible — caso real hoy en
+  // producción, porque el módulo nexionchat que emite el token firmado no
+  // está desplegado). Se vuelve a resolver contra la Webservice API, nunca
+  // se confía tal cual.
+  //
+  // ⚠️ Riesgo aceptado conscientemente: como este endpoint es alcanzable
+  // directamente (sin pasar por el navegador, sin que CORS lo impida), un
+  // atacante podría enumerar customerId=1,2,3... y recibir de vuelta el
+  // secure_key real de ese cliente dentro de cartUrl (token de recuperación
+  // de carrito/pedido de otra persona). Se mitiga con un límite de tasa
+  // mucho más estricto que el general para esta vía en concreto. El arreglo
+  // definitivo es desplegar el módulo nexionchat (HMAC) para que esta rama
+  // deje de usarse — ver esgas_chatbot_project.md.
   if (!customerId && typeof body?.customerId === "number" && body.customerId > 0) {
+    if (isRateLimited(ip, "cart-unverified-customer-id", 8)) {
+      return NextResponse.json({ error: "Demasiadas peticiones" }, { status: 429, headers });
+    }
     const customer = await psGetCustomerById(body.customerId);
     if (customer) {
       customerId = customer.id;

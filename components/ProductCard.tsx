@@ -191,6 +191,18 @@ export default function ProductCard({
         </div>
       )}
 
+      {/* Aviso de pedido parcial: la cantidad pedida supera el stock mostrado.
+          No bloquea el pedido (regla de negocio: el stock informa, no impide
+          comprar) — solo deja claro, igual que el texto del chat, qué parte
+          llega ahora y qué parte llega en 24-48h. */}
+      {product.stock !== undefined && product.stock >= 0 && qty > product.stock && (
+        <p className="mt-1.5 text-[11px] font-medium text-amber-700">
+          {product.stock > 0
+            ? `Se sirven ${product.stock} uds de inmediato + ${qty - product.stock} en 24-48h laborables.`
+            : `Las ${qty} uds se sirven en 24-48h laborables (sin stock inmediato).`}
+        </p>
+      )}
+
       {/* Qty + actions */}
       <div className="mt-2.5 flex items-center gap-2">
         <div className="flex items-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50">

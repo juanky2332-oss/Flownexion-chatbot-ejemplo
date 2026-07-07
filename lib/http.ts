@@ -48,21 +48,28 @@ export function getClientIp(req: NextRequest): string {
   return req.headers.get("x-real-ip") ?? "unknown";
 }
 
-/** Devuelve true si la IP ha superado el límite de 30 req/min. */
-export function isRateLimited(ip: string): boolean {
+/**
+ * Devuelve true si la IP ha superado el límite de peticiones en la ventana.
+ * `bucket` namespacea el contador (por defecto, un único contador general de
+ * 30 req/min); usar un bucket propio con `max` más bajo para limitar más
+ * fuerte una vía concreta (ej. resolución de cliente sin verificar en
+ * /api/cart) sin penalizar el resto de peticiones de la misma IP.
+ */
+export function isRateLimited(ip: string, bucket = "default", max = MAX_REQUESTS): boolean {
+  const key = `${bucket}:${ip}`;
   const now = Date.now();
-  const timestamps = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
+  const timestamps = (hits.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
   timestamps.push(now);
-  hits.set(ip, timestamps);
+  hits.set(key, timestamps);
 
   // Limpieza ocasional para no crecer sin límite.
   if (hits.size > 5000) {
-    for (const [key, ts] of hits) {
-      if (ts.every((t) => now - t >= WINDOW_MS)) hits.delete(key);
+    for (const [k, ts] of hits) {
+      if (ts.every((t) => now - t >= WINDOW_MS)) hits.delete(k);
     }
   }
 
-  return timestamps.length > MAX_REQUESTS;
+  return timestamps.length > max;
 }
 
 /** Comprueba el Bearer interno para las llamadas server→server. */

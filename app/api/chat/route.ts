@@ -3,7 +3,10 @@ import { runAgent } from "@/lib/agent";
 import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
 import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
+import { isPromptExtractionAttempt, IDENTITY_DEFLECTION } from "@/lib/guardrails";
 import type { ChatRequest, Message, CartItem } from "@/lib/types";
+
+const MAX_MESSAGE_LENGTH = 1500;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,12 +34,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ output: "Petición inválida." }, { status: 400, headers });
   }
 
-  const message = (body?.message ?? "").toString().trim();
+  const message = (body?.message ?? "").toString().trim().slice(0, MAX_MESSAGE_LENGTH);
   if (!message) {
     return NextResponse.json(
       { output: "Cuéntame qué necesitas y te ayudo a encontrarlo." },
       { status: 400, headers }
     );
+  }
+
+  // Defensa en profundidad: intercepta los intentos más obvios de extraer
+  // el system prompt/identidad del modelo sin gastar una llamada a OpenAI.
+  // Ver lib/guardrails.ts — el system prompt cubre además las reformulaciones
+  // más sutiles que esta heurística no detecta.
+  if (isPromptExtractionAttempt(message)) {
+    return NextResponse.json({ output: IDENTITY_DEFLECTION, products: [] }, { headers });
   }
 
   const history: Message[] = Array.isArray(body?.history)
@@ -108,18 +119,23 @@ export async function POST(req: NextRequest) {
     );
     return NextResponse.json({ output, products, needsHuman }, { headers });
   } catch (err) {
-    console.error("[/api/chat] error:", err);
+    // El detalle (clave de OpenAI ausente/inválida, sin cuota, etc.) es
+    // información interna de infraestructura: se queda en los logs del
+    // servidor para diagnóstico, pero al cliente nunca se le muestra —
+    // revelarla es tan indeseable como revelar el system prompt.
     const msg = err instanceof Error ? err.message : "";
-    let output =
-      "Ups, ha habido un problema técnico procesando tu consulta. ¿Puedes intentarlo de nuevo en un momento?";
-    if (/OPENAI_API_KEY/i.test(msg)) {
-      output =
-        "El asistente aún no está configurado: falta la clave de OpenAI (OPENAI_API_KEY) en el servidor.";
-    } else if (/401|invalid.*api key|incorrect api key/i.test(msg)) {
-      output = "La clave de OpenAI configurada no es válida. Revisa OPENAI_API_KEY.";
-    } else if (/429|quota|insufficient/i.test(msg)) {
-      output = "La cuenta de OpenAI no tiene saldo/cuota disponible en este momento.";
-    }
-    return NextResponse.json({ output }, { status: 500, headers });
+    let category = "error_generico";
+    if (/OPENAI_API_KEY/i.test(msg)) category = "falta_openai_api_key";
+    else if (/401|invalid.*api key|incorrect api key/i.test(msg)) category = "openai_api_key_invalida";
+    else if (/429|quota|insufficient/i.test(msg)) category = "openai_sin_cuota";
+    console.error("[/api/chat] error:", category, err);
+
+    return NextResponse.json(
+      {
+        output:
+          "Ups, ha habido un problema técnico procesando tu consulta. ¿Puedes intentarlo de nuevo en un momento?",
+      },
+      { status: 500, headers }
+    );
   }
 }

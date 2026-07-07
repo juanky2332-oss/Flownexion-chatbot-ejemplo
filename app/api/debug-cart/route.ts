@@ -1,10 +1,16 @@
 /**
  * GET /api/debug-cart?id_product=8854&qty=3
  * Usa psCreateCart (con búsqueda automática de dirección) y devuelve la URL de recuperación.
+ *
+ * Herramienta de desarrollador — requiere Bearer interno (INTERNAL_API_SECRET).
+ * Sin esto, cualquiera podía: (1) crear carritos arbitrarios sobre la cuenta
+ * de prueba real con solo visitar la URL, y (2) con ?inspect=<id>, leer el
+ * contenido crudo de CUALQUIER carrito de la Webservice por ID, sin límite.
  */
 import { NextResponse } from "next/server";
 import { NextRequest } from "next/server";
 import { psGetCustomer, psCreateCart } from "@/lib/prestashop";
+import { hasInternalAuth } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +21,10 @@ const BASE_URL = (process.env.PRESTASHOP_BASE_URL ?? "").replace(/\/$/, "");
 const API_KEY = process.env.PRESTASHOP_API_KEY ?? "";
 
 export async function GET(req: NextRequest) {
+  if (!hasInternalAuth(req)) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
   const idProduct = Number(req.nextUrl.searchParams.get("id_product") ?? "8854");
   const qty       = Number(req.nextUrl.searchParams.get("qty") ?? "3");
   const inspect   = req.nextUrl.searchParams.get("inspect");
