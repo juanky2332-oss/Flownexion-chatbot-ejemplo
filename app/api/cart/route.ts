@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { psCreateCart, psGetCustomer, psGetCustomerById, CART_PAGE_URL } from "@/lib/prestashop";
+import { psCreateCart, psGetCustomer, psGetCustomerById, getStock, CART_PAGE_URL } from "@/lib/prestashop";
 import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
 
@@ -36,6 +36,23 @@ export async function POST(req: NextRequest) {
       { cartId: "", cartUrl: CART_PAGE_URL, itemAddUrls: [] },
       { headers }
     );
+  }
+
+  // Barrera real de la política "el B2B nunca tramita más unidades de las
+  // que hay en stock": se vuelve a comprobar el stock aquí, server-side,
+  // porque el límite del selector en ProductCard.tsx solo protege el flujo
+  // normal — este endpoint es alcanzable directamente. Se rechaza la
+  // petición completa (sin crear carrito) si CUALQUIER línea pide más de lo
+  // disponible, para no tramitar un pedido parcial silencioso.
+  for (const item of items) {
+    if (!item || typeof item.productId !== "number" || typeof item.qty !== "number") continue;
+    const stock = await getStock(item.productId);
+    if (item.qty > stock.quantity) {
+      return NextResponse.json(
+        { error: "stock_insuficiente", productId: item.productId, requested: item.qty, available: stock.quantity },
+        { status: 409, headers }
+      );
+    }
   }
 
   let customerId: number | undefined;

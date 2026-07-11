@@ -22,7 +22,7 @@ const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
 const PS_BASE   = "https://b2b.esgas.es";
 
 const SUPPORT_PHONE = "968 676 983";
-const SUPPORT_EMAIL = "b2b@esgas.es";
+const SUPPORT_EMAIL = "esgas@esgas.es";
 
 const QUICK_CHIPS = [
   "¿Tenéis el 6205 LLU en stock?",
