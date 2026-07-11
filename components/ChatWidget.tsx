@@ -15,7 +15,7 @@ export interface ChatWidgetProps {
 }
 
 const WELCOME =
-  "Hola, soy el **técnico de ESGAS** · NTN/SNR. ¿Qué rodamiento o pieza de transmisión necesitas?";
+  "Hola, soy el **técnico de ESGAS**. ¿Qué rodamiento o pieza de transmisión necesitas?";
 
 const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
