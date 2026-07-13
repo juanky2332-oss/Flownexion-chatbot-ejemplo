@@ -4,6 +4,7 @@
 import "server-only";
 import type { Product, StockInfo, PSCustomer } from "./types";
 import { matchDescuento } from "./kb";
+import { boreCodeFor, seriesPrefixesForBoreCode } from "./bearingSizes";
 
 const BASE_URL = (process.env.PRESTASHOP_BASE_URL ?? "")
   .replace(/\/api\/?$/, "")
@@ -542,6 +543,41 @@ export async function searchProducts(
   return finalProducts.map((p) =>
     p.id in stockMap ? { ...p, stock: stockMap[p.id] } : p
   );
+}
+
+/**
+ * Busca en el catálogo real todas las series estándar (60xx, 62xx, 63xx,
+ * 72xx, 320xx, UC) para un diámetro interior (bore) dado, en vez de dejar
+ * que el modelo adivine y encadene manualmente varias llamadas a
+ * search_products — es justo el paso que fallaba en conversaciones reales
+ * ("¿qué otras opciones tienes con este mismo diámetro?", "¿y el siguiente
+ * por encima de 25mm?"). Ejecuta las búsquedas por prefijo en paralelo
+ * reutilizando searchProducts (y por tanto DEMO_MODE, precios y stock ya
+ * resueltos) y devuelve los resultados reales fusionados sin duplicados.
+ */
+export async function searchByBore(
+  boreMm: number,
+  groupId?: number,
+  idCustomer?: number
+): Promise<Product[]> {
+  const code = boreCodeFor(boreMm);
+  if (!code) return [];
+
+  const prefixes = seriesPrefixesForBoreCode(code);
+  const resultsBySeries = await Promise.all(
+    prefixes.map((p) => searchProducts(p.prefix, groupId, idCustomer))
+  );
+
+  const seen = new Set<number>();
+  const merged: Product[] = [];
+  for (const list of resultsBySeries) {
+    for (const p of list) {
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      merged.push(p);
+    }
+  }
+  return merged.slice(0, 6);
 }
 
 /**
