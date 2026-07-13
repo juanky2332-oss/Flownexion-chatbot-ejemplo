@@ -9,6 +9,8 @@ interface ProductCardProps {
   psBase?: string;
   identityToken?: string | null;
   customerId?: number | null;
+  supportPhone?: string;
+  supportEmail?: string;
 }
 
 function detectIframe(): boolean {
@@ -25,7 +27,28 @@ export default function ProductCard({
   psBase = "https://b2b.esgas.es",
   identityToken,
   customerId,
+  supportPhone = "968 676 983",
+  supportEmail = "esgas@esgas.es",
 }: ProductCardProps) {
+  // Enlaces de contacto pulsables para los avisos de "sin stock en la página":
+  // el cliente llama o escribe con un solo toque.
+  const contactLinks = (
+    <>
+      <a
+        href={`tel:${supportPhone.replace(/\s+/g, "")}`}
+        className="font-bold underline underline-offset-2"
+      >
+        teléfono
+      </a>{" "}
+      o{" "}
+      <a
+        href={`mailto:${supportEmail}`}
+        className="font-bold underline underline-offset-2"
+      >
+        e-mail
+      </a>
+    </>
+  );
   // El B2B nunca tramita más unidades de las que hay en stock real: es
   // política de negocio, no un límite técnico. maxQty acota tanto el
   // selector de cantidad como el botón de añadir; product.stock === 0 oculta
@@ -40,7 +63,9 @@ export default function ProductCard({
     return maxQty !== undefined ? Math.min(initial, maxQty) : initial;
   });
   const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
+  // contact: true → el error termina ofreciendo la consulta por teléfono/e-mail
+  // con enlaces pulsables (se añaden al renderizar, no dentro del texto).
+  const [addError, setAddError] = useState<{ text: string; contact?: boolean } | null>(null);
 
   const changeQty = (delta: number) =>
     setQty((prev) => {
@@ -77,13 +102,15 @@ export default function ProductCard({
           // cambiado desde que se cargó la tarjeta): si lo rechaza, no
           // abrimos el carrito y explicamos el motivo con el stock actual.
           if (data?.error === "stock_insuficiente" && typeof data?.available === "number") {
-            setAddError(
-              data.available > 0
-                ? `Solo quedan ${data.available} uds disponibles en la página ahora mismo. El stock de tienda va aparte — para pedir más, consúltalo por teléfono o e-mail (ver aviso del chat).`
-                : `Sin unidades disponibles en la página para este producto ahora mismo. El stock de tienda va aparte — consúltalo por teléfono o e-mail y te lo confirman al momento.`
-            );
+            setAddError({
+              text:
+                data.available > 0
+                  ? `Solo quedan ${data.available} uds disponibles en la página ahora mismo. El stock de tienda va aparte — para pedir más, consúltalo por `
+                  : `Sin unidades disponibles en la página para este producto ahora mismo. El stock de tienda va aparte — consúltalo por `,
+              contact: true,
+            });
           } else {
-            setAddError("No se pudo añadir al carrito. Por favor, inténtalo de nuevo.");
+            setAddError({ text: "No se pudo añadir al carrito. Por favor, inténtalo de nuevo." });
           }
           setAdding(false);
           return;
@@ -92,7 +119,7 @@ export default function ProductCard({
         setAdding(false);
       })
       .catch(() => {
-        setAddError("No se pudo añadir al carrito. Por favor, inténtalo de nuevo.");
+        setAddError({ text: "No se pudo añadir al carrito. Por favor, inténtalo de nuevo." });
         setAdding(false);
       });
   };
@@ -235,7 +262,7 @@ export default function ProductCard({
           mensaje que ya da el chat. */}
       {outOfStockForB2B && (
         <p className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800">
-          Sin stock en la página ahora mismo — pero el stock de tienda va aparte: es muy posible que lo tengamos. Consúltalo por teléfono o e-mail y te lo confirman al momento.
+          Sin stock en la página ahora mismo — pero el stock de tienda va aparte: es muy posible que lo tengamos. Consúltalo por {contactLinks} y te lo confirman al momento.
         </p>
       )}
 
@@ -303,7 +330,10 @@ export default function ProductCard({
       </div>
 
       {addError && (
-        <p className="mt-1.5 text-xs text-red-600">{addError}</p>
+        <p className="mt-1.5 text-xs text-red-600">
+          {addError.text}
+          {addError.contact && <>{contactLinks} y te lo confirman al momento.</>}
+        </p>
       )}
     </div>
   );

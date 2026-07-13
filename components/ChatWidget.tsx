@@ -116,6 +116,14 @@ export default function ChatWidget({
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
+  // Permite abrir el chat desde fuera del widget (p.ej. el robot grande del
+  // hero de la landing dispara este evento al pincharlo).
+  useEffect(() => {
+    const openChat = () => setOpen(true);
+    window.addEventListener("esgas-open-chat", openChat);
+    return () => window.removeEventListener("esgas-open-chat", openChat);
+  }, []);
+
   const isLocked   = requireAuth && isInIframe && tokenChecked && !identityToken && !customerId;
   const tokenEmail = identityToken ? decodeTokenEmail(identityToken) : null;
   const isIdentified = Boolean(identityToken || customerId);
@@ -334,6 +342,8 @@ export default function ChatWidget({
                 </div>
                 <p className="mt-1.5 text-center text-[10px] text-gray-400">
                   {companyName} · Distribuidor oficial NTN/SNR
+                  <br />
+                  📞 {SUPPORT_PHONE} · ✉️ {SUPPORT_EMAIL}
                 </p>
               </div>
             </>

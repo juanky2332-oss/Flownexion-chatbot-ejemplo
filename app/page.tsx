@@ -1,4 +1,5 @@
 import ChatWidget from "@/components/ChatWidget";
+import HeroChatTrigger from "@/components/HeroChatTrigger";
 import RealisticRobot from "@/components/RealisticRobot";
 
 const PRIMARY = "#0066cc";
@@ -28,7 +29,7 @@ export default function Home() {
       {/* Hero con el logo grande (el robot) en el centro */}
       <section className="mx-auto flex max-w-3xl flex-col items-center px-6 py-16 text-center">
         <div className="mb-6 flex items-center justify-center">
-          <RealisticRobot size={160} isPointing />
+          <HeroChatTrigger />
         </div>
         <span className="mb-3 inline-flex items-center gap-2 rounded-full bg-esgas-light px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-esgas">
           Distribuidor oficial NTN/SNR

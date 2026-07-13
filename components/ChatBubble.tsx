@@ -25,6 +25,36 @@ interface ChatBubbleProps {
   supportEmail?: string;
 }
 
+/**
+ * Convierte las menciones de contacto del texto del bot en enlaces pulsables:
+ * "teléfono" (o el número literal) → tel:, y "e-mail"/"correo" (o la dirección
+ * literal) → mailto:. No toca los enlaces markdown que ya vengan en el texto.
+ */
+function linkifyContacts(text: string, phone?: string, email?: string): string {
+  const telHref = phone ? `tel:${phone.replace(/\s+/g, "")}` : undefined;
+  const mailHref = email ? `mailto:${email}` : undefined;
+  if (!telHref && !mailHref) return text;
+
+  const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const alts: string[] = [];
+  if (mailHref && email) alts.push(escapeRe(email), "correo electr[oó]nico", "e-?mail", "correo");
+  if (telHref && phone) alts.push(escapeRe(phone), "tel[eé]fono");
+  const re = new RegExp(`(${alts.join("|")})`, "gi");
+
+  return text
+    .split(/(\[[^\]]*\]\([^)]*\))/g)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part // ya es un enlace markdown: no tocar
+        : part.replace(re, (m) => {
+            const isMail = /correo|mail|@/i.test(m);
+            const href = isMail ? mailHref : telHref;
+            return href ? `[${m}](${href})` : m;
+          })
+    )
+    .join("");
+}
+
 export default function ChatBubble({
   message,
   primaryColor = "#0066cc",
@@ -58,15 +88,23 @@ export default function ChatBubble({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  a: ({ node, ...props }) => (
-                    <a
-                      {...props}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium underline decoration-1 underline-offset-2"
-                      style={{ color: primaryColor }}
-                    />
-                  ),
+                  a: ({ node, href, ...props }) => {
+                    // tel:/mailto: se abren en la propia app de teléfono/correo,
+                    // no en una pestaña nueva
+                    const isContact =
+                      href?.startsWith("tel:") || href?.startsWith("mailto:");
+                    return (
+                      <a
+                        {...props}
+                        href={href}
+                        {...(isContact
+                          ? {}
+                          : { target: "_blank", rel: "noopener noreferrer" })}
+                        className="font-medium underline decoration-1 underline-offset-2"
+                        style={{ color: primaryColor }}
+                      />
+                    );
+                  },
                   p: ({ node, ...props }) => (
                     <p {...props} className="mb-1.5 last:mb-0" />
                   ),
@@ -78,7 +116,7 @@ export default function ChatBubble({
                   ),
                 }}
               >
-                {message.content}
+                {linkifyContacts(message.content, supportPhone, supportEmail)}
               </ReactMarkdown>
             </div>
           )}
@@ -94,6 +132,8 @@ export default function ChatBubble({
                 psBase={psBase}
                 identityToken={identityToken}
                 customerId={customerId}
+                supportPhone={supportPhone}
+                supportEmail={supportEmail}
               />
             ))}
           </div>
