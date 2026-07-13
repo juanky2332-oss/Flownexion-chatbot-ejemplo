@@ -142,14 +142,20 @@ function normalizeProduct(raw: any, basePrice?: number): Product {
   };
 }
 
-let _nameCache: Array<{ id: number; name: string }> | null = null;
+let _nameCache: Array<{ id: number; name: string; reference: string }> | null = null;
 let _nameCacheTs = 0;
 const NAME_CACHE_TTL = 5 * 60 * 1000;
 
-async function getAllNames(): Promise<Array<{ id: number; name: string }>> {
+// Índice ligero de TODO el catálogo para la búsqueda: nombre + referencia +
+// referencia de proveedor. Antes solo se pedía [id,name] y la búsqueda
+// comparaba únicamente contra el nombre — cualquier producto cuyo nombre no
+// contuviese literalmente la referencia era invisible para el bot aunque
+// existiera en la tienda (fallo real de fiabilidad: "no lo tenemos" siendo
+// falso, que es exactamente lo que no nos podemos permitir).
+async function getAllNames(): Promise<Array<{ id: number; name: string; reference: string }>> {
   if (_nameCache && Date.now() - _nameCacheTs < NAME_CACHE_TTL) return _nameCache;
 
-  const url = buildUrl("products", { display: "[id,name]" });
+  const url = buildUrl("products", { display: "[id,name,reference,supplier_reference]" });
   try {
     const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
     if (!res.ok) return [];
@@ -157,6 +163,9 @@ async function getAllNames(): Promise<Array<{ id: number; name: string }>> {
     const list = (data?.products ?? []).map((p: any) => ({
       id: Number(p.id),
       name: plainText(p.name),
+      reference: [plainText(p.reference), plainText(p.supplier_reference)]
+        .filter(Boolean)
+        .join(" "),
     }));
     _nameCache = list;
     _nameCacheTs = Date.now();
@@ -471,7 +480,9 @@ export async function searchProducts(
     .filter((p) => {
       const nl = p.name.toLowerCase();
       const nn = nl.replace(/[\s\-\/\.]/g, "");
-      return nl.includes(qLow) || nn.includes(qNorm);
+      const rl = p.reference.toLowerCase();
+      const rn = rl.replace(/[\s\-\/\.]/g, "");
+      return nl.includes(qLow) || nn.includes(qNorm) || rl.includes(qLow) || rn.includes(qNorm);
     })
     .slice(0, 5);
 

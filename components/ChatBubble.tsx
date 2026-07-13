@@ -11,6 +11,8 @@ export interface ChatMessage {
   content: string;
   products?: Product[];
   needsHuman?: boolean;
+  /** Asunto sugerido para el e-mail de contacto (consulta concreta de la conversación). */
+  humanContext?: string;
 }
 
 interface ChatBubbleProps {
@@ -100,7 +102,9 @@ export default function ChatBubble({
         {!isUser && message.needsHuman && (supportPhone || supportEmail) && (
           <div className="mt-1.5 flex flex-wrap gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
             <p className="w-full text-xs font-medium text-amber-800">
-              ¿Prefieres hablar con un técnico de ESGAS?
+              {message.humanContext
+                ? "Resuélvelo en un momento con un técnico de ESGAS — el stock de tienda va aparte del de la página:"
+                : "¿Prefieres hablar con un técnico de ESGAS?"}
             </p>
             {supportPhone && (
               <a
@@ -112,10 +116,18 @@ export default function ChatBubble({
             )}
             {supportEmail && (
               <a
-                href={`mailto:${supportEmail}`}
+                href={
+                  message.humanContext
+                    ? `mailto:${supportEmail}?subject=${encodeURIComponent(
+                        `Consulta: ${message.humanContext}`
+                      )}&body=${encodeURIComponent(
+                        `Hola,\n\nOs escribo desde el chat de la página sobre: ${message.humanContext}.\n\n¿Me podéis confirmar disponibilidad y plazo?\n\nGracias.`
+                      )}`
+                    : `mailto:${supportEmail}`
+                }
                 className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-sm ring-1 ring-amber-300 transition hover:bg-amber-100"
               >
-                ✉️ {supportEmail}
+                ✉️ {message.humanContext ? "Enviar consulta por e-mail" : supportEmail}
               </a>
             )}
           </div>

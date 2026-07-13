@@ -90,4 +90,6 @@ export interface ChatResponse {
   products?: Product[];
   /** true si el agente no pudo confirmar un dato y ofrece escalar a un técnico humano. */
   needsHuman?: boolean;
+  /** Resumen en una línea de la consulta, para prellenar el asunto del e-mail de contacto. */
+  humanContext?: string;
 }

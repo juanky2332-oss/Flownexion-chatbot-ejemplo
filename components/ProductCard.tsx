@@ -79,8 +79,8 @@ export default function ProductCard({
           if (data?.error === "stock_insuficiente" && typeof data?.available === "number") {
             setAddError(
               data.available > 0
-                ? `Solo quedan ${data.available} uds disponibles en la página ahora mismo. Para pedir más, contacta por teléfono o e-mail (ver aviso del chat).`
-                : `Ya no quedan unidades disponibles en la página para este producto. Contacta por teléfono o e-mail para tramitar el pedido de forma ordinaria.`
+                ? `Solo quedan ${data.available} uds disponibles en la página ahora mismo. El stock de tienda va aparte — para pedir más, consúltalo por teléfono o e-mail (ver aviso del chat).`
+                : `Sin unidades disponibles en la página para este producto ahora mismo. El stock de tienda va aparte — consúltalo por teléfono o e-mail y te lo confirman al momento.`
             );
           } else {
             setAddError("No se pudo añadir al carrito. Por favor, inténtalo de nuevo.");
@@ -235,7 +235,7 @@ export default function ProductCard({
           mensaje que ya da el chat. */}
       {outOfStockForB2B && (
         <p className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800">
-          No podemos tramitar este producto por la página hasta que haya stock. Si lo necesitas ahora, pide un pedido ordinario por teléfono o e-mail.
+          Sin stock en la página ahora mismo — pero el stock de tienda va aparte: es muy posible que lo tengamos. Consúltalo por teléfono o e-mail y te lo confirman al momento.
         </p>
       )}
 

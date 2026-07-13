@@ -110,14 +110,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { output, products, needsHuman } = await runAgent(
+    const { output, products, needsHuman, humanContext } = await runAgent(
       message,
       history,
       cart,
       customerGroupId,
       customerId
     );
-    return NextResponse.json({ output, products, needsHuman }, { headers });
+    return NextResponse.json({ output, products, needsHuman, humanContext }, { headers });
   } catch (err) {
     // El detalle (clave de OpenAI ausente/inválida, sin cuota, etc.) es
     // información interna de infraestructura: se queda en los logs del

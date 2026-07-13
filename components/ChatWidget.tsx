@@ -28,7 +28,7 @@ const QUICK_CHIPS = [
   "¿Tenéis el 6205 LLU en stock?",
   "Necesito un rodamiento Ø25 mm interior",
   "¿Equivalente NTN al 6205-2RS1 de SKF?",
-  "¿Para qué sirve el rodamiento 32212?",
+  "Busco una correa trapezoidal A 1250",
 ];
 
 function uid() {
@@ -147,7 +147,7 @@ export default function ChatWidget({
           ...(!identityToken && customerId ? { customerId } : {}),
         }),
       });
-      const data: { output?: string; products?: Product[]; needsHuman?: boolean } = await res
+      const data: { output?: string; products?: Product[]; needsHuman?: boolean; humanContext?: string } = await res
         .json()
         .catch(() => ({}));
 
@@ -159,6 +159,7 @@ export default function ChatWidget({
           content: data.output ?? "Lo siento, no he podido procesar tu consulta. Inténtalo de nuevo.",
           products: data.products,
           needsHuman: data.needsHuman,
+          humanContext: data.humanContext,
         },
       ]);
     } catch {
