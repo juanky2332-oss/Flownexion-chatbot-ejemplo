@@ -143,7 +143,7 @@ export default function ChatBubble({
           <div className="mt-1.5 flex flex-wrap gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
             <p className="w-full text-xs font-medium text-amber-800">
               {message.humanContext
-                ? "Resuélvelo en un momento con un técnico de ESGAS — el stock de tienda va aparte del de la página:"
+                ? "Resuélvelo en un momento con un técnico de ESGAS:"
                 : "¿Prefieres hablar con un técnico de ESGAS?"}
             </p>
             {supportPhone && (

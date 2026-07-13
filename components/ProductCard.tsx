@@ -105,8 +105,8 @@ export default function ProductCard({
             setAddError({
               text:
                 data.available > 0
-                  ? `Solo quedan ${data.available} uds disponibles en la página ahora mismo. El stock de tienda va aparte — para pedir más, consúltalo por `
-                  : `Sin unidades disponibles en la página para este producto ahora mismo. El stock de tienda va aparte — consúltalo por `,
+                  ? `Solo quedan ${data.available} uds disponibles en la página ahora mismo. Para pedir más unidades, contacta por `
+                  : `Sin unidades disponibles en la página para este producto ahora mismo. Para pedirlo, contacta por `,
               contact: true,
             });
           } else {
@@ -262,7 +262,7 @@ export default function ProductCard({
           mensaje que ya da el chat. */}
       {outOfStockForB2B && (
         <p className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800">
-          Sin stock en la página ahora mismo — pero el stock de tienda va aparte: es muy posible que lo tengamos. Consúltalo por {contactLinks} y te lo confirman al momento.
+          Sin stock en la página ahora mismo. Para pedirlo, contacta por {contactLinks} y te lo gestionan al momento.
         </p>
       )}
 
@@ -332,7 +332,7 @@ export default function ProductCard({
       {addError && (
         <p className="mt-1.5 text-xs text-red-600">
           {addError.text}
-          {addError.contact && <>{contactLinks} y te lo confirman al momento.</>}
+          {addError.contact && <>{contactLinks} y te lo gestionan al momento.</>}
         </p>
       )}
     </div>
