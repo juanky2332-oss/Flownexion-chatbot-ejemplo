@@ -55,24 +55,67 @@ function loadPrecios(): PrecioRow[] {
 
 // ── Public API ──
 
+/**
+ * Busca TODAS las equivalencias NTN/SNR de una referencia de marca externa,
+ * agotando el documento completo (las 3 fuentes eq-*.json) en vez de
+ * pararse en la primera fila que encaja. Una misma referencia externa
+ * (p.ej. SKF 3309A) puede tener una fila de equivalencia en NTN y otra
+ * fila distinta en SNR — hay que devolver ambas, no solo la primera que
+ * aparezca en el fichero.
+ *
+ * 1ª pasada: coincidencia EXACTA del campo normalizado (evita que una
+ * búsqueda de "3309A" devuelva primero variantes tipo "3309A/C3" o
+ * "3309ATN9" y se coma el hueco antes de llegar a la fila exacta de la
+ * otra marca — ese era el bug real: "includes" + límite de 3 resultados
+ * dejaba fuera la equivalencia NTN cuando la SNR (u otra variante) salía
+ * antes en el fichero).
+ * 2ª pasada (solo si la exacta no encontró nada): coincidencia parcial,
+ * para no dejar al cliente sin respuesta si no dio la referencia exacta.
+ */
 export function findEquivalence(
   query: string
 ): { ref_buscada: string; ref_ntn_snr: string; marca: string }[] {
   const q = norm(query);
   if (!q || q.length < 3) return [];
-  const out: { ref_buscada: string; ref_ntn_snr: string; marca: string }[] = [];
+
+  const dedupe = (
+    rows: { ref_buscada: string; ref_ntn_snr: string; marca: string }[]
+  ) => {
+    const seen = new Set<string>();
+    const out: typeof rows = [];
+    for (const r of rows) {
+      const key = `${norm(r.marca)}::${norm(r.ref_ntn_snr)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(r);
+    }
+    return out;
+  };
+
+  const exact: { ref_buscada: string; ref_ntn_snr: string; marca: string }[] = [];
+  const partial: { ref_buscada: string; ref_ntn_snr: string; marca: string }[] = [];
+
   for (const row of loadEq()) {
     const [skf, fag, nsk, ref, marca] = row;
-    if (
-      (skf && norm(skf).includes(q)) ||
-      (fag && norm(fag).includes(q)) ||
-      (nsk && norm(nsk).includes(q))
-    ) {
-      out.push({ ref_buscada: query, ref_ntn_snr: ref, marca });
-      if (out.length >= 3) break;
+    if (!ref) continue;
+    const codes = [skf, fag, nsk].filter(Boolean).map(norm);
+    if (codes.some((c) => c === q)) {
+      exact.push({ ref_buscada: query, ref_ntn_snr: ref, marca });
+    } else if (codes.some((c) => c.includes(q))) {
+      partial.push({ ref_buscada: query, ref_ntn_snr: ref, marca });
     }
   }
-  return out;
+
+  // Prioridad de marca acordada con el cliente: NTN antes que SNR.
+  const byMarcaPriority = (
+    a: { marca: string },
+    b: { marca: string }
+  ) => (norm(a.marca) === "NTN" ? -1 : norm(b.marca) === "NTN" ? 1 : 0);
+
+  if (exact.length) return dedupe(exact).sort(byMarcaPriority);
+
+  // Sin coincidencia exacta: parcial, acotada para no devolver ruido.
+  return dedupe(partial).sort(byMarcaPriority).slice(0, 8);
 }
 
 export function findApplications(query: string): { referencia: string; info: string }[] {
