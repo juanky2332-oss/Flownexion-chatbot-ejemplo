@@ -156,6 +156,43 @@ function matchEqAgainst(q: string, originalQuery: string): { exact: EqMatch[]; p
   return { exact, partial };
 }
 
+/**
+ * Cruce interno NTN↔SNR: el cliente da directamente una referencia NTN o
+ * SNR y quiere la gemela de la otra marca. El documento no cruza NTN↔SNR
+ * en una misma fila, pero dos filas que comparten el mismo código externo
+ * (SKF/FAG/NSK) son la misma pieza en ambas marcas — se localizan las
+ * filas cuya columna ref coincide con el candidato y se devuelven todas
+ * las filas hermanas (incluida la propia, para que la respuesta muestre
+ * ambas referencias juntas).
+ */
+function matchSiblings(candidates: string[], originalQuery: string): EqMatch[] {
+  for (const c of candidates) {
+    const own = loadEq().filter((row) => norm(row[3]) === c);
+    if (!own.length) continue;
+    const extCodes = new Set<string>();
+    for (const row of own) {
+      for (const code of [row[0], row[1], row[2]]) {
+        if (code) extCodes.add(norm(code));
+      }
+    }
+    const out: EqMatch[] = own.map((row) => ({
+      ref_buscada: originalQuery,
+      ref_ntn_snr: row[3],
+      marca: row[4],
+    }));
+    if (extCodes.size) {
+      for (const row of loadEq()) {
+        const codes = [row[0], row[1], row[2]].filter(Boolean).map(norm);
+        if (codes.some((x) => extCodes.has(x))) {
+          out.push({ ref_buscada: originalQuery, ref_ntn_snr: row[3], marca: row[4] });
+        }
+      }
+    }
+    return dedupeEq(out).sort(byMarcaPriority);
+  }
+  return [];
+}
+
 export function findEquivalence(query: string): EqMatch[] {
   const candidates = extractQueryCandidates(query);
   if (!candidates.length) return [];
@@ -169,7 +206,12 @@ export function findEquivalence(query: string): EqMatch[] {
     if (exact.length) return dedupeEq(exact).sort(byMarcaPriority);
   }
 
-  // 2ª pasada — sin exacta en ningún candidato: parcial, acotada para no
+  // 2ª pasada — la referencia dada es directamente NTN/SNR: cruce interno
+  // a la marca gemela vía códigos externos compartidos.
+  const siblings = matchSiblings(candidates, query);
+  if (siblings.length) return siblings;
+
+  // 3ª pasada — sin exacta en ningún candidato: parcial, acotada para no
   // devolver ruido, probando también cada candidato de más a menos específico.
   for (const c of candidates) {
     const { partial } = matchEqAgainst(c, query);
@@ -195,7 +237,10 @@ export function findExactEquivalence(query: string): EqMatch[] {
     const { exact } = matchEqAgainst(c, query);
     if (exact.length) return dedupeEq(exact).sort(byMarcaPriority);
   }
-  return [];
+  // El cruce interno NTN↔SNR también es exacto e inequívoco (coincidencia
+  // exacta de la columna ref + códigos externos compartidos), así que vale
+  // igualmente como dato verificado para la pre-inyección.
+  return matchSiblings(candidates, query);
 }
 
 // ── Ficha técnica local (Informacion tecnica NTN.xlsx → tech-*.json) ──
