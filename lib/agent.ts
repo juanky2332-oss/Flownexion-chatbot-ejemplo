@@ -10,7 +10,14 @@ import { findEquivalence, findExactEquivalence, findApplications } from "./kb";
 import { searchOfficialSource } from "./websearch";
 
 const MODEL = "gpt-4o";
-const TEMPERATURE = 0.2;
+// Bajada de 0.2 a 0 tras detectar en pruebas reales que, con la misma
+// pregunta exacta del cliente y el mismo dato ya verificado en el
+// contexto, el modelo a veces daba la respuesta correcta completa y otras
+// veces la sustituía por un escalado sin datos — varianza de muestreo en
+// un punto de decisión (¿contesto o escalo?) que no debería ser aleatorio
+// en un asistente técnico/factual. 0 no elimina la variabilidad del
+// tool-calling al 100%, pero la reduce todo lo posible.
+const TEMPERATURE = 0;
 const MAX_TOKENS = 1500;
 const MAX_TURNS = 10;
 
@@ -732,7 +739,10 @@ export async function runAgent(
         `técnicas si las tienes) — el dato de equivalencia es válido y útil aunque no esté a la venta ahora ` +
         `mismo en la página. PROHIBIDO responder solo con un mensaje de escalado tipo "he pasado tu consulta ` +
         `a un técnico" en vez de dar el dato — eso es no responder a la pregunta que el cliente sí hizo. Si ` +
-        `además no está en catálogo, añade la nota de contacto al FINAL, como algo aparte, nunca como sustituto.`,
+        `además no está en catálogo, añade la nota de contacto al FINAL, como algo aparte, nunca como sustituto. ` +
+        `Tu respuesta tiene PROHIBIDO empezar con "he pasado tu consulta", "te paso con un técnico", "he ` +
+        `escalado tu consulta" o cualquier variante — la primera frase de tu respuesta tiene que ser el dato ` +
+        `de equivalencia en sí (formato del punto 2 de EQUIVALENCIAS DE MARCA), no el escalado.`,
     });
   }
 
