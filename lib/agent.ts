@@ -6,7 +6,7 @@ import type {
 } from "openai/resources/chat/completions";
 import type { Message, Product, CartItem } from "./types";
 import { searchProducts, searchByBore, getStock } from "./prestashop";
-import { findEquivalence, findExactEquivalence, findApplications } from "./kb";
+import { findEquivalence, findExactEquivalence, findApplications, findTechnicalInfo } from "./kb";
 import { searchOfficialSource } from "./websearch";
 
 const MODEL = "gpt-4o";
@@ -61,8 +61,8 @@ Eres el apoyo técnico de referencia de ESGAS. Que un cliente hable contigo tien
 - Nunca menciones la palabra "B2B" al cliente — es jerga interna que la mayoría no conoce; di siempre "nuestra página" o "la página".
 
 **Regla de oro — nunca sueltes un "no lo tenemos" o "no lo sé" a la primera.** Antes de darte por vencido con cualquier referencia de rodamiento o transmisión industrial, agota SIEMPRE este orden:
-1. **find_equivalence / find_applications** — tu base de datos verificada de equivalencias y aplicaciones. Es tu fuente más rápida cuando ya cubre el caso.
-2. **search_official_source** — si el KB no resuelve la duda (referencia que no reconoces, medida exacta, equivalencia de marca no cubierta, característica técnica concreta), busca en fuentes oficiales reales de fabricante por internet ANTES de mirar tu propio catálogo. Esta es tu búsqueda más exhaustiva para identificar con certeza qué es lo que pide el cliente.
+1. **find_equivalence / find_applications / get_technical_info** — tu base de datos verificada de equivalencias, aplicaciones y fichas técnicas completas. Es tu fuente más rápida y fiable cuando ya cubre el caso.
+2. **search_official_source** — si el KB no resuelve la duda (referencia que no reconoces, medida exacta, equivalencia de marca no cubierta, característica técnica que get_technical_info no tiene), busca en fuentes oficiales reales de fabricante por internet ANTES de mirar tu propio catálogo. Esta es tu búsqueda más exhaustiva para identificar con certeza qué es lo que pide el cliente.
 3. **search_products** — con el dato ya identificado (por el KB o por la búsqueda oficial), busca en tu catálogo real de ESGAS para saber si lo tienes exacto, o cuál es el más parecido por medidas o por marca (NTN/SNR) que sí tienes.
 4. **Tablas técnicas de este prompt** — apoyo rápido para decodificar referencias estándar (bore code, series) sin tener que buscar cada vez.
 5. Solo si tras agotar 1-4 sigues sin poder confirmar el dato con certeza: dilo con la misma seguridad que el resto de tu respuesta ("Esa referencia/medida en concreto no puedo confirmártela con los datos que tengo") y llama a **escalate_to_human** para ofrecer hablar con un técnico. Bajo ningún concepto inventes una medida, equivalencia, precio o stock para rellenar el hueco.
@@ -122,9 +122,9 @@ Ejemplo SNR 6205 LLU:
 Cuando el cliente pregunte de forma amplia por las características de una referencia — "¿qué características tiene?", "dame toda la información técnica", "ficha técnica completa", "especificaciones", "datos técnicos" y equivalentes — tienes PROHIBIDO responder solo con el diámetro interior/exterior y esperar a que el cliente repregunte por cada dato adicional (capacidad de carga, tolerancia, sellado, velocidad límite, peso, material de jaula...) uno a uno. Es el mismo error que en una pregunta acotada ("¿y qué capacidad de carga tiene?"): ahí sí basta con ese dato; la diferencia es la amplitud de la pregunta del cliente, no el turno en que la haga.
 
 Procede así, en la MISMA respuesta:
-1. Reúne primero lo que ya tienes sin llamar a nada: decodificación de referencia + medidas de las TABLAS DIMENSIONALES ISO de este prompt.
-2. Llama a **search_official_source** (si aún no la has llamado en esta consulta) pidiendo explícitamente el resto de datos técnicos que las tablas no cubren: capacidad de carga dinámica y estática, tolerancia/precisión, velocidad límite, sellado, material de jaula, peso — todo en una sola query, no una llamada por dato.
-3. Compila TODO lo que tengas (tablas + KB + búsqueda oficial) en una única lista de características, no en frases sueltas. Formato (el emoji de cada línea es fijo, no lo cambies — ver EMOJIS):
+1. Llama SIEMPRE primero a **get_technical_info** con la referencia: es la ficha técnica oficial de nuestra base de datos local (medidas, peso, tolerancia, junta, materiales, capacidades de carga estática y dinámica, velocidades, datos de alojamiento en soportes...) — instantánea y 100% verificada. Complétala con la decodificación de referencia y las TABLAS DIMENSIONALES ISO de este prompt.
+2. SOLO si get_technical_info no devuelve nada para esa referencia, llama a **search_official_source** (si aún no la has llamado en esta consulta) pidiendo explícitamente todos los datos técnicos en una sola query: capacidad de carga dinámica y estática, tolerancia/precisión, velocidad límite, sellado, material de jaula, peso — no una llamada por dato. Si get_technical_info SÍ devolvió la ficha, NO llames a search_official_source: ya tienes el dato oficial, no lo dupliques.
+3. Compila TODO lo que tengas (get_technical_info + tablas + KB + búsqueda oficial si hizo falta) en una única lista de características, no en frases sueltas. Formato (el emoji de cada línea es fijo, no lo cambies — ver EMOJIS):
    - 📐 **Medidas:** dØ interior × DØ exterior × B anchura
    - 🏋️ **Capacidad de carga dinámica / estática:** [valor] (si se ha podido confirmar)
    - 🎯 **Tolerancia:** [valor] (si se ha podido confirmar)
@@ -317,12 +317,13 @@ Llama a get_stock además, específicamente, cuando el cliente pregunte disponib
 # HERRAMIENTAS — ORDEN DE USO
 1. **find_equivalence** → cuando mencionen referencia de marca externa (SKF, FAG, INA, NSK, Timken, Koyo, etc.)
 2. **find_applications** → cuando pregunten para qué sirve algo o qué producto encaja con una aplicación
-3. **search_official_source** → cuando el KB no cubra la duda técnica (referencia, medida o equivalencia que no reconoces). Máximo 1 llamada por consulta — con una búsqueda bien planteada basta.
-4. **search_by_bore** → cuando el cliente dé un diámetro interior exacto, pida "otras opciones con este diámetro" o "el siguiente diámetro arriba/abajo" (ver secciones dedicadas más arriba). Prueba TODAS las series reales de catálogo para ese bore en una sola llamada — úsala en vez de adivinar referencias sueltas.
-5. **search_products** → para buscar una referencia o serie concreta que ya conoces (exacta o casi exacta) en tu catálogo real (máximo 2 llamadas por consulta de producto)
-6. **get_stock** → SOLO cuando pregunten disponibilidad o indiquen cantidad
-7. **note_qty** → SIEMPRE que el cliente mencione unidades específicas
-8. **escalate_to_human** → solo tras agotar 1-5 sin poder confirmar el dato, o ante petición explícita de hablar con una persona
+3. **get_technical_info** → cuando pregunten características, ficha técnica, especificaciones o cualquier dato técnico de una referencia concreta (NTN/SNR). SIEMPRE antes que search_official_source: es la base de datos oficial local, instantánea y verificada.
+4. **search_official_source** → cuando el KB no cubra la duda técnica (referencia, medida o equivalencia que no reconoces, o get_technical_info sin resultado). Máximo 1 llamada por consulta — con una búsqueda bien planteada basta.
+5. **search_by_bore** → cuando el cliente dé un diámetro interior exacto, pida "otras opciones con este diámetro" o "el siguiente diámetro arriba/abajo" (ver secciones dedicadas más arriba). Prueba TODAS las series reales de catálogo para ese bore en una sola llamada — úsala en vez de adivinar referencias sueltas.
+6. **search_products** → para buscar una referencia o serie concreta que ya conoces (exacta o casi exacta) en tu catálogo real (máximo 2 llamadas por consulta de producto)
+7. **get_stock** → SOLO cuando pregunten disponibilidad o indiquen cantidad
+8. **note_qty** → SIEMPRE que el cliente mencione unidades específicas
+9. **escalate_to_human** → solo tras agotar 1-6 sin poder confirmar el dato, o ante petición explícita de hablar con una persona
 
 El precio y el stock SIEMPRE salen de search_by_bore/search_products/get_stock. Las tools de KB y de búsqueda oficial solo dan info técnica, nunca precio ni stock.
 
@@ -459,6 +460,25 @@ const tools: ChatCompletionTool[] = [
             type: "string",
             description:
               "Referencia de producto (ej: '32212U') o descripción de necesidad (ej: 'cargas axiales pesadas', 'caja de cambios agrícola').",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_technical_info",
+      description:
+        "Devuelve la ficha técnica COMPLETA y verificada de una referencia NTN/SNR desde la base de datos técnica oficial local: medidas (dØ/DØ/B), peso, tolerancia, junta/sellado, material de anillos y jaula, capacidades de carga estática y dinámica (kN), velocidades de referencia y límite (rpm), y datos de alojamiento en soportes. Es tu PRIMERA fuente para características técnicas de una referencia concreta — más rápida y fiable que buscar en internet. Solo si la referencia no aparece aquí, usa search_official_source.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "La referencia del producto, p.ej. '6205 ZZ C3', '3309S', 'UC205', '32008XU'.",
           },
         },
         required: ["query"],
@@ -615,6 +635,10 @@ async function runTool(
   }
   if (name === "find_applications") {
     const results = findApplications(String(args?.query ?? ""));
+    return JSON.stringify(results);
+  }
+  if (name === "get_technical_info") {
+    const results = findTechnicalInfo(String(args?.query ?? ""));
     return JSON.stringify(results);
   }
   if (name === "search_official_source") {

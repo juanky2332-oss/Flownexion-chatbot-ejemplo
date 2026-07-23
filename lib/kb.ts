@@ -30,7 +30,15 @@ const QUERY_NOISE =
 
 function extractQueryCandidates(rawQuery: string): string[] {
   const cleaned = String(rawQuery ?? "").replace(QUERY_NOISE, " ");
-  const rawTokens = cleaned.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+  // Recortar signos de puntuación pegados en los bordes de cada token
+  // ("6205?", "¿6205", "(6205)", "6205."): una pregunta que TERMINA en la
+  // referencia deja el "?" pegado y rompía el match exacto y el de prefijo.
+  // Solo en los bordes — el interior se conserva porque hay referencias
+  // reales con "-", "/" y "." dentro (UC205-100D1, 8Q-K95X102X20.8X3).
+  const rawTokens = cleaned
+    .split(/\s+/)
+    .map((t) => t.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, ""))
+    .filter(Boolean);
   const candidates = new Set<string>();
 
   const joined = norm(cleaned);
@@ -40,8 +48,16 @@ function extractQueryCandidates(rawQuery: string): string[] {
     const tok = norm(rawTokens[i]);
     if (!tok || !/\d/.test(tok)) continue;
     candidates.add(tok);
-    const next = rawTokens[i + 1] ? norm(rawTokens[i + 1]) : "";
-    if (next && next.length <= 4) candidates.add(tok + next);
+    // Fusión encadenada de sufijos cortos pegados a la referencia base:
+    // "6205 ZZ C3" → "6205ZZ" y también "6205ZZC3" (los sufijos de
+    // rodamiento van a menudo en tokens separados y hay más de uno).
+    let acc = tok;
+    for (let j = i + 1; j < rawTokens.length; j++) {
+      const next = norm(rawTokens[j]);
+      if (!next || next.length > 4) break;
+      acc += next;
+      candidates.add(acc);
+    }
   }
 
   // Candidatos más específicos (más largos) primero.
@@ -178,6 +194,115 @@ export function findExactEquivalence(query: string): EqMatch[] {
   for (const c of candidates) {
     const { exact } = matchEqAgainst(c, query);
     if (exact.length) return dedupeEq(exact).sort(byMarcaPriority);
+  }
+  return [];
+}
+
+// ── Ficha técnica local (Informacion tecnica NTN.xlsx → tech-*.json) ──
+
+type TechRow = [string, string, string, Record<string, string | number>];
+
+// Claves cortas del JSON compacto → etiqueta legible que se le da al modelo.
+// Debe ir en sincronía con TECH_COLS de scripts/build-kb.ts.
+const TECH_LABELS: Record<string, string> = {
+  clase: "Clase de producto",
+  clase2: "Tipo",
+  di: "Diámetro interior dØ (mm)",
+  de: "Diámetro exterior DØ (mm)",
+  an: "Ancho B (mm)",
+  peso: "Peso (g)",
+  anext: "Ancho del anillo exterior (mm)",
+  ang: "Ángulo de contacto (°)",
+  sist: "Sistema de medida",
+  tol: "Tolerancia",
+  toldesc: "Descripción de la tolerancia",
+  junta: "Junta",
+  juntadesc: "Descripción de la junta",
+  matani: "Material de los anillos",
+  serie: "Serie",
+  matjaula: "Material de la jaula",
+  aguj: "Tipo de agujero",
+  brida: "Brida en anillo exterior",
+  anillo: "Anillo elástico en anillo exterior",
+  hileras: "Número de hileras",
+  tipoej: "Tipo de ejecución (L=libre, F=fijo)",
+  aloj: "Diseño del alojamiento",
+  nfij: "Número de agujeros de fijación",
+  fijeje: "Tipo de fijación al eje",
+  reengr: "Reengrasable",
+  laloj: "Longitud del alojamiento (mm)",
+  haloj: "Altura del alojamiento (mm)",
+  waloj: "Anchura del alojamiento (mm)",
+  dmont: "Distancia de los agujeros de montaje (mm)",
+  dbase: "Distancia de la base de montaje al eje central (mm)",
+  mataloj: "Material del alojamiento",
+  rosca: "Rosca",
+  cest: "Capacidad de carga estática (kN)",
+  cdin: "Capacidad de carga dinámica (kN)",
+  vref: "Velocidad de referencia (rpm)",
+  vlim: "Velocidad límite (rpm)",
+  iso: "Criterio dimensional",
+};
+
+interface TechEntry {
+  marca: string;
+  ref: string;
+  refNorm: string;
+  ean: string;
+  campos: Record<string, string | number>;
+}
+
+let _tech: TechEntry[] | null = null;
+
+function loadTech(): TechEntry[] {
+  if (_tech !== null) return _tech;
+  _tech = [];
+  for (let i = 1; i <= 20; i++) {
+    const chunk = loadJson<TechRow>(`data/kb/tech-${i}.json`);
+    if (!chunk.length) break;
+    for (const [marca, ref, ean, campos] of chunk) {
+      _tech.push({ marca, ref, refNorm: norm(ref), ean, campos });
+    }
+  }
+  return _tech;
+}
+
+export interface TechInfo {
+  marca: string;
+  referencia: string;
+  ean: string;
+  datos: Record<string, string | number>;
+}
+
+function labelTech(row: TechEntry): TechInfo {
+  const datos: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(row.campos)) {
+    datos[TECH_LABELS[k] ?? k] = v;
+  }
+  return { marca: row.marca, referencia: row.ref, ean: row.ean, datos };
+}
+
+/**
+ * Ficha técnica completa de una referencia desde el documento oficial del
+ * cliente (Informacion tecnica NTN.xlsx). Mismo tratamiento de query que
+ * findEquivalence: el modelo manda lenguaje natural con ruido, así que se
+ * extraen candidatos de referencia y se prueban de más a menos específico.
+ * Exacta primero; si no hay, por prefijo (el cliente suele omitir sufijos:
+ * "6205" debe encontrar 6205ZZ, 6205LLU...) acotada para no inundar.
+ */
+export function findTechnicalInfo(query: string): TechInfo[] {
+  const candidates = extractQueryCandidates(query);
+  if (!candidates.length) return [];
+  const data = loadTech();
+
+  for (const c of candidates) {
+    const exact = data.filter((r) => r.refNorm === c);
+    if (exact.length) return exact.slice(0, 4).map(labelTech);
+  }
+  for (const c of candidates) {
+    if (c.length < 4) continue;
+    const pref = data.filter((r) => r.refNorm.startsWith(c));
+    if (pref.length) return pref.slice(0, 5).map(labelTech);
   }
   return [];
 }
