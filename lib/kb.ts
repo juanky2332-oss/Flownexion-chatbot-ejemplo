@@ -163,6 +163,25 @@ export function findEquivalence(query: string): EqMatch[] {
   return [];
 }
 
+/**
+ * Variante SOLO exacta de findEquivalence, pensada para el pre-chequeo
+ * automático de agent.ts (ver AUTODETECCIÓN DE EQUIVALENCIA): se ejecuta
+ * sobre el mensaje entero del cliente, en bruto, ANTES de llamar al modelo
+ * — no puede depender del fallback parcial (que ya es "acotado pero
+ * ruidoso" a propósito para cuando el cliente pide explícitamente una
+ * equivalencia) porque aquí NO sabemos todavía si el mensaje es realmente
+ * sobre equivalencias; solo un acierto exacto e inequívoco es lo bastante
+ * fiable para inyectarse como dato verificado sin que el modelo lo pida.
+ */
+export function findExactEquivalence(query: string): EqMatch[] {
+  const candidates = extractQueryCandidates(query);
+  for (const c of candidates) {
+    const { exact } = matchEqAgainst(c, query);
+    if (exact.length) return dedupeEq(exact).sort(byMarcaPriority);
+  }
+  return [];
+}
+
 export function findApplications(query: string): { referencia: string; info: string }[] {
   const q = norm(query);
   if (!q || q.length < 3) return [];

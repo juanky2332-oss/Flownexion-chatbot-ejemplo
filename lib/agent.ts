@@ -6,7 +6,7 @@ import type {
 } from "openai/resources/chat/completions";
 import type { Message, Product, CartItem } from "./types";
 import { searchProducts, searchByBore, getStock } from "./prestashop";
-import { findEquivalence, findApplications } from "./kb";
+import { findEquivalence, findExactEquivalence, findApplications } from "./kb";
 import { searchOfficialSource } from "./websearch";
 
 const MODEL = "gpt-4o";
@@ -320,7 +320,9 @@ Llama a get_stock además, específicamente, cuando el cliente pregunte disponib
 El precio y el stock SIEMPRE salen de search_by_bore/search_products/get_stock. Las tools de KB y de búsqueda oficial solo dan info técnica, nunca precio ni stock.
 
 # EQUIVALENCIAS DE MARCA
-Cuando el cliente mencione SKF, FAG, INA, NSK, Timken, Koyo u otra marca externa:
+**Si ves un mensaje de sistema "🔒 DATO VERIFICADO DEL KB — EQUIVALENCIA CONFIRMADA" en la conversación, esa es la respuesta ya resuelta para la consulta actual — es prioridad máxima, por encima de cualquier otra duda sobre qué hacer. Preséntala directamente (todas las filas que traiga, no solo la primera) y sigue con search_products, SIN escalar a un técnico y SIN decir "no disponemos" de entrada.** Ese bloque se genera automáticamente en código a partir del mensaje del cliente, así que está siempre disponible cuando el KB tiene un acierto exacto, aunque tú decidieras no llamar a find_equivalence.
+
+Cuando el cliente mencione SKF, FAG, INA, NSK, Timken, Koyo u otra marca externa (y no haya aparecido ya el bloque anterior):
 1. Llama SIEMPRE a find_equivalence con la referencia del cliente.
 2. **find_equivalence ya agota todo el documento y te devuelve TODAS las equivalencias encontradas, no solo la primera** — una misma referencia externa puede tener equivalencia en NTN Y en SNR a la vez (filas distintas). Si el resultado trae más de una fila, menciona TODAS, no solo la primera: "🔁 No disponemos de ese rodamiento [de [marca]], pero podemos ofrecerte el equivalente **[ref_ntn_snr_1]** de **[marca_1]**[, y también el **[ref_ntn_snr_2]** de **[marca_2]**], totalmente equivalentes y compatibles." → busca inmediatamente con search_products la(s) referencia(s) NTN/SNR para mostrar ficha y precio (si hay más de una marca, prioriza NTN para la ficha completa y menciona la de SNR como alternativa disponible también).
 3. **Si find_equivalence no tiene nada, NO te rindas ni pases directamente a "no disponemos" — el KB local es solo un volcado parcial, no el límite de lo que puedes confirmar.** Llama a **search_official_source** pidiendo explícitamente la equivalencia OFICIAL, no solo medidas: consulta la herramienta oficial de intercambiabilidad de NTN-SNR (ntn-snr.com/equivalences y el buscador de equivalencias/sufijos de eshop.ntn-snr.com — ya están dentro de los dominios prioritarios de la tool) para encontrar el cruce real y publicado por el fabricante entre la referencia de la marca externa y su equivalente NTN o SNR. Formula la query así de concreta: "equivalencia oficial NTN SNR para [referencia de marca externa]". Si la fuente oficial confirma una referencia NTN/SNR concreta, trátala exactamente igual que un acierto de find_equivalence (mismo formato de respuesta, misma prioridad NTN>SNR, búsqueda inmediata en search_products) — **esto SÍ cuenta como equivalencia real, no como aproximación**, porque viene de la propia herramienta de intercambiabilidad del fabricante, no de tu memoria ni de una suposición.
@@ -689,6 +691,42 @@ export async function runAgent(
     ),
     { role: "user", content: message },
   ];
+
+  // AUTODETECCIÓN DE EQUIVALENCIA — no confiar solo en que el modelo decida
+  // llamar a find_equivalence: en pruebas reales, según cómo formule el
+  // cliente la pregunta ("puedes decirme qué equivalencia hay para el 3309
+  // A de SKF..." vs "equivalencia SKF 3309A en NTN y SNR"), el modelo a
+  // veces no la llama y escala directamente sin buscar nada. Se hace la
+  // misma búsqueda EXACTA aquí, en código, sobre el mensaje en bruto, y si
+  // hay acierto se inyecta como dato ya verificado — así la respuesta
+  // correcta no depende de que esa llamada a la tool se dispare o no.
+  //
+  // Guardado tras la marca/palabra de equivalencia explícita: sin este
+  // filtro, un mensaje normal de pedido ("necesito 25 unidades del 6205")
+  // dispara igualmente el match porque el 6205 es un código ISO estándar
+  // que también aparece como columna "skf" en el KB (mismo número en NTN
+  // y en SKF) — inyectaría equivalencias en una conversación que no las
+  // pedía. Solo se activa si el cliente menciona una marca externa o la
+  // palabra "equivalen(cia/te)" explícitamente, igual que el disparador ya
+  // usado en EQUIVALENCIAS DE MARCA.
+  const EQUIVALENCE_INTENT =
+    /\b(SKF|FAG|INA|NSK|TIMKEN|KOYO|NACHI|ZKL|NKE|EQUIVALEN\w*|OTRA MARCA|COMPATIBLE)\b/i;
+  const preDetectedEquivalence = EQUIVALENCE_INTENT.test(message)
+    ? findExactEquivalence(message)
+    : [];
+  if (preDetectedEquivalence.length) {
+    const lines = preDetectedEquivalence
+      .map((r) => `- ${r.marca}: ${r.ref_ntn_snr}`)
+      .join("\n");
+    messages.push({
+      role: "system",
+      content:
+        `🔒 DATO VERIFICADO DEL KB — EQUIVALENCIA CONFIRMADA para la consulta actual del cliente:\n${lines}\n` +
+        `Esta es la respuesta ya confirmada por find_equivalence — no hace falta volver a llamarla. ` +
+        `Menciona TODAS las filas de arriba (una por marca), nunca solo la primera, siguiendo el formato ` +
+        `de EQUIVALENCIAS DE MARCA, y busca cada referencia con search_products en esta misma respuesta.`,
+    });
+  }
 
   for (let i = 0; i < 6; i++) {
     const completion = await openai.chat.completions.create({
