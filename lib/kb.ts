@@ -15,6 +15,39 @@ function norm(s: unknown): string {
   return String(s ?? "").trim().toUpperCase().replace(/\s+/g, "");
 }
 
+// El cliente pregunta en lenguaje natural y a menudo con la marca pegada a
+// la referencia ("el 3309 A de SKF", "SKF 3309A") — pero las columnas del
+// KB solo contienen el código puro ("3309A", nunca "SKF 3309A" ni frases).
+// Bug real detectado en producción: "¿me dices qué equivalencia hay para
+// el 3309 A de SKF en NTN o SNR?" devolvía 0 resultados aunque el KB tiene
+// ambas filas — el ruido de idioma se colaba en la comparación y rompía
+// tanto el match exacto como el parcial. Se extraen candidatos de
+// referencia real (tokens con dígitos, más su fusión con un sufijo corto
+// pegado como "3309"+"A") en vez de depender de que el modelo mande la
+// query ya limpia.
+const QUERY_NOISE =
+  /\b(SKF|FAG|INA|NSK|TIMKEN|KOYO|NACHI|ZKL|NKE|NTN|SNR|MARCA|REFERENCIA|REF|RODAMIENTO|RODAMIENTOS|EQUIVALENCIA|EQUIVALENTE|DE|DEL|EN|EL|LA|UN|UNA|Y|O|QUE|HAY|PARA|PUEDES|DECIRME|DIME|DIGA|DIGAME|CUAL|CUALES|TIENES|TIENE|TENEIS)\b/gi;
+
+function extractQueryCandidates(rawQuery: string): string[] {
+  const cleaned = String(rawQuery ?? "").replace(QUERY_NOISE, " ");
+  const rawTokens = cleaned.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+  const candidates = new Set<string>();
+
+  const joined = norm(cleaned);
+  if (joined) candidates.add(joined);
+
+  for (let i = 0; i < rawTokens.length; i++) {
+    const tok = norm(rawTokens[i]);
+    if (!tok || !/\d/.test(tok)) continue;
+    candidates.add(tok);
+    const next = rawTokens[i + 1] ? norm(rawTokens[i + 1]) : "";
+    if (next && next.length <= 4) candidates.add(tok + next);
+  }
+
+  // Candidatos más específicos (más largos) primero.
+  return [...candidates].filter((c) => c.length >= 3).sort((a, b) => b.length - a.length);
+}
+
 function loadJson<T>(rel: string): T[] {
   try {
     return JSON.parse(readFileSync(join(process.cwd(), rel), "utf-8")) as T[];
@@ -72,50 +105,62 @@ function loadPrecios(): PrecioRow[] {
  * 2ª pasada (solo si la exacta no encontró nada): coincidencia parcial,
  * para no dejar al cliente sin respuesta si no dio la referencia exacta.
  */
-export function findEquivalence(
-  query: string
-): { ref_buscada: string; ref_ntn_snr: string; marca: string }[] {
-  const q = norm(query);
-  if (!q || q.length < 3) return [];
+type EqMatch = { ref_buscada: string; ref_ntn_snr: string; marca: string };
 
-  const dedupe = (
-    rows: { ref_buscada: string; ref_ntn_snr: string; marca: string }[]
-  ) => {
-    const seen = new Set<string>();
-    const out: typeof rows = [];
-    for (const r of rows) {
-      const key = `${norm(r.marca)}::${norm(r.ref_ntn_snr)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(r);
-    }
-    return out;
-  };
+function dedupeEq(rows: EqMatch[]): EqMatch[] {
+  const seen = new Set<string>();
+  const out: EqMatch[] = [];
+  for (const r of rows) {
+    const key = `${norm(r.marca)}::${norm(r.ref_ntn_snr)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
 
-  const exact: { ref_buscada: string; ref_ntn_snr: string; marca: string }[] = [];
-  const partial: { ref_buscada: string; ref_ntn_snr: string; marca: string }[] = [];
+// Prioridad de marca acordada con el cliente: NTN antes que SNR.
+function byMarcaPriority(a: { marca: string }, b: { marca: string }): number {
+  return norm(a.marca) === "NTN" ? -1 : norm(b.marca) === "NTN" ? 1 : 0;
+}
 
+function matchEqAgainst(q: string, originalQuery: string): { exact: EqMatch[]; partial: EqMatch[] } {
+  const exact: EqMatch[] = [];
+  const partial: EqMatch[] = [];
   for (const row of loadEq()) {
     const [skf, fag, nsk, ref, marca] = row;
     if (!ref) continue;
     const codes = [skf, fag, nsk].filter(Boolean).map(norm);
     if (codes.some((c) => c === q)) {
-      exact.push({ ref_buscada: query, ref_ntn_snr: ref, marca });
+      exact.push({ ref_buscada: originalQuery, ref_ntn_snr: ref, marca });
     } else if (codes.some((c) => c.includes(q))) {
-      partial.push({ ref_buscada: query, ref_ntn_snr: ref, marca });
+      partial.push({ ref_buscada: originalQuery, ref_ntn_snr: ref, marca });
     }
   }
+  return { exact, partial };
+}
 
-  // Prioridad de marca acordada con el cliente: NTN antes que SNR.
-  const byMarcaPriority = (
-    a: { marca: string },
-    b: { marca: string }
-  ) => (norm(a.marca) === "NTN" ? -1 : norm(b.marca) === "NTN" ? 1 : 0);
+export function findEquivalence(query: string): EqMatch[] {
+  const candidates = extractQueryCandidates(query);
+  if (!candidates.length) return [];
 
-  if (exact.length) return dedupe(exact).sort(byMarcaPriority);
+  // 1ª pasada — coincidencia EXACTA: prueba cada candidato (más específico
+  // primero) y se queda con el primero que dé resultado, para no mezclar
+  // el acierto exacto de una referencia real con el ruido de otro candidato
+  // más corto y menos específico.
+  for (const c of candidates) {
+    const { exact } = matchEqAgainst(c, query);
+    if (exact.length) return dedupeEq(exact).sort(byMarcaPriority);
+  }
 
-  // Sin coincidencia exacta: parcial, acotada para no devolver ruido.
-  return dedupe(partial).sort(byMarcaPriority).slice(0, 8);
+  // 2ª pasada — sin exacta en ningún candidato: parcial, acotada para no
+  // devolver ruido, probando también cada candidato de más a menos específico.
+  for (const c of candidates) {
+    const { partial } = matchEqAgainst(c, query);
+    if (partial.length) return dedupeEq(partial).sort(byMarcaPriority).slice(0, 8);
+  }
+
+  return [];
 }
 
 export function findApplications(query: string): { referencia: string; info: string }[] {
