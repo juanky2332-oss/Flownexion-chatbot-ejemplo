@@ -13,6 +13,18 @@ const OFFICIAL_DOMAINS = [
   "bondioli-pavesi.com",
 ];
 
+// Herramienta oficial de intercambiabilidad de NTN-SNR: permite introducir la
+// referencia de un competidor (SKF, FAG, NSK, Timken, Koyo...) y devuelve la
+// referencia NTN/SNR equivalente publicada por el propio fabricante. Es la
+// fuente que hay que agotar ANTES de aproximar por medidas cuando el KB local
+// (find_equivalence) no tiene la referencia — el cliente pidió expresamente
+// que las equivalencias que faltan en el KB se busquen ahí, no que se
+// inventen ni se saquen de agregadores de terceros sin verificar.
+const NTN_SNR_INTERCHANGE_TOOLS = [
+  "https://www.ntn-snr.com/equivalences",
+  "https://eshop.ntn-snr.com/en/Equivalences-Suffix-Prefix-3964225.html",
+];
+
 interface UrlCitation {
   type: "url_citation";
   url_citation: { url: string; title?: string };
@@ -38,12 +50,21 @@ export async function searchOfficialSource(query: string): Promise<string> {
             `Busca información técnica verificable (medidas, equivalencias entre marcas, ` +
             `aplicaciones, tolerancias, características) sobre: "${q}". ` +
             `Prioriza SIEMPRE estas fuentes oficiales de fabricante si tienen el dato: ` +
-            `${OFFICIAL_DOMAINS.join(", ")}. Si no está ahí, busca en otras fuentes técnicas ` +
-            `del sector de rodamientos/transmisión industrial reconocidas (catálogos de ` +
-            `fabricantes, normativa ISO/DIN). Devuelve SOLO datos que aparezcan literalmente ` +
-            `en las páginas encontradas, de forma breve y concreta. Si no encuentras nada ` +
-            `fiable, responde exactamente: "No he encontrado ese dato en fuentes fiables." ` +
-            `No inventes ni completes con suposiciones.`,
+            `${OFFICIAL_DOMAINS.join(", ")}. ` +
+            `Si la consulta es sobre una EQUIVALENCIA o referencia cruzada entre marcas ` +
+            `(p.ej. "equivalencia oficial NTN SNR para SKF 3309A"), usa específicamente la ` +
+            `herramienta oficial de intercambiabilidad de NTN-SNR: ${NTN_SNR_INTERCHANGE_TOOLS.join(" o ")}. ` +
+            `Introduce mentalmente la referencia de la marca externa en esa herramienta y ` +
+            `devuelve la referencia NTN o SNR equivalente que publique — para equivalencias, ` +
+            `NO uses agregadores de terceros no oficiales (cross-reference genéricos, foros, ` +
+            `tiendas de recambios) como fuente de la equivalencia en sí, aunque aparezcan en ` +
+            `la búsqueda; solo sirven como pista para saber qué buscar, nunca como fuente ` +
+            `citable de un dato de equivalencia. Para otros datos técnicos (medidas, ` +
+            `capacidad de carga, tolerancia) sí puedes usar catálogos de fabricante ` +
+            `reconocidos y normativa ISO/DIN si el dominio oficial no lo tiene. Devuelve SOLO ` +
+            `datos que aparezcan literalmente en las páginas encontradas, de forma breve y ` +
+            `concreta. Si no encuentras nada fiable, responde exactamente: "No he encontrado ` +
+            `ese dato en fuentes fiables." No inventes ni completes con suposiciones.`,
         },
       ],
     });
