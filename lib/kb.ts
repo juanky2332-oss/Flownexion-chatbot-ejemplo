@@ -193,6 +193,50 @@ function matchSiblings(candidates: string[], originalQuery: string): EqMatch[] {
   return [];
 }
 
+/**
+ * Resolución de referencia BASE para consultas con SOLO el número, sin
+ * sufijo ("3309" en vez de "3309A"). Bug real reproducido en producción
+ * (2026-07-26): el cliente escribió "¿qué equivalencia hay para el 3309 de
+ * SKF en NTN o SNR?" y, al no haber coincidencia exacta de "3309" (el KB
+ * guarda "3309A", "3309ATN9", "3309ANR", "3309A-2Z"...), se caía al match
+ * por substring, que devolvía 8 variantes ruidosas (serie 5309, 63309,
+ * /C3...) con la equivalencia base correcta (SNR 3309A + NTN 3309S)
+ * enterrada al final — el modelo no la distinguía y solo daba la SNR,
+ * omitiendo el NTN.
+ *
+ * Estrategia: entre todos los códigos externos que EMPIEZAN por ese número,
+ * el/los más corto(s) son la variante base (SKF designa el 3309 básico como
+ * "3309A"; el equivalente NSK "3309J" también tiene esa longitud mínima y
+ * apunta a la misma pieza). Se resuelve por EXACTA sobre esa(s) base(s) y se
+ * agotan sus equivalencias en ambas marcas, sin el ruido de las variantes
+ * con sufijo. Solo se dispara con candidatos puramente numéricos: si el
+ * cliente ya dio un sufijo, la pasada exacta lo cubrió antes.
+ */
+function matchByBaseRef(candidates: string[], originalQuery: string): EqMatch[] {
+  for (const q of candidates) {
+    if (!/^\d+$/.test(q)) continue;
+    let minLen = Infinity;
+    const starting = new Set<string>();
+    for (const row of loadEq()) {
+      for (const code of [row[0], row[1], row[2]]) {
+        const c = norm(code);
+        if (c.length > q.length && c.startsWith(q)) {
+          starting.add(c);
+          if (c.length < minLen) minLen = c.length;
+        }
+      }
+    }
+    if (!starting.size) continue;
+    const baseCodes = [...starting].filter((c) => c.length === minLen);
+    const out: EqMatch[] = [];
+    for (const bc of baseCodes) {
+      out.push(...matchEqAgainst(bc, originalQuery).exact);
+    }
+    if (out.length) return dedupeEq(out).sort(byMarcaPriority);
+  }
+  return [];
+}
+
 export function findEquivalence(query: string): EqMatch[] {
   const candidates = extractQueryCandidates(query);
   if (!candidates.length) return [];
@@ -211,7 +255,13 @@ export function findEquivalence(query: string): EqMatch[] {
   const siblings = matchSiblings(candidates, query);
   if (siblings.length) return siblings;
 
-  // 3ª pasada — sin exacta en ningún candidato: parcial, acotada para no
+  // 3ª pasada — el cliente dio solo el número base sin sufijo ("3309"):
+  // resolver a la referencia base y sus equivalencias en ambas marcas,
+  // ANTES de caer al parcial ruidoso.
+  const baseRef = matchByBaseRef(candidates, query);
+  if (baseRef.length) return baseRef;
+
+  // 4ª pasada — sin exacta en ningún candidato: parcial, acotada para no
   // devolver ruido, probando también cada candidato de más a menos específico.
   for (const c of candidates) {
     const { partial } = matchEqAgainst(c, query);
@@ -240,7 +290,13 @@ export function findExactEquivalence(query: string): EqMatch[] {
   // El cruce interno NTN↔SNR también es exacto e inequívoco (coincidencia
   // exacta de la columna ref + códigos externos compartidos), así que vale
   // igualmente como dato verificado para la pre-inyección.
-  return matchSiblings(candidates, query);
+  const siblings = matchSiblings(candidates, query);
+  if (siblings.length) return siblings;
+
+  // Referencia base sin sufijo ("3309" → base "3309A"): la resolución acaba
+  // en coincidencia EXACTA sobre el código base, así que sigue siendo dato
+  // verificado apto para pre-inyectar sin que el modelo lo pida.
+  return matchByBaseRef(candidates, query);
 }
 
 // ── Ficha técnica local (Informacion tecnica NTN.xlsx → tech-*.json) ──
