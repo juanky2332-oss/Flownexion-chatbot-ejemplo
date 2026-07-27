@@ -14,6 +14,7 @@ import {
   findGlossary,
   findGlossaryForMessage,
   findBelt,
+  findBeltForMessage,
 } from "./kb";
 import { searchOfficialSource } from "./websearch";
 
@@ -941,6 +942,29 @@ export async function runAgent(
         `sola y des la otra por sabida. PROHIBIDO contradecir este bloque o sustituirlo por una explicación de ` +
         `memoria. Después de explicar el concepto, sigue con lo que el cliente necesite (buscar el producto, ` +
         `ficha técnica o cierre de compra) según el resto de instrucciones.`,
+    });
+  }
+
+  // AUTODETECCIÓN DE CORREA — misma defensa. Probado contra el despliegue
+  // real: con la misma pregunta ("necesito una correa A 1250") el modelo unas
+  // veces llamaba a find_belt y devolvía las dos lecturas correctas, y otras
+  // contestaba "no he encontrado esa correa en el catálogo de Continental"
+  // sin haber buscado, teniéndola en el KB. Aquí se resuelve en código.
+  const beltHits = findBeltForMessage(message);
+  if (beltHits.length) {
+    messages.push({
+      role: "system",
+      content:
+        `🔒 CATÁLOGO CONTINENTAL — CORREAS ENCONTRADAS para la consulta actual:\n` +
+        `${JSON.stringify(beltHits)}\n` +
+        `Estas correas EXISTEN en el catálogo del fabricante: no hace falta que vuelvas a llamar a find_belt ` +
+        `para esta consulta y tienes PROHIBIDO decir que no has encontrado la correa o que no existe. ` +
+        `Preséntalas con su nombre real de fabricante, perfil, gama, peso y las longitudes Li y Ld cuando ` +
+        `consten. Si hay dos que encajan por vías distintas (una por longitud interior Li y otra por ` +
+        `primitiva Ld), muestra las DOS y pregunta al cliente UNA sola cosa: si su número es la Li o la Ld, ` +
+        `o qué pone grabado en el flanco de la correa — nunca elijas tú en silencio. ` +
+        `Recuerda que "disponibilidad_fabricante" es de Continental, NO el stock de ESGAS: el stock y el ` +
+        `precio salen de search_products.`,
     });
   }
 

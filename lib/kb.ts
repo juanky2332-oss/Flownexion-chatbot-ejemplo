@@ -827,6 +827,31 @@ export function getBeltProfiles(): string[] {
   return loadJson<string>("data/kb/belts-perfiles.json");
 }
 
+// Disparador de la pre-inyección automática de correas (ver agent.ts).
+// Se exige una palabra inequívoca de correa: ni "6205" ni una referencia de
+// rodamiento pueden activarlo. Los perfiles cortos y ambiguos (AX, PJ, PL…)
+// se dejan fuera a propósito — si el cliente los usa, lo normal es que diga
+// también "correa", y ese ancla ya los cubre.
+const BELT_INTENT =
+  /\b(CORREAS?|TRAPECIAL\w*|TRAPEZOIDAL\w*|POLY.?V|MULTIRIB|SYNCHRO\w*|SPZ|SPA|SPB|SPC|XPZ|XPA|XPB|XPC|HTD|STD|CTD|POLYFLAT|VARISPEED|TORQUE\s+TEAM)\b/i;
+
+/**
+ * Correas a pre-inyectar para un mensaje de cliente, o [] si el mensaje no va
+ * de correas o no hay coincidencia.
+ *
+ * Mismo motivo que en equivalencias y glosario: probado contra el despliegue
+ * real, el modelo unas veces llama a find_belt y otras responde "no la he
+ * encontrado en el catálogo de Continental" sin haberla buscado — con la
+ * correa existiendo en el KB. Resolviéndolo en código, sobre el mensaje en
+ * bruto, la respuesta correcta deja de depender de esa decisión del modelo.
+ */
+export function findBeltForMessage(message: string): BeltInfo[] {
+  const m = String(message ?? "");
+  const plain = m.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (!BELT_INTENT.test(plain)) return [];
+  return findBelt(m, 4);
+}
+
 function normLoose(s: unknown): string {
   return String(s ?? "")
     .normalize("NFD")

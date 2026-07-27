@@ -25,6 +25,7 @@ const {
   findGlossary,
   findGlossaryForMessage,
   findBelt,
+  findBeltForMessage,
   findEquivalence,
   findTechnicalInfo,
   getBeltProfiles,
@@ -131,6 +132,26 @@ const spb = findBelt("necesito una correa SPB 2360");
 ok(spb[0]?.nombre === "SPB2360", "SPB 2360 resuelve por nombre exacto", spb[0]?.nombre);
 ok(getBeltProfiles().length > 100, "lista de perfiles Continental cargada", String(getBeltProfiles().length));
 ok(findBelt("6205").length === 0 || findBelt("6205")[0] !== undefined, "una referencia de rodamiento no rompe find_belt");
+
+section("PRE-INYECCION DE CORREA — dispara donde debe y NO donde no debe");
+for (const q of [
+  "necesito una correa A 1250",
+  "correa SPZ 1600",
+  "tienes correa trapecial B 2000",
+  "correa AX 19",
+  "una HTD 5M de 600",
+]) {
+  ok(findBeltForMessage(q).length > 0, `SI dispara: "${q}"`, findBeltForMessage(q).map((r) => r.nombre).join(", "));
+}
+for (const q of [
+  "quiero comprar el 6205",
+  "equivalencia del 3309 de skf",
+  "hola buenos dias",
+  "tienes stock del UC205",
+  "diferencia entre 2RS y 2RZ",
+]) {
+  ok(findBeltForMessage(q).length === 0, `NO dispara: "${q}"`);
+}
 
 section("REGRESIONES — equivalencias y ficha tecnica ya existentes");
 const eq1 = findEquivalence("puedes decirme que equivalencia hay para el 3309 a de skf en ntn o snr?");
