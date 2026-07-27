@@ -996,7 +996,13 @@ export async function runAgent(
         `primitiva Ld), muestra las DOS y pregunta al cliente UNA sola cosa: si su número es la Li o la Ld, ` +
         `o qué pone grabado en el flanco de la correa — nunca elijas tú en silencio. ` +
         `Recuerda que "disponibilidad_fabricante" es de Continental, NO el stock de ESGAS: el stock y el ` +
-        `precio salen de search_products.`,
+        `precio salen de search_products. ` +
+        `AUNQUE search_products no encuentre esa correa en el catálogo de la página, DEBES dar igualmente ` +
+        `esta información completa: el dato del fabricante es válido y útil aunque no esté a la venta aquí ` +
+        `ahora mismo. Tu respuesta tiene PROHIBIDO consistir solo en un escalado ("he pasado tu consulta a ` +
+        `un técnico", "ponte en contacto para resolver la disponibilidad") ni empezar por ahí — eso es ` +
+        `abandonar una pregunta que SÍ puedes responder. Primero la correa con sus datos; y solo después, ` +
+        `si no está en la página, una nota final ofreciendo el contacto para conseguirla.`,
     });
   }
 
