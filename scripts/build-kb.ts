@@ -136,3 +136,117 @@ if (!fs.existsSync(prPath)) {
   fs.writeFileSync(path.join(dataDir, "precios.json"), JSON.stringify(precios, null, 2));
   console.log(`✅ precios.json — ${precios.length} reglas`);
 }
+
+// ── Correas Continental ───────────────────────────────────────────────────────
+// Lista de precios oficial de Continental. Estructura confirmada con el
+// cliente: la información útil está en la columna D (descripción + longitud),
+// la M (nombre/marcaje real de la correa) y la N (peso en kg). El TIPO de
+// correa no vive en ninguna columna: es la cabecera de grupo que hay ENCIMA
+// de cada bloque dentro de cada pestaña (fila con "Your discount" en D y el
+// perfil en A, p.ej. "10/Z", "SPZ / 3V / 9N", "HTD 5M"), y la gama comercial
+// está en A2 de cada pestaña ("Conti V", "Conti Synchrobelt/-force"...).
+//
+// NO se importa el precio a propósito: son tarifas de lista de Continental,
+// no los precios de venta de ESGAS. El precio que ve el cliente sale siempre
+// de PrestaShop vía search_products — meter aquí un precio distinto sería la
+// forma más rápida de que el bot cotice mal.
+const beltPath = path.join(srcDir, "CORREAS CONTINENTAL.xlsx");
+if (!fs.existsSync(beltPath)) {
+  console.warn("⚠️  No encontrado:", beltPath);
+} else {
+  const wb = XLSX.readFile(beltPath);
+  // Pestañas que no son de producto (índice, tarifa cruda, servicios, notas).
+  const SKIP = new Set([
+    "Content_Inhalt", "Upload_Pricelist (LIST VIEW)", "Service_program",
+    "Performance_Level", "Optional_Service", "NEWS",
+  ]);
+
+  // Limpia el marcador de marca registrada y los espacios raros (NBSP,
+  // zero-width) que trae el fichero original en los nombres de gama. El (R)
+  // se sustituye por un ESPACIO, no por vacio: en el original va pegado
+  // ("Conti(R)V Multirib") y quitarlo a secas dejaria "ContiV Multirib".
+  function clean(s: unknown): string {
+    return String(s ?? "")
+      .replace(/[\u00ae\u2122]/g, " ")
+      .replace(/[\u00a0\u200b]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function estadoOf(raw: string): string {
+    const s = raw.toLowerCase();
+    if (s.includes("stock item")) return "stock";
+    if (s.includes("on request")) return "bajo pedido";
+    if (s.includes("discontinued")) return "descatalogado";
+    return "";
+  }
+
+  // Longitudes en mm dentro de la descripción: "A 18  13x 457Li  487Ld".
+  // Li = longitud interior, Ld/Lp = longitud primitiva. En las trapeciales
+  // clásicas el NOMBRE va en pulgadas ("A18" = 18") pero el cliente español
+  // pide siempre los mm ("una correa A 1250"), así que hay que indexar los
+  // mm de la descripción o esas referencias serían imposibles de encontrar.
+  function lenOf(desc: string, marker: "Li" | "Ld"): number | null {
+    const m = desc.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*${marker}`, "i"));
+    if (!m) return null;
+    const n = Number(m[1].replace(",", "."));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // [nombre(M), descripcion(D), pesoKg(N), perfil(grupo), gama, estado, li, ld, codigo(C)]
+  type BeltRow = [string, string, number, string, string, string, number | null, number | null, string];
+  const belts: BeltRow[] = [];
+  const perfiles = new Set<string>();
+
+  for (const sheetName of wb.SheetNames) {
+    if (SKIP.has(sheetName)) continue;
+    const ws = wb.Sheets[sheetName];
+    if (!ws) continue;
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" });
+
+    // A2 = gama comercial de la pestaña. Si falta, el nombre de la pestaña.
+    const gama = clean((rows[1] as unknown[])?.[0]) || sheetName.replace(/_/g, " ");
+    let perfil = "";
+
+    for (const raw of rows) {
+      const r = raw as unknown[];
+      const colA = clean(r[0]);
+      const colC = clean(r[2]);
+      const colD = clean(r[3]);
+
+      // Cabecera de grupo: fija el perfil vigente para las filas siguientes.
+      if (colD.toLowerCase().includes("discount")) {
+        if (colA) perfil = colA;
+        continue;
+      }
+      // Fila de cabecera de columnas.
+      if (colD.startsWith("Description")) continue;
+      // Fila de producto: material code + descripción.
+      if (!colC || !colD) continue;
+
+      const nombre = clean(r[12]) || colC;
+      const peso = Number(String(r[13] ?? "").replace(",", ".")) || 0;
+      belts.push([
+        nombre,
+        colD,
+        peso,
+        perfil,
+        gama,
+        estadoOf(String(r[5] ?? "")),
+        lenOf(colD, "Li"),
+        lenOf(colD, "Ld"),
+        colC,
+      ]);
+      if (perfil) perfiles.add(`${gama} :: ${perfil}`);
+    }
+  }
+
+  const parts = writeChunks("belts", belts, Math.ceil(belts.length / 8));
+  fs.writeFileSync(
+    path.join(dataDir, "belts-perfiles.json"),
+    JSON.stringify([...perfiles].sort(), null, 2)
+  );
+  console.log(
+    `✅ belts-1..${parts}.json — ${belts.length} correas Continental en ${perfiles.size} perfiles`
+  );
+}

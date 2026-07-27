@@ -438,6 +438,338 @@ export function getPrecios(): PrecioRow[] {
   return loadPrecios();
 }
 
+// ── Glosario técnico (data/kb/glosario.json) ─────────────────────────────────
+// Fuente ÚNICA de verdad para conceptos técnicos (sellado, juego, jaulas,
+// precisión, sufijos, correas). Nació de un fallo real reportado por el
+// cliente: el bot explicaba mal la diferencia entre dos tipos de sellado
+// porque la única referencia que tenía era una línea del prompt que agrupaba
+// "LLU / 2RS / 2RZ" como si los tres fuesen juntas de contacto — y el 2RZ es
+// SIN contacto. Sacar estas explicaciones a un fichero de datos editable
+// permite corregirlas sin tocar código (ver docs/MANTENIMIENTO-KB.md).
+
+interface GlossaryEntry {
+  id: string;
+  categoria: string;
+  prioridad?: number;
+  terminos: string[];
+  titulo: string;
+  texto: string;
+  fuente?: string;
+}
+
+let _glo: GlossaryEntry[] | null = null;
+
+function loadGlossary(): GlossaryEntry[] {
+  if (_glo !== null) return _glo;
+  try {
+    const raw = JSON.parse(
+      readFileSync(join(process.cwd(), "data/kb/glosario.json"), "utf-8")
+    ) as { entradas?: GlossaryEntry[] };
+    _glo = Array.isArray(raw.entradas) ? raw.entradas : [];
+  } catch {
+    _glo = [];
+  }
+  return _glo;
+}
+
+/** Mayúsculas sin acentos, para comparar términos con lo que escribe el cliente. */
+function normTerm(s: unknown): string {
+  return String(s ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .trim();
+}
+
+export interface GlossaryHit {
+  titulo: string;
+  explicacion: string;
+  fuente?: string;
+}
+
+/**
+ * Busca explicaciones de concepto en el glosario.
+ *
+ * Los términos de una sola palabra se comparan como TOKEN COMPLETO, nunca por
+ * substring: si no, "Z" (deflector) dispararía con cualquier palabra que
+ * contenga una z y "E" con media frase. Los términos con espacios ("tipos de
+ * sellado", "sin contacto") sí se buscan como substring, porque ahí la
+ * secuencia completa ya es lo bastante específica.
+ *
+ * Se ordena por número de términos acertados y, a igualdad, por la prioridad
+ * declarada en el fichero — así una pregunta genérica de "tipos de sellado"
+ * saca primero la entrada comparativa y no una de un sufijo suelto.
+ */
+export function findGlossary(query: string, limit = 3): GlossaryHit[] {
+  const qNorm = normTerm(query);
+  if (!qNorm) return [];
+  const tokens = new Set(
+    qNorm
+      .split(/[^0-9A-Z/]+/)
+      .map((t) => t.replace(/^[^0-9A-Z]+|[^0-9A-Z]+$/g, ""))
+      .filter(Boolean)
+  );
+
+  const scored = loadGlossary()
+    .map((e) => {
+      let hits = 0;
+      for (const term of e.terminos ?? []) {
+        const t = normTerm(term);
+        if (!t) continue;
+        if (t.includes(" ") ? qNorm.includes(t) : tokens.has(t)) hits++;
+      }
+      return { e, hits };
+    })
+    .filter(({ hits }) => hits > 0)
+    .sort((a, b) => b.hits - a.hits || (b.e.prioridad ?? 0) - (a.e.prioridad ?? 0));
+
+  return scored.slice(0, limit).map(({ e }) => ({
+    titulo: e.titulo,
+    explicacion: e.texto,
+    fuente: e.fuente,
+  }));
+}
+
+// Disparadores de la pre-inyección automática del glosario (ver agent.ts).
+// Viven aquí, junto al glosario, para poder probarlos con el código real en
+// vez de con una copia del regex en el test.
+//
+// Se exige o bien una fórmula de pregunta conceptual, o bien un sufijo/término
+// técnico explícito. Sin ese filtro, un pedido normal ("el 6205 ZZ, 10
+// unidades") arrastraría la explicación entera del glosario a una conversación
+// que solo quería comprar.
+const CONCEPT_QUESTION =
+  /\b(DIFERENCIA\w*|DISTIN\w+|QUE\s+SIGNIFICA|QUE\s+ES|QUE\s+SON|PARA\s+QUE\s+SIRVE|CUAL\s+ES\s+MEJOR|CUANDO\s+SE\s+USA|CUANDO\s+USAR|EXPLIC\w+|SIGNIFICADO|VENTAJA\w*|MEJOR\s+PARA|SE\s+DIFERENCIA\w*)\b/i;
+const CONCEPT_TERM =
+  /\b(SELLAD\w+|SELLO|SELLOS|JUNTA|JUNTAS|ESTANQU\w+|DEFLECTOR\w*|OBTURA\w+|JUEGO\s+RADIAL|JUEGO\s+INTERNO|HOLGURA|JAULA|JAULAS|PRECISION|SUFIJO|SUFIJOS|2RS1?|2RZ|2Z|2ZR|ZZ|LLU|LLB|LLH|DDU|RSR|VV|C[2-5]|CN|P[456]|TVH|TN9|T2X|G15)\b/i;
+
+/**
+ * Glosario a pre-inyectar para un mensaje de cliente, o [] si el mensaje no
+ * es una consulta de concepto. Se ejecuta en código sobre el mensaje en bruto:
+ * no depende de que el modelo decida llamar a explain_technical_term.
+ */
+export function findGlossaryForMessage(message: string): GlossaryHit[] {
+  const m = String(message ?? "");
+  const plain = m
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, ""); // "qué es" → "que es", para que el regex acierte
+  if (!CONCEPT_QUESTION.test(plain) && !CONCEPT_TERM.test(plain)) return [];
+  return findGlossary(m, 3);
+}
+
+// ── Correas Continental (data/kb/belts-*.json) ───────────────────────────────
+// Fila: [nombre, descripcion, pesoKg, perfil, gama, estado, li, ld, codigo]
+type BeltRow = [string, string, number, string, string, string, number | null, number | null, string];
+
+interface BeltEntry {
+  nombre: string;
+  nombreNorm: string;
+  codigo: string;
+  codigoNorm: string;
+  descripcion: string;
+  descNorm: string;
+  pesoKg: number;
+  perfil: string;
+  perfilTokens: string[];
+  gama: string;
+  estado: string;
+  li: number | null;
+  ld: number | null;
+}
+
+let _belts: BeltEntry[] | null = null;
+
+function loadBelts(): BeltEntry[] {
+  if (_belts !== null) return _belts;
+  _belts = [];
+  for (let i = 1; i <= 20; i++) {
+    const chunk = loadJson<BeltRow>(`data/kb/belts-${i}.json`);
+    if (!chunk.length) break;
+    for (const [nombre, descripcion, pesoKg, perfil, gama, estado, li, ld, codigo] of chunk) {
+      _belts.push({
+        nombre,
+        nombreNorm: beltNorm(nombre),
+        codigo: codigo ?? "",
+        codigoNorm: beltNorm(codigo ?? ""),
+        descripcion,
+        descNorm: beltNorm(descripcion),
+        pesoKg,
+        perfil,
+        // "13/A" → ["13","A"] · "SPZ / 3V / 9N" → ["SPZ","3V","9N"]
+        perfilTokens: perfil.split(/[/\s]+/).map((t) => norm(t)).filter(Boolean),
+        gama,
+        estado,
+        li,
+        ld,
+      });
+    }
+  }
+  return _belts;
+}
+
+export interface BeltInfo {
+  nombre: string;
+  tipo: string;
+  perfil: string;
+  descripcion: string;
+  peso_g: number;
+  disponibilidad_fabricante: string;
+  longitud_interior_Li_mm?: number;
+  longitud_primitiva_Ld_mm?: number;
+}
+
+function labelBelt(b: BeltEntry): BeltInfo {
+  const out: BeltInfo = {
+    nombre: b.nombre,
+    tipo: b.gama,
+    perfil: b.perfil,
+    descripcion: b.descripcion,
+    peso_g: Math.round(b.pesoKg * 1000),
+    disponibilidad_fabricante: b.estado,
+  };
+  if (b.li !== null) out.longitud_interior_Li_mm = b.li;
+  if (b.ld !== null) out.longitud_primitiva_Ld_mm = b.ld;
+  return out;
+}
+
+/**
+ * Palabras de relleno de una consulta de correa. Se quitan ANTES de extraer
+ * los tokens, para que no contaminen la fusión perfil+longitud.
+ */
+const BELT_NOISE =
+  /\b(CORREA|CORREAS|PERFIL|PERFILES|NECESITO|NECESITARIA|QUIERO|QUERIA|TENEIS|TIENES|TIENE|TENGO|HAY|DAME|DIME|BUSCO|BUSCAR|PONME|UNA|UNAS|UN|UNOS|EL|LA|LOS|LAS|DE|DEL|PARA|CON|POR|FAVOR|MM|MILIMETROS|TRAPECIAL|TRAPECIALES|TRAPEZOIDAL|TRAPEZOIDALES|DENTADA|DENTADAS|SINCRONA|SINCRONAS|ESTRECHA|ESTRECHAS|CLASICA|CLASICAS|CONTINENTAL|CONTI|MODELO|REFERENCIA|REF)\b/gi;
+
+/** Normalización de designación de correa: mayúsculas, sin acentos ni separadores. */
+function beltNorm(s: unknown): string {
+  return String(s ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^0-9A-Z.]/g, "");
+}
+
+/**
+ * Candidatos de designación a partir de lenguaje natural.
+ *
+ * No se reutiliza extractQueryCandidates (la de rodamientos) a propósito:
+ * aquella solo genera candidatos a partir de tokens QUE CONTIENEN DÍGITOS, así
+ * que un perfil puramente alfabético como la "A" de "correa A 1250" se
+ * descartaba y nunca llegaba a fusionarse en "A1250". Resultado real del bug:
+ * "correa A 1250" caía al match parcial por "1250" y devolvía una correa de
+ * perfil Z cuya descripción contenía 1250 — perfil equivocado.
+ */
+function beltCandidates(query: string): { candidates: string[]; tokens: string[] } {
+  const cleaned = String(query ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(BELT_NOISE, " ");
+
+  const tokens = cleaned
+    .split(/[^0-9A-Z.]+/)
+    .map((t) => t.replace(/^\.+|\.+$/g, ""))
+    .filter(Boolean);
+
+  const candidates = new Set<string>();
+  if (tokens.length) candidates.add(tokens.join(""));
+
+  for (let i = 0; i < tokens.length; i++) {
+    candidates.add(tokens[i]);
+    // Fusión con los siguientes tokens: "A"+"1250" → "A1250";
+    // "600"+"8M"+"30" → "6008M" y "6008M30".
+    let acc = tokens[i];
+    for (let j = i + 1; j < Math.min(i + 3, tokens.length); j++) {
+      acc += tokens[j];
+      candidates.add(acc);
+    }
+  }
+
+  // Más específico (más largo) primero.
+  return {
+    candidates: [...candidates].filter((c) => c.length >= 2).sort((a, b) => b.length - a.length),
+    tokens,
+  };
+}
+
+/**
+ * Busca una correa Continental por designación en lenguaje natural.
+ *
+ * El caso difícil, y el motivo de la pasada 3: en las trapeciales CLÁSICAS el
+ * nombre del fabricante va en PULGADAS ("A49") mientras que el cliente español
+ * pide siempre los milímetros ("una correa A 1250"). Los mm solo están en la
+ * descripción, como Li y Ld, así que hay que cruzar perfil + longitud en mm
+ * o esas referencias serían imposibles de encontrar por nombre.
+ */
+export function findBelt(query: string, limit = 6): BeltInfo[] {
+  const { candidates, tokens } = beltCandidates(query);
+  if (!candidates.length) return [];
+  const data = loadBelts();
+
+  // 1ª pasada — nombre o código de material exacto ("SPZ1600", "8PJ356").
+  for (const c of candidates) {
+    const exact = data.filter((b) => b.nombreNorm === c || b.codigoNorm === c);
+    if (exact.length) return exact.slice(0, limit).map(labelBelt);
+  }
+
+  // 2ª pasada — perfil + longitud en mm ("A 1250" → perfil A, Li 1250).
+  // Se acepta tanto la Li como la Ld porque el cliente no siempre sabe cuál
+  // de las dos lleva grabada la correa que trae; devolver las dos lecturas es
+  // lo correcto, y el prompt obliga al bot a preguntar cuál es la suya.
+  //
+  // El par (perfil, longitud) se saca de los TOKENS, no de la designación ya
+  // fusionada: partir "A1250" con una expresión regular es ambiguo (el motor
+  // la parte como perfil "A1" + longitud "250" y no encuentra nada), mientras
+  // que los tokens ["A","1250"] no admiten más que una lectura.
+  const pares: [string, number][] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = beltNorm(tokens[i]);
+    // Token único ya pegado: "SPB2360", "AX19", "XPZ1250".
+    const solo = tok.match(/^([A-Z]+)(\d{2,5})$/);
+    if (solo) pares.push([solo[1], Number(solo[2])]);
+    // Perfil y longitud en tokens separados: "A" + "1250".
+    const sig = beltNorm(tokens[i + 1] ?? "");
+    if (/^[A-Z]+$/.test(tok) && /^\d{2,5}$/.test(sig)) pares.push([tok, Number(sig)]);
+  }
+  for (const [perfil, largo] of pares) {
+    const hit = data.filter(
+      (b) => b.perfilTokens.includes(perfil) && (b.li === largo || b.ld === largo)
+    );
+    if (hit.length) return hit.slice(0, limit).map(labelBelt);
+  }
+
+  // 3ª pasada — TODOS los tokens presentes en nombre/código/descripción.
+  // Es lo que rescata designaciones que el cliente escribe con separadores
+  // distintos a los del fabricante ("600-8M-30" contra "600-H8M-30").
+  if (tokens.length) {
+    const norms = tokens.map((t) => beltNorm(t)).filter(Boolean);
+    const hit = data.filter((b) => {
+      const hay = `${b.nombreNorm} ${b.codigoNorm} ${b.descNorm}`;
+      return norms.every((t) => hay.includes(t));
+    });
+    if (hit.length) {
+      // El nombre más corto es la designación más específica que encaja.
+      return hit
+        .sort((a, b) => a.nombreNorm.length - b.nombreNorm.length)
+        .slice(0, limit)
+        .map(labelBelt);
+    }
+  }
+
+  // 4ª pasada — parcial sobre nombre y descripción, acotada.
+  for (const c of candidates) {
+    if (c.length < 4) continue;
+    const part = data.filter((b) => b.nombreNorm.includes(c) || b.descNorm.includes(c));
+    if (part.length) return part.slice(0, limit).map(labelBelt);
+  }
+
+  return [];
+}
+
+/** Perfiles/gamas reales del catálogo Continental, para responder "¿qué perfiles tenéis?". */
+export function getBeltProfiles(): string[] {
+  return loadJson<string>("data/kb/belts-perfiles.json");
+}
+
 function normLoose(s: unknown): string {
   return String(s ?? "")
     .normalize("NFD")

@@ -1,0 +1,16 @@
+{
+  "// nota": "tsconfig aparte para los scripts de Node (build:kb, test:kb). El tsconfig.json principal está configurado para Next (module esnext, jsx), que ts-node no puede ejecutar directamente.",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "es2020",
+    "lib": ["es2020"],
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.ts", "lib/kb.ts"]
+}

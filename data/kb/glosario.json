@@ -1,0 +1,117 @@
+{
+  "_leeme": "GLOSARIO TÉCNICO EDITABLE. Es la ÚNICA fuente de verdad del chatbot para conceptos técnicos (sellado, juego interno, jaulas, precisión, sufijos, correas). Si el bot explica algo mal, se corrige AQUÍ, en texto plano, sin tocar código. NO se genera con 'npm run build:kb' — se edita a mano y se commitea. Ver docs/MANTENIMIENTO-KB.md.",
+  "version": "2026-07-27",
+  "entradas": [
+    {
+      "id": "sellado-comparativa-general",
+      "categoria": "sellado",
+      "prioridad": 10,
+      "terminos": [
+        "sellado", "sellados", "sello", "sellos", "sellada", "sellado tipos",
+        "estanqueidad", "proteccion", "protecciones", "obturacion", "obturaciones",
+        "tipos de sellado", "diferencia sellado", "diferencias sellado",
+        "junta", "juntas", "cerrado", "cerrados", "tapa", "tapas"
+      ],
+      "titulo": "Tipos de sellado en rodamientos — las 3 familias, que NO son lo mismo",
+      "texto": "En un rodamiento hay TRES familias de protección distintas, y confundirlas es el error más habitual. Se diferencian por el MATERIAL y, sobre todo, por si el labio TOCA o NO TOCA el anillo interior:\n\n1. DEFLECTORES METÁLICOS (sufijos Z / ZZ / 2Z / 2ZR). Chapa de acero, SIN contacto con el anillo interior: queda una holgura mínima. No rozan, así que no generan par de fricción ni calor y admiten la velocidad máxima del rodamiento. A cambio, solo frenan partículas gruesas: NO retienen bien la grasa a largo plazo ni impiden la entrada de agua, humedad o polvo fino. La documentación técnica de NTN/SNR los llama literalmente \"deflectores\", no juntas.\n\n2. JUNTAS DE GOMA CON CONTACTO (sufijos LLU / LU / EE / E / 2RS / 2RS1 / 2RSR / DDU / 2RSH). Elastómero (habitualmente NBR) vulcanizado sobre un armazón de chapa, con uno o varios labios que ROZAN contra una garganta del anillo interior. Es la protección más estanca: retiene la grasa de por vida e impide la entrada de agua, polvo fino y contaminación. El precio a pagar es más par de rozamiento, más calentamiento y una velocidad límite bastante inferior a la del mismo rodamiento abierto o con deflector.\n\n3. JUNTAS DE GOMA SIN CONTACTO (sufijos LLB / LB / 2RZ / VV). Misma goma y mismo aspecto exterior que las de contacto, pero el labio NO llega a rozar: trabaja con una holgura muy pequeña, tipo laberinto. Es la solución intermedia: sella bastante mejor que un deflector metálico y a la vez casi no añade rozamiento, así que mantiene una velocidad límite alta.\n\nREGLA PRÁCTICA PARA ELEGIR: entorno limpio y velocidad alta → ZZ. Entorno con agua, polvo fino o lavados → LLU/EE (contacto). Punto intermedio, algo de suciedad pero exigencia de velocidad o par bajo → LLB/2RZ (sin contacto).\n\nCUIDADO CON LA NOMENCLATURA: que un sufijo lleve \"R\" (de rubber, goma) no significa que sea de contacto — el 2RZ es de goma y SIN contacto. Y la doble letra (ZZ, LL, 2RS) solo indica que la protección va en AMBOS lados; una sola letra (Z, LU, RS) es protección en UN solo lado.",
+      "fuente": "Informacion tecnica NTN.xlsx del cliente (campo Junta: 'ZZ = Deflectores', 'LLU/EE = Juntas de estanqueidad', 'LB = Junta sin contacto') + catálogo NTN Ball Bearings Shield and Seal Types + SKF Designation system"
+    },
+    {
+      "id": "sellado-zz",
+      "categoria": "sellado",
+      "prioridad": 9,
+      "terminos": ["ZZ", "2Z", "Z", "2ZR", "deflector", "deflectores", "blindado", "blindados", "blindaje", "chapa", "metalico", "metalica", "shield"],
+      "titulo": "ZZ / 2Z / Z / 2ZR — Deflectores metálicos (protección SIN contacto)",
+      "texto": "Deflector (o blindaje) de chapa de acero montado en el anillo exterior, que NO toca el anillo interior: entre ambos queda una holgura mínima. Por eso NO añade par de rozamiento y permite la velocidad límite más alta.\n\nQué hace bien: frena partículas gruesas y protege la grasa del contacto directo.\nQué NO hace: no es estanco. No impide la entrada de agua, humedad ni polvo fino, y no retiene la grasa indefinidamente.\n\nNomenclatura: Z = deflector en UN solo lado. ZZ (NTN, NSK, SNR) / 2Z (SKF) / 2ZR (FAG) = deflector en AMBOS lados.\n\nNo se le debe llamar \"junta\" ni \"sello\": la documentación técnica de NTN/SNR lo clasifica como \"deflector\". Un ZZ NO es equivalente a un 2RS.",
+      "fuente": "Informacion tecnica NTN.xlsx (Junta: 'ZZ = Deflectores', 'Z = Deflector') + catálogo NTN"
+    },
+    {
+      "id": "sellado-llu-contacto",
+      "categoria": "sellado",
+      "prioridad": 9,
+      "terminos": ["LLU", "LU", "EE", "E5", "E1", "LL", "2RS", "2RS1", "RS", "RS1", "2RSR", "RSR", "DDU", "DU", "2RSH", "RSH", "contacto", "estanco", "estanca", "estancos"],
+      "titulo": "LLU / EE / 2RS / DDU — Juntas de goma CON contacto (máxima estanqueidad)",
+      "texto": "Junta de elastómero (normalmente NBR) vulcanizada sobre un armazón metálico, cuyo labio ROZA contra una garganta mecanizada en el anillo interior. Es la protección más estanca que existe de serie.\n\nQué hace bien: retiene la grasa durante toda la vida del rodamiento e impide la entrada de agua, humedad, polvo fino y contaminación. Es la opción correcta en entornos húmedos, sucios, con lavados a presión o con producto químico.\nQué cuesta: el roce genera par de fricción y calor, así que la velocidad límite es sensiblemente menor que la del mismo rodamiento con deflector ZZ o abierto.\n\nEquivalencia del MISMO concepto entre fabricantes:\n- NTN: LLU (ambos lados) / LU (un lado)\n- SNR: EE (ambos lados) / E (un lado). También E1, E5, LL según gama.\n- SKF: 2RS1 o 2RSH (ambos lados) / RS1, RSH (un lado)\n- FAG: 2RSR (ambos lados) / RSR (un lado)\n- NSK: DDU (ambos lados) / DU (un lado)\n\nOJO: el equivalente de un 2RS NO es un ZZ. Ofrecer un ZZ a quien trae un 2RS es degradarle la protección.",
+      "fuente": "Informacion tecnica NTN.xlsx (Junta: 'LLU / EE / LL / E5 / E1 / E / LU = Juntas de estanqueidad') + catálogos NTN, SKF, FAG, NSK"
+    },
+    {
+      "id": "sellado-llb-sin-contacto",
+      "categoria": "sellado",
+      "prioridad": 9,
+      "terminos": ["LLB", "LB", "2RZ", "RZ", "VV", "sin contacto", "no contacto", "baja friccion", "bajo par", "laberinto"],
+      "titulo": "LLB / 2RZ / VV — Juntas de goma SIN contacto (la confusión más frecuente)",
+      "texto": "Junta de goma con el mismo aspecto exterior que una de contacto, pero cuyo labio NO llega a rozar el anillo interior: trabaja con una holgura muy pequeña, a modo de laberinto.\n\nEs el punto intermedio entre el deflector metálico y la junta de contacto: sella claramente mejor que un ZZ (retiene mucho mejor la grasa y frena el polvo fino) y a la vez apenas añade par de rozamiento, por lo que conserva una velocidad límite alta y no calienta.\n\nCuándo se elige: hay algo de suciedad o humedad, pero la aplicación no admite el par ni el calentamiento de una junta de contacto (alta velocidad, husillos, motores eléctricos, exigencia de bajo consumo).\n\nEquivalencia del MISMO concepto entre fabricantes:\n- NTN: LLB (ambos lados) / LB (un lado)\n- SKF: 2RZ (ambos lados) / RZ (un lado)\n- NSK: VV (ambos lados) / V (un lado)\n\nERROR MUY COMÚN QUE HAY QUE EVITAR: tratar el 2RZ de SKF como si fuera un 2RS. Los dos son de goma, pero el 2RS es de CONTACTO y el 2RZ es SIN CONTACTO — sellan distinto, rozan distinto y tienen velocidad límite distinta. Tampoco es lo mismo un LLB que un LLU de NTN, aunque solo cambie una letra.\n\nCaso aparte: SKF 2RSL / 2RST son juntas de BAJA FRICCIÓN con contacto muy ligero — no son ni el 2RS estándar ni el 2RZ sin contacto.",
+      "fuente": "Informacion tecnica NTN.xlsx (Junta: 'LB = Junta sin contacto') + NTN Ball Bearings Shield and Seal Types + SKF Designation system (2RZ = non-contact seals)"
+    },
+    {
+      "id": "sellado-llh-bajo-par",
+      "categoria": "sellado",
+      "prioridad": 7,
+      "terminos": ["LLH", "LH", "bajo par contacto", "contacto ligero", "low torque"],
+      "titulo": "LLH / LH — Junta de contacto LIGERO (bajo par)",
+      "texto": "Construcción igual a la junta de contacto LLU, pero con un labio de diseño especial que apoya con muy poca presión. Consigue casi la estanqueidad de una junta de contacto con un par de rozamiento bastante menor.\n\nEs una tercera vía entre LLU (contacto pleno) y LLB (sin contacto): se usa cuando hace falta buena protección contra contaminación pero el par de arranque o el calentamiento del LLU son un problema.\n\n- NTN: LLH (ambos lados) / LH (un lado).\n- Concepto análogo en SKF: 2RSL / 2RST (juntas de baja fricción).",
+      "fuente": "NTN Ball Bearings Shield and Seal Types (LH/LLH: light contact rubber seal, low torque construction)"
+    },
+    {
+      "id": "sellado-soportes",
+      "categoria": "sellado",
+      "prioridad": 6,
+      "terminos": ["L3", "LLJ", "L4", "AGR", "triple labio", "taconite", "V-ring", "vring", "fieltro", "junta laberinto", "soporte", "soportes", "inserto", "insertos"],
+      "titulo": "Sellados específicos de soportes y rodamientos de inserción (UC, AGR...)",
+      "texto": "Los rodamientos de inserción y los soportes usan sellados propios, distintos de los de un rodamiento rígido de bolas. Según la documentación técnica de NTN/SNR:\n\n- L3 / LLJ → Juntas de TRIPLE LABIO. Tres labios en serie contra la contaminación; es el estándar de los rodamientos de inserción en entornos exigentes.\n- L4 → Juntas LABERINTO. Sin contacto, por recorrido tortuoso; muy bajo par, para velocidad o temperatura altas.\n- AGR → Sellado de tecnología \"AGR\" de SNR: junta de triple labio L3 MÁS un deflector adicional. Es el sellado reforzado de la gama agrícola, pensado para barro, agua a presión y polvo abrasivo.\n- Junta taconite → Sellado reforzado multietapa para minería, canteras y ambientes con polvo abrasivo intenso.\n- Junta V-ring → Anillo elastomérico axial montado sobre el eje, que gira con él y sella por contacto frontal; suele ir como protección adicional delante de la junta principal.\n- Junta de fieltro → Sellado clásico de soportes de fundición, para entornos secos y velocidades moderadas.\n\nEn soportes, el sellado se elige por el ENTORNO (agua, polvo abrasivo, producto químico), no solo por la velocidad.",
+      "fuente": "Informacion tecnica NTN.xlsx del cliente (campo Junta y su descripción: L3/LLJ triple labio, L4 laberinto, AGR = L3 + deflector, taconite, V-ring, fieltro)"
+    },
+    {
+      "id": "juego-interno",
+      "categoria": "juego",
+      "prioridad": 9,
+      "terminos": ["C3", "C2", "C4", "C5", "C0", "C1", "CN", "CM", "juego", "juego radial", "juego interno", "holgura", "clearance", "precarga"],
+      "titulo": "Juego radial interno — CN / C2 / C3 / C4 / C5",
+      "texto": "El juego radial interno es el desplazamiento libre del anillo exterior respecto al interior antes de montar el rodamiento. Se elige según cuánto se va a \"comer\" ese juego al montar y al calentarse la máquina.\n\nEscala, de menor a mayor juego (nomenclatura confirmada en la documentación técnica del cliente):\n- C1 → Juego radial inferior al C2 (el más reducido).\n- C2 → Juego radial inferior al normal.\n- CN (o sin sufijo) → Juego radial NORMAL. Es el estándar y el que se sirve si no se especifica otra cosa.\n- CM → Juego radial normal pero con tolerancia reducida (típico de motores eléctricos).\n- C3 → Juego radial superior al normal. Es el más habitual después del CN.\n- C4 → Juego superior al C3.\n- C5 → Juego superior al C4.\n\nCUÁNDO SE PIDE C3 (el caso más frecuente): cuando el rodamiento va a perder juego durante el funcionamiento. Pasa si hay ajuste con apriete en el eje o en el alojamiento, si el anillo interior va a estar más caliente que el exterior (motores, bombas, ventiladores, maquinaria que trabaja caliente), o si hay dilatación térmica apreciable. Montar un CN donde hacía falta un C3 deja el rodamiento sin juego en caliente: se precarga solo, sube la temperatura y falla antes de tiempo.\n\nCUÁNDO SE PIDE C2 O MENOS: cuando se busca máxima precisión de giro y rigidez y el rodamiento va a trabajar frío y con ajustes deslizantes.\n\nREGLA DE SUSTITUCIÓN: el juego NO es intercambiable a la ligera. Si el cliente trae una referencia con C3, hay que ofrecerle C3; servirle el CN equivalente es cambiarle una característica de funcionamiento, no una simple variante de la misma pieza. Si solo hay disponible otro juego, hay que decírselo explícitamente.",
+      "fuente": "Informacion tecnica NTN.xlsx del cliente (campo Tolerancia y su descripción: CN juego normal, C3 superior al normal, C2 inferior al normal, C4, C5, CM, C1) + norma ISO 5753"
+    },
+    {
+      "id": "jaulas",
+      "categoria": "jaula",
+      "prioridad": 7,
+      "terminos": ["jaula", "jaulas", "TVH", "TN9", "TN", "T2", "T2X", "G15", "G14", "JR", "L1", "G1", "EA", "poliamida", "laton", "resina", "nylon", "cage"],
+      "titulo": "Material de la jaula — poliamida, chapa, latón y sus sufijos",
+      "texto": "La jaula mantiene separados los elementos rodantes. Su material condiciona temperatura máxima, velocidad y resistencia a impactos y a productos químicos.\n\nMateriales según la documentación técnica del cliente:\n- Jaula de acero / jaula embutida de chapa (sufijos J, EA, JRX) → La más común. Barata, robusta, buen rango de temperatura. Es lo estándar si no se indica nada.\n- Jaula de acero remachada (JR) → Versión reforzada para cargas o impactos mayores.\n- Jaula de poliamida reforzada con fibra de vidrio (sufijos T2X, G15) o poliamida (T2, G14) → Ligera, silenciosa, admite alta velocidad y aceleraciones. Limitación importante: la poliamida no debe trabajar de forma continua por encima de unos 120 °C, y envejece con aceites de extrema presión y con vapor. En nomenclatura de otras marcas el mismo concepto aparece como TVH (FAG) o TN9 (SKF).\n- Jaula maciza de latón (sufijos M, L1, G1) → Para cargas pesadas, altas temperaturas, choques y velocidades elevadas; es la elección de rodamientos grandes y de aplicaciones severas.\n- Jaula de resina fenólica estratificada / jaula estratificada → Muy ligera, para muy alta velocidad (husillos de precisión).\n- Jaula de acero inoxidable → Para ambientes corrosivos o alimentarios.\n- Jaula de aluminio / de plástico → Aplicaciones concretas de gama.\n\nEl sufijo de jaula NO cambia las medidas del rodamiento: cambia el comportamiento en velocidad y temperatura. Hay que mencionarlo, pero sin confundirlo con el sellado ni con el juego.",
+      "fuente": "Informacion tecnica NTN.xlsx del cliente (campo Material de la jaula, con sus sufijos entre paréntesis: T2X, G15, T2, J, JR, EA, M, L1, G1)"
+    },
+    {
+      "id": "precision",
+      "categoria": "precision",
+      "prioridad": 6,
+      "terminos": ["P0", "P6", "P5", "P4", "P2", "ABEC", "precision", "clase de precision", "tolerancia dimensional"],
+      "titulo": "Clases de precisión — P0 / P6 / P5 / P4 (ISO 492)",
+      "texto": "La clase de precisión define las tolerancias dimensionales y de giro (excentricidad, oscilación). No confundirla con el JUEGO INTERNO (C2/C3/C4), que es otra cosa: la precisión es cómo de exacta es la pieza; el juego es cuánta holgura tiene por dentro.\n\nDe menor a mayor precisión (ISO 492):\n- P0 (o \"Normal\") → Clase estándar. Es la de prácticamente todo el catálogo industrial; si no se indica nada, es esta.\n- P6 → Precisión superior a la normal.\n- P5 → Alta precisión. Husillos, cajas de husillo, maquinaria de medida.\n- P4 y P2 → Precisión muy alta y extrema. Máquina-herramienta de precisión.\n\nEquivalencia aproximada con la escala americana ABEC: P0≈ABEC-1, P6≈ABEC-3, P5≈ABEC-5, P4≈ABEC-7, P2≈ABEC-9.\n\nSubir de clase encarece bastante la pieza y solo tiene sentido si el resto del conjunto (eje, alojamiento, ajustes) está mecanizado a esa altura.",
+      "fuente": "ISO 492 / catálogos NTN-SNR y SKF (clases de precisión)"
+    },
+    {
+      "id": "sufijos-varios",
+      "categoria": "sufijos",
+      "prioridad": 6,
+      "terminos": ["NR", "W33", "sufijo", "sufijos", "nomenclatura", "designacion", "decodificar"],
+      "titulo": "Otros sufijos frecuentes en la designación",
+      "texto": "Sufijos que aparecen a menudo y que no tienen que ver con el sellado ni con el juego:\n\n- N → Ranura para anillo elástico mecanizada en el anillo exterior.\n- NR → Ranura MÁS el anillo elástico ya incluido. Sirve para fijar axialmente el rodamiento en el alojamiento sin más piezas.\n- K → Agujero CÓNICO (habitualmente conicidad 1:12), para montar sobre manguito de fijación o sobre eje cónico. Un rodamiento K no se monta igual que uno de agujero cilíndrico.\n- /W33 → Ranura y taladros de engrase en el anillo exterior, para poder reengrasar en servicio. Típico de rodamientos de rodillos a rótula.\n- E → Diseño reforzado, de mayor capacidad de carga que la versión estándar de la misma designación.\n- X → Dimensiones exteriores modificadas respecto a la serie normalizada.\n\nAl decodificar una referencia hay que explicar TODOS los sufijos, no solo el primero: cada uno cambia una característica distinta (sellado, juego, jaula, agujero, engrase). Dos referencias que solo difieren en un sufijo NO son la misma pieza.",
+      "fuente": "Catálogos NTN-SNR y SKF (sistema de designación)"
+    },
+    {
+      "id": "correas-perfiles",
+      "categoria": "correas",
+      "prioridad": 8,
+      "terminos": [
+        "correa", "correas", "perfil", "perfiles", "trapecial", "trapezoidal", "trapeciales", "trapezoidales",
+        "SPZ", "SPA", "SPB", "SPC", "XPZ", "XPA", "XPB", "XPC", "AX", "BX", "CX", "ZX",
+        "estrecha", "estrechas", "clasica", "clasicas", "dentada", "dentadas",
+        "poly v", "polyv", "multirib", "PJ", "PK", "PL", "PM",
+        "HTD", "STD", "CTD", "MXL", "XL", "XH", "XXH", "sincrona", "sincronas", "sincrono",
+        "Li", "Ld", "Lp", "Lb", "desarrollo", "longitud correa", "continental", "conti"
+      ],
+      "titulo": "Correas — familias, perfiles y longitudes (Li / Ld / Lp)",
+      "texto": "FAMILIAS DE CORREA\n\n1. TRAPECIALES CLÁSICAS (perfil = ancho × alto, en mm): Z/10 (10×6) · A/13 (13×8) · B/17 (17×11) · C/22 (22×14) · D/32 (32×19) · E/40. Es el estándar más extendido.\n\n2. TRAPECIALES ESTRECHAS: SPZ (9,7×8) · SPA (12,7×10) · SPB (16,3×13) · SPC (22×18), más las pulgadas 3V/9N, 5V/15N, 8V/25N. A igualdad de espacio transmiten más potencia que las clásicas, porque el flanco es más alto respecto al ancho.\n\n3. TRAPECIALES DENTADAS / FLANCO ABIERTO (la \"X\"): ZX, AX, BX, CX (clásicas dentadas) y XPZ, XPA, XPB, XPC (estrechas dentadas). El dentado transversal de la cara interior las hace más flexibles: admiten poleas de menor diámetro y calientan menos. Una AX es la versión dentada de una A, con el mismo perfil y la misma longitud.\n\n4. MULTICOSTILLA / POLY-V: PJ, PK, PL, PM. Se designan por número de costillas + perfil + longitud (p. ej. 8PJ356 = 8 costillas, perfil PJ, 356 mm).\n\n5. DENTADAS SÍNCRONAS (transmiten movimiento sin deslizamiento): paso en pulgadas MXL, XL, L, H, XH, XXH; paso métrico curvilíneo HTD 3M/5M/8M/14M, STD S2M/S3M/S5M/S8M/S14M y CTD C8M/C14M. Se designan por longitud primitiva, paso y anchura (p. ej. 600-8M-30 = 600 mm de desarrollo, paso 8M, 30 mm de ancho).\n\n6. PLANAS: gama Polyflat (F HP, F HF, F HS, F XHP, F XHS).\n\nLONGITUDES — LA CONFUSIÓN MÁS HABITUAL\nUna correa trapecial tiene DOS longitudes distintas, y no son intercambiables:\n- Li = longitud INTERIOR (perímetro interno).\n- Ld / Lp = longitud PRIMITIVA o de paso (la que se usa para calcular la transmisión). Siempre es mayor que la Li.\nEn trapeciales clásicas la diferencia ronda los 20-35 mm según el perfil (por ejemplo, en perfil Z: 425 Li ↔ 448 Ld). Antes de dar por buena una equivalencia de longitud hay que confirmar si el número que trae el cliente es Li o Ld: si se confunden, la correa no monta.\nEn multicostilla se usa Lb, y en dentadas síncronas Lp (longitud primitiva).\n\nCÓMO IDENTIFICAR UNA CORREA QUE YA TIENE EL CLIENTE\nLo normal es que el propio flanco lleve grabado el perfil y la longitud (\"A 1250\", \"SPB 2360\", \"8PJ356\", \"600-8M-30\"). Si está borrado: el ANCHO de la garganta de la polea da el perfil, y la longitud se mide con una cinta por el exterior o se calcula con la distancia entre ejes y los diámetros de las poleas.",
+      "fuente": "Lista de precios Continental julio 2026 (cabeceras de perfil de cada gama) + catálogo Continental de correas industriales"
+    }
+  ]
+}

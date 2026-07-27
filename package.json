@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "build:kb": "ts-node --skip-project scripts/build-kb.ts"
+    "build:kb": "ts-node --skip-project scripts/build-kb.ts",
+    "test:kb": "ts-node --project tsconfig.scripts.json scripts/test-kb.ts"
   },
   "dependencies": {
     "next": "14.2.5",
@@ -29,6 +30,7 @@
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.7",
     "ts-node": "^10.9.2",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "server-only": "^0.0.1"
   }
 }

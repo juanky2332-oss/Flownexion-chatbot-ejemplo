@@ -31,13 +31,42 @@ components/
 lib/
   prestashop.ts         → Cliente API Prestashop (server-only, usa env vars)
   agent.ts              → System prompt + tool-calling del agente (técnico ESGAS)
+  kb.ts                 → Base de conocimiento local (equivalencias, fichas, glosario, correas)
   websearch.ts          → Búsqueda en fuentes oficiales (gpt-4o-search-preview)
   http.ts               → CORS, rate limiting, auth interna
   types.ts              → Tipos compartidos
+data/
+  source/               → Excel originales del cliente (NO se suben al repo)
+  kb/                   → Base de conocimiento generada + glosario editable
+    glosario.json       → Conceptos técnicos (sellado, juego, jaulas...) — editable a mano
+    eq-*.json           → Equivalencias entre marcas
+    tech-*.json         → Fichas técnicas NTN/SNR
+    ap-*.json           → Aplicaciones por referencia
+    belts-*.json        → Catálogo de correas Continental
+scripts/
+  build-kb.ts           → Regenera data/kb/ desde los Excel (npm run build:kb)
+  test-kb.ts            → Pruebas del KB contra datos reales (npm run test:kb)
+docs/
+  MANTENIMIENTO-KB.md   → Cómo corregir o ampliar lo que sabe el bot
 public/
   widget.js             → Script de embed (<5KB) para Prestashop
   logo.svg / logo-mark.svg → Logo ESGAS
 vercel.json
+```
+
+### 📚 Mantener lo que sabe el bot
+
+Las explicaciones técnicas (tipos de sellado, juego interno, jaulas, precisión,
+sufijos, perfiles de correa) viven en **`data/kb/glosario.json`**, en texto plano,
+para poder corregirlas sin tocar código. El agente tiene prohibido explicar estos
+conceptos de memoria: está obligado a leer el glosario.
+
+Ver **[docs/MANTENIMIENTO-KB.md](docs/MANTENIMIENTO-KB.md)** para el procedimiento
+completo (corregir un dato, añadir un Excel nuevo, publicar los cambios).
+
+```bash
+npm run build:kb   # regenera data/kb/ desde los Excel de data/source/
+npm run test:kb    # comprueba que el KB responde lo correcto
 ```
 
 ### Seguridad de la API key
