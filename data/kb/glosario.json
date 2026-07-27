@@ -1,6 +1,6 @@
 {
   "_leeme": "GLOSARIO TÉCNICO EDITABLE. Es la ÚNICA fuente de verdad del chatbot para conceptos técnicos (sellado, juego interno, jaulas, precisión, sufijos, correas). Si el bot explica algo mal, se corrige AQUÍ, en texto plano, sin tocar código. NO se genera con 'npm run build:kb' — se edita a mano y se commitea. Ver docs/MANTENIMIENTO-KB.md.",
-  "version": "2026-07-27",
+  "version": "2026-07-28",
   "entradas": [
     {
       "id": "sellado-comparativa-general",
@@ -291,6 +291,146 @@
       "titulo": "Correas — familias, perfiles y longitudes (Li / Ld / Lp)",
       "texto": "FAMILIAS DE CORREA\n\n1. TRAPECIALES CLÁSICAS (perfil = ancho × alto, en mm): Z/10 (10×6) · A/13 (13×8) · B/17 (17×11) · C/22 (22×14) · D/32 (32×19) · E/40. Es el estándar más extendido.\n\n2. TRAPECIALES ESTRECHAS: SPZ (9,7×8) · SPA (12,7×10) · SPB (16,3×13) · SPC (22×18), más las pulgadas 3V/9N, 5V/15N, 8V/25N. A igualdad de espacio transmiten más potencia que las clásicas, porque el flanco es más alto respecto al ancho.\n\n3. TRAPECIALES DENTADAS / FLANCO ABIERTO (la \"X\"): ZX, AX, BX, CX (clásicas dentadas) y XPZ, XPA, XPB, XPC (estrechas dentadas). El dentado transversal de la cara interior las hace más flexibles: admiten poleas de menor diámetro y calientan menos. Una AX es la versión dentada de una A, con el mismo perfil y la misma longitud.\n\n4. MULTICOSTILLA / POLY-V: PJ, PK, PL, PM. Se designan por número de costillas + perfil + longitud (p. ej. 8PJ356 = 8 costillas, perfil PJ, 356 mm).\n\n5. DENTADAS SÍNCRONAS (transmiten movimiento sin deslizamiento): paso en pulgadas MXL, XL, L, H, XH, XXH; paso métrico curvilíneo HTD 3M/5M/8M/14M, STD S2M/S3M/S5M/S8M/S14M y CTD C8M/C14M. Se designan por longitud primitiva, paso y anchura (p. ej. 600-8M-30 = 600 mm de desarrollo, paso 8M, 30 mm de ancho).\n\n6. PLANAS: gama Polyflat (F HP, F HF, F HS, F XHP, F XHS).\n\nLONGITUDES — LA CONFUSIÓN MÁS HABITUAL\nUna correa trapecial tiene DOS longitudes distintas, y no son intercambiables:\n- Li = longitud INTERIOR (perímetro interno).\n- Ld / Lp = longitud PRIMITIVA o de paso (la que se usa para calcular la transmisión). Siempre es mayor que la Li.\nEn trapeciales clásicas la diferencia ronda los 20-35 mm según el perfil (por ejemplo, en perfil Z: 425 Li ↔ 448 Ld). Antes de dar por buena una equivalencia de longitud hay que confirmar si el número que trae el cliente es Li o Ld: si se confunden, la correa no monta.\nEn multicostilla se usa Lb, y en dentadas síncronas Lp (longitud primitiva).\n\nCÓMO IDENTIFICAR UNA CORREA QUE YA TIENE EL CLIENTE\nLo normal es que el propio flanco lleve grabado el perfil y la longitud (\"A 1250\", \"SPB 2360\", \"8PJ356\", \"600-8M-30\"). Si está borrado: el ANCHO de la garganta de la polea da el perfil, y la longitud se mide con una cinta por el exterior o se calcula con la distancia entre ejes y los diámetros de las poleas.",
       "fuente": "Lista de precios Continental julio 2026 (cabeceras de perfil de cada gama) + catálogo Continental de correas industriales"
+    },
+    {
+      "id": "montaje-desmontaje",
+      "categoria": "montaje",
+      "prioridad": 8,
+      "terminos": [
+        "montaje",
+        "montar",
+        "monta",
+        "desmontaje",
+        "desmontar",
+        "instalar",
+        "instalacion",
+        "extractor",
+        "prensa",
+        "calentador",
+        "induccion",
+        "golpear",
+        "martillo",
+        "colocar"
+      ],
+      "titulo": "Montaje y desmontaje de un rodamiento",
+      "texto": "REGLA DE ORO: la fuerza de montaje NUNCA debe atravesar los elementos rodantes. Se aplica siempre sobre el anillo que va con apriete. Si se empuja el anillo exterior para meter el interior en el eje (o al revés), las bolas marcan las pistas y el rodamiento queda dañado antes de girar — es el fallo de montaje más común y no se ve a simple vista.\n\nANTES DE MONTAR\n- Limpieza absoluta: un rodamiento se desembala en el último momento. La contaminación durante el montaje es una de las principales causas de fallo prematuro.\n- Comprobar que eje y alojamiento están dentro de tolerancia y sin rebabas (ver la ficha de ajustes y tolerancias).\n- No lavar un rodamiento nuevo: viene protegido de fábrica.\n\nMONTAJE EN FRÍO (tamaños pequeños y medianos)\nCon prensa y un casquillo de montaje que apoye SOLO en el anillo con apriete. Nunca a golpe de martillo directo. Si no hay más remedio que golpear, siempre con casquillo interpuesto y golpes repartidos.\n\nMONTAJE EN CALIENTE (lo recomendable a partir de cierto tamaño)\nCalentar el rodamiento a 80-100 °C por encima de la temperatura del eje, con calentador por inducción o baño de aceite. NUNCA superar 120 °C: por encima se altera el tratamiento térmico del acero y, en los sellados, se destruye la goma. Jamás con soplete ni llama directa. Al enfriar, empujar contra el resalte del eje hasta que asiente.\n\nAGUJERO CÓNICO Y MANGUITO\nEl apriete se controla por el AVANCE de la tuerca o por la reducción de juego interno medida con galga, no \"a ojo\". Apretar de más deja el rodamiento sin juego y lo destruye en caliente.\n\nDESMONTAJE\nExtractor apoyado SIEMPRE en el anillo con apriete, nunca tirando del otro. Para casos difíciles, calor localizado o extractor hidráulico. Un rodamiento desmontado con extractor tirando del anillo equivocado no debe reutilizarse aunque parezca intacto.",
+      "fuente": "Buenas prácticas de montaje de NTN-SNR y SKF (manuales de mantenimiento)"
+    },
+    {
+      "id": "lubricacion",
+      "categoria": "lubricacion",
+      "prioridad": 8,
+      "terminos": [
+        "lubricacion",
+        "lubricar",
+        "engrase",
+        "engrasar",
+        "grasa",
+        "aceite",
+        "NLGI",
+        "reengrase",
+        "reengrasar",
+        "cada cuanto",
+        "lubricante"
+      ],
+      "titulo": "Lubricación y engrase — cantidad, tipo e intervalos",
+      "texto": "El 80% de los fallos prematuros de rodamiento tienen que ver con la lubricación: falta, exceso, grasa equivocada o contaminada.\n\nQUÉ GRASA\nPara la mayoría de aplicaciones industriales, grasa de jabón de litio de consistencia NLGI 2 con aceite base mineral. Casos especiales: altas temperaturas (jabón complejo o poliurea), alimentaria (grado NSF H1), cargas muy altas (aditivos EP), muy baja temperatura o alta velocidad (aceite base más fluido).\nNO mezclar grasas de jabones distintos: pueden reaccionar entre sí, ablandarse y perder toda su capacidad.\n\nCUÁNTA\nLlenar entre el 30% y el 50% del espacio libre del rodamiento, no más. Rellenar al 100% es un error muy frecuente: la grasa sobrante se amasa, genera calor y termina fundiéndose o endureciéndose. Solo se llena por completo a velocidades muy bajas o cuando hace falta un efecto de barrera frente a contaminación.\n\nCADA CUÁNTO\nEl intervalo depende sobre todo de la velocidad (producto del diámetro medio por las rpm), la temperatura, la carga y la suciedad del entorno. Órdenes de magnitud orientativos, en marcha continua y condiciones limpias: velocidades bajas y temperatura ambiente pueden ir años sin reengrase; velocidades altas o temperaturas de trabajo elevadas pueden pedirlo cada pocos meses o semanas.\nREGLA PRÁCTICA DE TEMPERATURA: a partir de unos 70 °C, cada 15 °C de más reduce a la MITAD la vida de la grasa. Es el factor que más acorta los intervalos.\n\nRODAMIENTOS SELLADOS\nLos rodamientos con juntas o deflectores (2RS, LLU, ZZ...) vienen lubricados de por vida y NO se reengrasan: no tienen por dónde. Si una aplicación necesita reengrase periódico, hay que ir a un rodamiento abierto con alojamiento engrasable, o a uno con ranura y taladros de engrase (/W33).\n\nSEÑALES DE QUE ALGO VA MAL\nGrasa oscurecida o endurecida (sobrecalentamiento), con partículas metálicas (desgaste ya en marcha), emulsionada o blanquecina (entrada de agua).",
+      "fuente": "Recomendaciones de lubricación de NTN-SNR y SKF"
+    },
+    {
+      "id": "diagnostico-fallos",
+      "categoria": "diagnostico",
+      "prioridad": 8,
+      "terminos": [
+        "ruido",
+        "ruidoso",
+        "hace ruido",
+        "calienta",
+        "calentamiento",
+        "caliente",
+        "vibra",
+        "vibracion",
+        "fallo",
+        "falla",
+        "averia",
+        "sintoma",
+        "diagnostico",
+        "silba",
+        "silbido",
+        "chirria",
+        "zumbido",
+        "fuga",
+        "gripado",
+        "se rompe"
+      ],
+      "titulo": "Diagnóstico: qué significa cada síntoma",
+      "texto": "Guía rápida para orientar al cliente por lo que oye o nota. Sirve para acotar la causa; el diagnóstico definitivo exige ver la pieza.\n\nRUIDO\n- Zumbido continuo y uniforme: lubricación insuficiente o grasa degradada. Suele ser lo primero a revisar.\n- Silbido agudo: falta de grasa, o grasa demasiado dura para la velocidad.\n- Golpeteo o chasquido PERIÓDICO (una vez por vuelta): daño localizado en una pista o en un elemento rodante — fatiga, marcas de montaje o paso de corriente eléctrica.\n- Ruido áspero, como de arena: contaminación por partículas.\n- Ruido que aparece solo en frío y desaparece al calentar: juego interno excesivo para esa aplicación.\n\nCALENTAMIENTO\nCausas más frecuentes, por orden:\n1. EXCESO de grasa (contra la intuición, es la causa número uno).\n2. Juego interno insuficiente en caliente: se montó CN donde hacía falta C3, o el ajuste en el eje es demasiado apretado.\n3. Desalineación entre soportes.\n4. Precarga excesiva en montajes de rodamientos emparejados.\n5. Carga superior a la prevista.\n\nVIBRACIÓN\nDesequilibrio del conjunto giratorio, desalineación, holgura en el alojamiento (anillo exterior girando en su asiento) o daño ya avanzado en las pistas.\n\nFUGA DE GRASA\nExceso de llenado, o sellado dañado o inadecuado para el entorno.\n\nAL DESMONTAR, LO QUE SE VE\n- Picaduras repartidas por la pista: fatiga normal por fin de vida.\n- Marcas espaciadas regularmente: daño de montaje (golpes) o vibración con la máquina parada.\n- Estrías o acanaladuras mates: paso de corriente eléctrica (típico en motores con variador; se resuelve con rodamiento aislado o cerámico).\n- Pista pulida y brillante en una banda estrecha: carga mal repartida o desalineación.\n- Óxido: entrada de agua o condensación; revisar el sellado.\n\nSi el cliente describe un síntoma y la causa no queda clara, lo correcto es acotar con UNA pregunta (entorno, velocidad, si es nuevo o lleva tiempo) y, si aun así no se puede confirmar, ofrecer hablar con un técnico.",
+      "fuente": "Análisis de fallos de rodamientos (ISO 15243) y catálogos NTN-SNR / SKF"
+    },
+    {
+      "id": "ajustes-tolerancias",
+      "categoria": "montaje",
+      "prioridad": 7,
+      "terminos": [
+        "ajuste",
+        "ajustes",
+        "tolerancia eje",
+        "tolerancia alojamiento",
+        "apriete",
+        "k5",
+        "k6",
+        "j6",
+        "m6",
+        "h7",
+        "j7",
+        "n6",
+        "deslizante",
+        "asiento",
+        "tolerancia",
+        "tolerancias",
+        "encaje"
+      ],
+      "titulo": "Ajustes de eje y alojamiento — cuándo va con apriete",
+      "texto": "REGLA FUNDAMENTAL: el anillo que GIRA respecto a la dirección de la carga se monta con APRIETE. El que permanece quieto respecto a la carga puede ir deslizante.\n\nCASO HABITUAL (eje giratorio, carga fija: motores, bombas, ventiladores, reductores)\n- Anillo INTERIOR sobre el eje: con apriete. Tolerancias típicas del eje k5 o k6 para carga normal; m6 o n6 si la carga es pesada o hay choques; j6 para cargas ligeras.\n- Anillo EXTERIOR en el alojamiento: deslizante o de transición, H7 o J7. Así puede desplazarse axialmente y absorber dilataciones.\n\nCASO INVERSO (alojamiento giratorio, carga fija: ruedas, poleas tensoras)\nSe invierte: el exterior va con apriete (M7, N7) y el interior puede ir deslizante (g6, h6).\n\nPOR QUÉ IMPORTA, Y SU RELACIÓN CON EL JUEGO\nUn ajuste con apriete DILATA el anillo interior y le come juego interno al rodamiento. Si además el interior trabaja más caliente que el exterior, se le come más todavía. Por eso las aplicaciones con apriete fuerte o con salto térmico piden juego C3 en vez del CN normal: para que en caliente, ya montado, siga quedando juego.\nApretar de más sin subir de juego es una de las causas más frecuentes de calentamiento y fallo prematuro.\n\nOTROS PUNTOS DEL ASIENTO\n- El resalte del eje debe ser perpendicular y de altura suficiente para apoyar el anillo, sin invadir el radio de acuerdo del rodamiento.\n- Un alojamiento ovalado o con rebabas hace trabajar mal al rodamiento por muy bueno que sea.",
+      "fuente": "Tablas de ajuste ISO 286 y recomendaciones de montaje NTN-SNR / SKF"
+    },
+    {
+      "id": "tipo-por-carga",
+      "categoria": "seleccion",
+      "prioridad": 7,
+      "terminos": [
+        "carga axial",
+        "carga radial",
+        "carga combinada",
+        "empuje",
+        "que tipo",
+        "cual elijo",
+        "que rodamiento uso",
+        "seleccion",
+        "elegir rodamiento",
+        "rotula",
+        "axial"
+      ],
+      "titulo": "Qué tipo de rodamiento según la carga",
+      "texto": "Orientación para elegir familia cuando el cliente describe el esfuerzo en vez de dar una referencia.\n\nCARGA RADIAL PURA (la mayoría de casos)\n- Rígido de bolas (series 60xx, 62xx, 63xx): el estándar. Barato, silencioso, admite velocidad alta y algo de carga axial en ambos sentidos.\n- Rodillos cilíndricos (NU, NJ, N): mucha más capacidad radial que las bolas a igualdad de tamaño, pero sin apenas capacidad axial. Para cargas radiales fuertes.\n\nCARGA AXIAL PURA\n- Axial de bolas (511xx, 512xx): solo carga axial, y de un solo sentido en la versión simple.\n\nCARGA COMBINADA (radial + axial a la vez)\n- Rodillos cónicos (302xx, 320xx, 322xx, 330xx): la opción clásica. Muy capaces en ambas direcciones, pero se montan SIEMPRE por parejas enfrentadas y hay que ajustarles el juego o la precarga en el montaje.\n- Contacto angular de 1 hilera (72xx, 73xx): carga axial en UN sentido; emparejados, en los dos. Admiten velocidad alta.\n- Contacto angular de 2 hileras (32xx, 33xx, 52xx, 53xx): carga combinada en ambos sentidos en una sola pieza.\n\nDESALINEACIÓN ENTRE APOYOS\n- Rodamientos a rótula, de bolas (12xx, 22xx) o de rodillos (222xx, 223xx): absorben desalineación angular. Los de rodillos a rótula, además, cargas muy pesadas.\n\nMONTAJE SENCILLO SOBRE EJE SIN MECANIZAR\n- Rodamientos de inserción serie UC con soporte (UCP, UCF, UCFL): se fijan al eje con prisioneros y toleran algo de desalineación inicial. Típicos en transportadores y maquinaria agrícola.\n\nPara concretar una referencia hacen falta como mínimo el diámetro del eje y el espacio disponible; a partir de ahí se comprueba en catálogo.",
+      "fuente": "Criterios de selección de los catálogos generales NTN-SNR y SKF"
+    },
+    {
+      "id": "vida-util",
+      "categoria": "seleccion",
+      "prioridad": 6,
+      "terminos": [
+        "vida util",
+        "vida",
+        "duracion",
+        "cuanto dura",
+        "L10",
+        "horas de vida",
+        "fatiga"
+      ],
+      "titulo": "Vida útil de un rodamiento (L10)",
+      "texto": "La vida nominal L10 es el número de revoluciones que alcanza el 90% de un lote de rodamientos iguales antes de que aparezca fatiga en las pistas. Es una referencia estadística de diseño, no una garantía de duración de una pieza concreta.\n\nSE CALCULA a partir de la capacidad de carga dinámica del rodamiento (el valor C de la ficha técnica, en kN) y de la carga real de trabajo. La relación no es lineal: es una potencia. En rodamientos de bolas el exponente es 3, lo que significa que DOBLAR la carga divide la vida por ocho. En rodillos el exponente es 10/3, aún más severo. Por eso una sobrecarga aparentemente pequeña se paga tan cara.\n\nEl resultado en revoluciones se pasa a horas dividiendo por las revoluciones por minuto y por 60.\n\nMUY IMPORTANTE: en la práctica, la mayoría de los rodamientos NO llegan a fallar por fatiga. Fallan antes por lubricación deficiente, contaminación, montaje incorrecto, desalineación o sellado inadecuado. Un cálculo de vida impecable no sirve de nada si el rodamiento trabaja sucio o mal engrasado.\n\nPara un cálculo concreto hacen falta la carga real (radial y axial), las rpm y las condiciones de trabajo. Si el cliente lo necesita afinado, lo correcto es pasarle con un técnico en vez de dar un número aproximado.",
+      "fuente": "ISO 281 (vida nominal) y catálogos NTN-SNR / SKF"
     }
   ]
 }

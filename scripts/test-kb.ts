@@ -154,6 +154,36 @@ for (const q of [
   ok(findBeltForMessage(q).length === 0, `NO dispara: "${q}"`);
 }
 
+section("GLOSARIO AMPLIADO — montaje, lubricacion, diagnostico, ajustes, seleccion");
+for (const [q, esperado] of [
+  ["mi rodamiento hace ruido y se calienta, que puede ser", /lubricaci|exceso de grasa|desalinea|juego/i],
+  ["como se monta un rodamiento correctamente", /nunca.*atraves|elementos rodantes|prensa|calent/i],
+  ["cada cuanto hay que engrasar un rodamiento", /NLGI|30%|50%|temperatura|intervalo|grasa/i],
+  ["que tolerancia debe tener el eje para un 6205", /k5|k6|m6|apriete|deslizante/i],
+  ["que rodamiento aguanta carga axial y radial a la vez", /c[oó]nic|contacto angular/i],
+  ["cuanta vida util tiene un rodamiento", /L10|fatiga|revoluciones|carga/i],
+  ["que grasa uso para un rodamiento", /litio|NLGI/i],
+  ["se me ha gripado el rodamiento", /lubricaci|grasa|juego|calent|desalinea/i],
+] as Array<[string, RegExp]>) {
+  const r = findGlossary(q);
+  const texto = JSON.stringify(r);
+  ok(r.length > 0 && esperado.test(texto), `"${q.slice(0, 46)}"`, r.length ? r[0].titulo.slice(0, 48) : "SIN RESULTADOS");
+}
+
+section("PRE-INYECCION del glosario ampliado");
+for (const q of [
+  "mi rodamiento hace ruido y se calienta",
+  "como se monta un rodamiento",
+  "cada cuanto hay que engrasar",
+  "que tolerancia lleva el eje",
+  "que rodamiento uso para carga axial",
+]) {
+  ok(findGlossaryForMessage(q).length > 0, `SI dispara: "${q}"`);
+}
+for (const q of ["quiero comprar el 6205", "hola buenas", "tienes stock del UC205"]) {
+  ok(findGlossaryForMessage(q).length === 0, `NO dispara: "${q}"`);
+}
+
 section("REFERENCIA DETECTADA para la busqueda automatica en catalogo");
 // Es la que decide si se dispara la busqueda determinista en Prestashop (ver
 // agent.ts). Si extrae mal, el bot puede decir "no lo tenemos" teniendolo:
