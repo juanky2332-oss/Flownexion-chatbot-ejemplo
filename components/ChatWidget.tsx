@@ -164,10 +164,16 @@ export default function ChatWidget({
         {
           id: uid(),
           role: "assistant",
-          content: data.output ?? "Lo siento, no he podido procesar tu consulta. Inténtalo de nuevo.",
+          // Si el servidor no devuelve texto (error 500, o la plataforma corta
+          // la petición y sirve su propia página en vez de JSON), el cliente
+          // NO puede quedarse con una disculpa y nada más: se le ofrece
+          // siempre el contacto, que es la salida que sí le resuelve.
+          content:
+            data.output ??
+            "No he podido completar la consulta en este momento. Vuelve a intentarlo en unos segundos y, si te corre prisa, escríbenos por teléfono o e-mail y te lo resolvemos al momento.",
           products: data.products,
-          needsHuman: data.needsHuman,
-          humanContext: data.humanContext,
+          needsHuman: data.needsHuman ?? !data.output,
+          humanContext: data.humanContext ?? (data.output ? undefined : text.slice(0, 150)),
         },
       ]);
     } catch {
@@ -176,8 +182,10 @@ export default function ChatWidget({
         {
           id: uid(),
           role: "assistant",
-          content: "Ha habido un problema de conexión. ¿Puedes intentarlo de nuevo?",
+          content:
+            "Ha habido un problema de conexión. Vuelve a intentarlo, y si sigue sin ir, escríbenos por teléfono o e-mail y te atendemos al momento.",
           needsHuman: true,
+          humanContext: text.slice(0, 150),
         },
       ]);
     } finally {
