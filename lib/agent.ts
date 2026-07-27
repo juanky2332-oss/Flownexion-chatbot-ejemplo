@@ -12,6 +12,7 @@ import {
   findApplications,
   findTechnicalInfo,
   findGlossary,
+  findGlossaryForMessage,
   findBelt,
 } from "./kb";
 import { searchOfficialSource } from "./websearch";
