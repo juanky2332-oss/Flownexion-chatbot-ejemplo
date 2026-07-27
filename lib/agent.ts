@@ -968,7 +968,24 @@ export async function runAgent(
     });
   }
 
+  // PRESUPUESTO DE TIEMPO — el chat nunca puede morir por timeout.
+  //
+  // La ruta tiene maxDuration = 60 s. Si el bucle de herramientas se pasa,
+  // Vercel mata la función y devuelve su propia página de error: el widget no
+  // recibe JSON y el cliente ve "Lo siento, no he podido procesar tu
+  // consulta". Pasaba de verdad ("quiero comprar el rodamiento 3309" con el
+  // catálogo en frío), y es el peor final posible: sin respuesta y sin
+  // contacto al que acudir.
+  //
+  // Con el presupuesto, al agotarse se deja de llamar a herramientas y se
+  // pide al modelo que responda YA con lo que tenga. Se pierde algún dato
+  // accesorio, pero el cliente siempre recibe una respuesta útil.
+  const inicio = Date.now();
+  const PRESUPUESTO_MS = 38000;
+  const agotado = (): boolean => Date.now() - inicio > PRESUPUESTO_MS;
+
   for (let i = 0; i < 6; i++) {
+    if (agotado()) break;
     const completion = await openai.chat.completions.create({
       model: MODEL,
       temperature: TEMPERATURE,
@@ -1017,6 +1034,23 @@ export async function runAgent(
     }
   }
 
+  // Cierre sin herramientas: el modelo tiene que redactar ya con lo que hay.
+  // Si se acabó el presupuesto, se le dice explícitamente para que no intente
+  // seguir buscando ni se disculpe por lo que no pudo comprobar.
+  if (agotado()) {
+    messages.push({
+      role: "system",
+      content:
+        "Se ha agotado el tiempo de consulta a las fuentes externas. Responde AHORA, en este mensaje, " +
+        "usando TODO lo que ya tengas en la conversación (datos del KB, fichas técnicas y productos ya " +
+        "encontrados). No intentes buscar más ni digas que estás buscando. Si algún dato concreto no lo " +
+        "llegaste a confirmar, simplemente omítelo y da el resto con normalidad; y si te falta lo esencial " +
+        "para cerrar la consulta, ofrece el contacto por teléfono o e-mail como último recurso. " +
+        "PROHIBIDO responder con una disculpa genérica, con un mensaje de error o dejando al cliente sin " +
+        "ninguna salida.",
+    });
+  }
+
   const final = await openai.chat.completions.create({
     model: MODEL,
     temperature: TEMPERATURE,
@@ -1024,8 +1058,15 @@ export async function runAgent(
     messages,
   });
 
+  const salida = (final.choices[0]?.message?.content ?? "").trim();
+
   return {
-    output: final.choices[0]?.message?.content ?? "",
+    // Red de seguridad final: si el modelo devolviera texto vacío, el widget
+    // mostraría su mensaje de error genérico. Mejor una respuesta corta y
+    // accionable que un "no he podido procesar tu consulta".
+    output:
+      salida ||
+      "Ahora mismo no he podido completar la consulta. Cuéntame la referencia o la medida que necesitas y lo miro de nuevo, o si lo prefieres puedes escribirnos por teléfono o e-mail y te lo resolvemos al momento.",
     products: collected.slice(0, 3),
     needsHuman: escalation.needsHuman,
     humanContext: escalation.context,

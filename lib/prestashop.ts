@@ -587,11 +587,32 @@ export async function searchProducts(
   }
 
   if (matched.length === 0) return [];
+  return hydrateProducts(matched, groupId, idCustomer);
+}
+
+/**
+ * A partir de una lista ya localizada de {id, name}, completa cada producto
+ * con detalle, precio real del cliente y stock.
+ *
+ * Está extraído de searchProducts para que searchByBore pueda reutilizarlo:
+ * antes searchByBore llamaba SEIS veces a searchProducts (una por serie) y,
+ * como cada una hace su búsqueda rápida, su posible barrido de catálogo, su
+ * detalle, sus precios y su stock, una sola llamada a la tool se convertía en
+ * unas cuarenta peticiones a Prestashop. Con el catálogo en frío eso se
+ * comía el limite de la funcion y la respuesta acababa en FUNCTION_INVOCATION_TIMEOUT.
+ */
+async function hydrateProducts(
+  matched: Array<{ id: number; name: string }>,
+  groupId?: number,
+  idCustomer?: number,
+  limit = 3
+): Promise<Product[]> {
+  if (matched.length === 0) return [];
 
   const ids = matched.map((p) => p.id).join("|");
   const detailUrl = buildUrl("products", {
     display: "full",
-    limit: "5",
+    limit: String(matched.length),
     filters: { "filter[id]": `[${ids}]` },
   });
 
@@ -649,7 +670,7 @@ export async function searchProducts(
     )
   );
 
-  const finalProducts = products.filter((p) => p.id > 0).slice(0, 3);
+  const finalProducts = products.filter((p) => p.id > 0).slice(0, limit);
   const stockMap = await getStockBulk(finalProducts.map((p) => p.id));
   return finalProducts.map((p) =>
     p.id in stockMap ? { ...p, stock: stockMap[p.id] } : p
@@ -673,22 +694,47 @@ export async function searchByBore(
 ): Promise<Product[]> {
   const code = boreCodeFor(boreMm);
   if (!code) return [];
+  if (DEMO_MODE) {
+    const prefixes = seriesPrefixesForBoreCode(code);
+    const seen = new Set<number>();
+    const merged: Product[] = [];
+    for (const p of prefixes) {
+      for (const prod of demoSearch(p.prefix)) {
+        if (seen.has(prod.id)) continue;
+        seen.add(prod.id);
+        merged.push(prod);
+      }
+    }
+    return merged.slice(0, 6);
+  }
+  assertConfig();
 
   const prefixes = seriesPrefixesForBoreCode(code);
-  const resultsBySeries = await Promise.all(
-    prefixes.map((p) => searchProducts(p.prefix, groupId, idCustomer))
-  );
+  const normPrefijos = prefixes.map((p) => p.prefix.toLowerCase().replace(/[\s\-\/\.]/g, ""));
+
+  // UNA sola pasada al catálogo para las seis series, en vez de seis búsquedas
+  // completas e independientes (ver hydrateProducts): el índice de nombres ya
+  // está cacheado en el proceso, así que filtrar aquí las seis series no
+  // cuesta ni una petición extra.
+  const allNames = await getAllNames();
+  if (allNames.length === 0) return [];
 
   const seen = new Set<number>();
-  const merged: Product[] = [];
-  for (const list of resultsBySeries) {
-    for (const p of list) {
+  const matched: Array<{ id: number; name: string }> = [];
+  for (const pref of normPrefijos) {
+    for (const p of allNames) {
+      if (matched.length >= 6) break;
       if (seen.has(p.id)) continue;
-      seen.add(p.id);
-      merged.push(p);
+      const nn = p.name.toLowerCase().replace(/[\s\-\/\.]/g, "");
+      const rn = p.reference.toLowerCase().replace(/[\s\-\/\.]/g, "");
+      if (nn.includes(pref) || rn.includes(pref)) {
+        seen.add(p.id);
+        matched.push({ id: p.id, name: p.name });
+      }
     }
   }
-  return merged.slice(0, 6);
+
+  return hydrateProducts(matched, groupId, idCustomer, 6);
 }
 
 /**
