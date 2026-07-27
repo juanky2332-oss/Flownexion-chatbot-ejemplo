@@ -28,7 +28,7 @@ function norm(s: unknown): string {
 const QUERY_NOISE =
   /\b(SKF|FAG|INA|NSK|TIMKEN|KOYO|NACHI|ZKL|NKE|NTN|SNR|MARCA|REFERENCIA|REF|RODAMIENTO|RODAMIENTOS|EQUIVALENCIA|EQUIVALENTE|DE|DEL|EN|EL|LA|UN|UNA|Y|O|QUE|HAY|PARA|PUEDES|DECIRME|DIME|DIGA|DIGAME|CUAL|CUALES|TIENES|TIENE|TENEIS)\b/gi;
 
-function extractQueryCandidates(rawQuery: string): string[] {
+export function extractQueryCandidates(rawQuery: string): string[] {
   const cleaned = String(rawQuery ?? "").replace(QUERY_NOISE, " ");
   // Recortar signos de puntuación pegados en los bordes de cada token
   // ("6205?", "¿6205", "(6205)", "6205."): una pregunta que TERMINA en la

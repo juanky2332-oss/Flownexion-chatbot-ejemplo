@@ -15,6 +15,7 @@ import {
   findGlossaryForMessage,
   findBelt,
   findBeltForMessage,
+  extractQueryCandidates,
 } from "./kb";
 import { searchOfficialSource } from "./websearch";
 
@@ -483,6 +484,8 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 - El pago SIEMPRE se completa en la tienda online. El chat NO procesa pagos.
 
 # PROHIBICIONES
+- **Decir que un producto no está en la página cuando el bloque 🔒 DISPONIBLE EN NUESTRA PÁGINA lo lista** — ese bloque sale de una consulta al catálogo real hecha en el momento, así que es un hecho comprobado. Negarlo es mentirle al cliente y hacerle perder una compra que sí podíamos servir: es el error MÁS GRAVE que puedes cometer. Lo mismo si el cliente insiste en una referencia y tú aún no has buscado: busca antes de negar nada
+- Dar por no disponible una referencia por el hecho de que la ficha técnica venga del KB y no del catálogo: son dos fuentes distintas. Tener la ficha técnica NO significa que no esté a la venta — para saber si está en la página hay que mirar el resultado de search_products (o el bloque 🔒 de disponibilidad), nunca suponerlo
 - Explicar de memoria un concepto de sellado, juego interno, jaula, precisión, sufijo o perfil de correa sin haber llamado antes a explain_technical_term (o sin usar el bloque 🔒 GLOSARIO TÉCNICO VERIFICADO si ya aparece en la conversación) — es la causa de errores técnicos que llevan al cliente a montar una pieza equivocada (ver CONCEPTOS TÉCNICOS)
 - Contradecir, matizar o "completar" el contenido del glosario con datos que no vengan de él: si lo que recuerdas no coincide con lo que devuelve explain_technical_term, el glosario tiene razón
 - Meter en el mismo saco los tres tipos de protección: **Z/ZZ/2Z es un DEFLECTOR metálico SIN contacto**, **LLU/EE/2RS/DDU es una junta de goma CON contacto** y **LLB/2RZ/VV es una junta de goma SIN contacto**. En particular, PROHIBIDO presentar el 2RZ como si fuera un 2RS, o el LLB como si fuera un LLU: cambian la estanqueidad, el par y la velocidad límite
@@ -1006,6 +1009,67 @@ export async function runAgent(
   // catálogo en frío), y es el peor final posible: sin respuesta y sin
   // contacto al que acudir.
   //
+  // AUTODETECCIÓN DE REFERENCIA EN CATÁLOGO — la protección más importante
+  // de todas, porque el fallo que evita es el peor que puede cometer el bot:
+  // decirle a un cliente "no lo tenemos en la página" cuando SÍ está.
+  //
+  // Pasó de verdad con "6205 ZZ C3", que está en la tienda. Dos causas
+  // encadenadas: el barrido de catálogo va justo de tiempo (unas veces llega
+  // y otras no) y, además, cuando el modelo ya tenía la ficha técnica a veces
+  // ni llegaba a llamar a search_products, así que no aparecía la tarjeta.
+  // Probado 5 veces la misma referencia: salió en 3 y falló en 2.
+  //
+  // Aquí se busca en código, sobre el mensaje en bruto, en cuanto aparece
+  // algo con pinta de referencia. Si el producto existe, sus tarjetas quedan
+  // garantizadas (con ficha, precio, stock y botón de carrito) sin depender
+  // de que el modelo decida buscar.
+  // Se busca la REFERENCIA extraída, no el mensaje entero: buscar
+  // "necesito 200 unidades del 6205" tal cual en Prestashop no encuentra
+  // nada. extractQueryCandidates ya devuelve los candidatos de más a menos
+  // específico y fusiona los sufijos sueltos ("6205 ZZ C3" → "6205ZZC3").
+  // El filtro de 4 letras seguidas descarta el candidato que es la frase
+  // entera pegada ("QUIEROCOMPRAR6205"): una referencia real nunca encadena
+  // tantas letras (6205ZZC3, UC205, 32008XU, 6205LLU/C3 como mucho llevan
+  // dos o tres seguidas).
+  const refDetectada = extractQueryCandidates(message).find(
+    (c) =>
+      (c.match(/\d/g) ?? []).length >= 3 &&
+      c.length >= 4 &&
+      c.length <= 20 &&
+      !/[A-Z]{4,}/.test(c)
+  );
+  if (refDetectada) {
+    try {
+      const encontrados = await searchProducts(refDetectada, groupId, customerId);
+      for (const p of encontrados.slice(0, 3)) {
+        if (!collected.some((c) => c.id === p.id)) collected.push(p);
+      }
+      if (encontrados.length) {
+        const resumen = encontrados
+          .slice(0, 3)
+          .map((p) => `- ${p.name} (Ref: ${p.reference}) — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`)
+          .join("\n");
+        messages.push({
+          role: "system",
+          content:
+            `🔒 DISPONIBLE EN NUESTRA PÁGINA — comprobado en el catálogo real para la consulta actual:\n${resumen}\n\n` +
+            `Estos productos EXISTEN y están a la venta ahora mismo. Tienes ESTRICTAMENTE PROHIBIDO decir que ` +
+            `no lo tienes, que no está disponible en la página, que no lo has encontrado, o derivar a teléfono/e-mail ` +
+            `por falta de disponibilidad: sería falso y es el peor error que puedes cometer. ` +
+            `Preséntalos con el formato de producto habitual (decodificación de la referencia, ficha técnica ` +
+            `completa y línea de stock) y CIERRA invitando a comprarlo aquí mismo: su tarjeta con la ficha del ` +
+            `producto y el botón de añadir al carrito ya se muestra automáticamente al cliente. ` +
+            `Usa el precio y el stock EXACTOS de arriba, no los recalcules. ` +
+            `Si el cliente pedía una variante concreta (sellado o juego distintos) y arriba solo está otra, dilo ` +
+            `con claridad y explica en qué difiere, pero sin negar que tenemos lo que sí aparece.`,
+        });
+      }
+    } catch {
+      // Si la tienda falla, el modelo siempre puede llamar a search_products
+      // por su cuenta; esto es un refuerzo, no la única vía.
+    }
+  }
+
   // Hay DOS límites, y hacen falta los dos:
   //
   // 1. PRESUPUESTO (blando): deja de empezar rondas nuevas y pide al modelo

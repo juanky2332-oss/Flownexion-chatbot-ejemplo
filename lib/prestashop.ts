@@ -241,7 +241,8 @@ async function getAllNames(): Promise<Array<{ id: number; name: string; referenc
  * respecto al comportamiento anterior.
  */
 async function quickSearchNames(
-  query: string
+  query: string,
+  limite = 10
 ): Promise<Array<{ id: number; name: string; reference: string }>> {
   const q = query.trim();
   if (!q) return [];
@@ -251,7 +252,7 @@ async function quickSearchNames(
     psFetch(
       buildUrl("products", {
         display: "[id,name,reference,supplier_reference]",
-        limit: "10",
+        limit: String(limite),
         // %valor% = "contiene", la sintaxis LIKE del Webservice de Prestashop.
         filters: { [`filter[${campo}]`]: `%[${q}]%` },
       })
@@ -590,15 +591,36 @@ export async function searchProducts(
     return nl.includes(qLow) || nn.includes(qNorm) || rl.includes(qLow) || rn.includes(qNorm);
   };
 
-  // 1º la vía rápida (Prestashop filtra por nosotros). 2º, solo si no ha
-  // encontrado nada, el barrido completo del catálogo — más lento pero
-  // exhaustivo, que es el comportamiento que había antes.
-  let matched = (await quickSearchNames(safeQuery)).filter(encaja).slice(0, 5);
+  // Búsqueda EN CAPAS, de la más precisa a la más amplia. El objetivo es que
+  // un "no lo tenemos" siendo falso sea imposible: es el peor fallo posible
+  // de cara al cliente, y pasó de verdad con "6205 ZZ C3", que SÍ está en la
+  // tienda. La causa era depender del barrido completo del catálogo, que va
+  // justo en el límite de su tiempo y unas veces llega y otras no.
+  //
+  // La clave de las capas 2 y 3: aunque busquemos en Prestashop por algo más
+  // corto (la referencia base "6205"), el filtro local sigue exigiendo la
+  // consulta COMPLETA ("6205zzc3"), así que no se cuela un producto que no
+  // sea el que pide el cliente.
+  const intentos: Array<() => Promise<Array<{ id: number; name: string; reference: string }>>> = [
+    // 1. Tal cual lo ha escrito el cliente ("6205 ZZ C3").
+    () => quickSearchNames(safeQuery),
+    // 2. Sin separadores ("6205ZZC3"), que es como suele estar la referencia.
+    () => (qNorm !== qLow ? quickSearchNames(qNorm) : Promise.resolve([])),
+    // 3. Solo la referencia base ("6205"), pidiendo más resultados: recupera
+    //    los casos en los que la tienda escribe los sufijos de otra forma.
+    () => {
+      const base = safeQuery.match(/\d{3,5}/)?.[0];
+      return base && base !== qNorm ? quickSearchNames(base, 60) : Promise.resolve([]);
+    },
+    // 4. Último recurso: barrido completo del catálogo.
+    async () => getAllNames(),
+  ];
 
-  if (matched.length === 0) {
-    const allNames = await getAllNames();
-    if (allNames.length === 0) return [];
-    matched = allNames.filter(encaja).slice(0, 5);
+  let matched: Array<{ id: number; name: string; reference: string }> = [];
+  for (const intento of intentos) {
+    const encontrados = await intento();
+    matched = encontrados.filter(encaja).slice(0, 5);
+    if (matched.length > 0) break;
   }
 
   if (matched.length === 0) return [];

@@ -29,6 +29,7 @@ const {
   findEquivalence,
   findTechnicalInfo,
   getBeltProfiles,
+  extractQueryCandidates,
 } = require("../lib/kb") as typeof import("../lib/kb");
 
 let fails = 0;
@@ -151,6 +152,36 @@ for (const q of [
   "diferencia entre 2RS y 2RZ",
 ]) {
   ok(findBeltForMessage(q).length === 0, `NO dispara: "${q}"`);
+}
+
+section("REFERENCIA DETECTADA para la busqueda automatica en catalogo");
+// Es la que decide si se dispara la busqueda determinista en Prestashop (ver
+// agent.ts). Si extrae mal, el bot puede decir "no lo tenemos" teniendolo:
+// paso de verdad con "6205 ZZ C3", que SI esta en la tienda.
+function refDe(msg: string): string | null {
+  return (
+    extractQueryCandidates(msg).find(
+      (c) =>
+        (c.match(/\d/g) ?? []).length >= 3 &&
+        c.length >= 4 &&
+        c.length <= 20 &&
+        !/[A-Z]{4,}/.test(c)
+    ) ?? null
+  );
+}
+for (const [msg, esperado] of [
+  ["dime las caracteristicas del rodamiento 6205 zz c3", "6205ZZC3"],
+  ["tienes el 6205 ZZ C3", "6205ZZC3"],
+  ["6205ZZC3", "6205ZZC3"],
+  ["quiero comprar el 6205", "6205"],
+  ["necesito 200 unidades del 6205", "6205"],
+  ["quiero comprar el rodamiento 3309", "3309"],
+  ["tienes el UC205", "UC205"],
+  ["hola buenas", null],
+  ["que diferencia hay entre 2RS y 2RZ", null],
+] as Array<[string, string | null]>) {
+  const r = refDe(msg);
+  ok(r === esperado, `ref de "${msg.slice(0, 44)}"`, `${r ?? "(ninguna)"}${r === esperado ? "" : " [esperado " + (esperado ?? "ninguna") + "]"}`);
 }
 
 section("REGRESIONES — equivalencias y ficha tecnica ya existentes");
