@@ -64,9 +64,66 @@ function extractQueryCandidates(rawQuery: string): string[] {
   return [...candidates].filter((c) => c.length >= 3).sort((a, b) => b.length - a.length);
 }
 
+// Lectores del KB con la ruta ESCRITA LITERALMENTE en cada readFileSync.
+//
+// No es verbosidad gratuita: el rastreador de ficheros de Next decide que
+// incluir en la funcion serverless analizando el codigo de forma estatica, y
+// solo sabe seguir rutas literales. Mientras la lectura se hacia con
+// readFileSync(join(process.cwd(), rel)) -con "rel" recibido como argumento-
+// NINGUN JSON del KB se empaquetaba en el despliegue: readFileSync fallaba en
+// produccion, el catch devolvia [] y el bot contestaba "no tengo informacion
+// tecnica" teniendo el dato delante. En local funcionaba siempre, porque ahi
+// los ficheros estan en disco. Comprobado el 2026-07-27: de 36 ficheros de
+// data/kb solo viajaba glosario.json, justo el unico que ya se leia con una
+// ruta literal.
+//
+// Este mapa se genera desde el contenido real de data/kb. Si se anaden
+// ficheros nuevos hay que anadirlos aqui, y verificar el despliegue mirando
+// .next/server/app/api/chat/route.js.nft.json (debe listarlos todos).
+const KB_READERS: Record<string, () => string> = {
+  "data/kb/ap-1.json": () => readFileSync(join(process.cwd(), "data/kb/ap-1.json"), "utf-8"),
+  "data/kb/ap-10.json": () => readFileSync(join(process.cwd(), "data/kb/ap-10.json"), "utf-8"),
+  "data/kb/ap-2.json": () => readFileSync(join(process.cwd(), "data/kb/ap-2.json"), "utf-8"),
+  "data/kb/ap-3.json": () => readFileSync(join(process.cwd(), "data/kb/ap-3.json"), "utf-8"),
+  "data/kb/ap-4.json": () => readFileSync(join(process.cwd(), "data/kb/ap-4.json"), "utf-8"),
+  "data/kb/ap-5.json": () => readFileSync(join(process.cwd(), "data/kb/ap-5.json"), "utf-8"),
+  "data/kb/ap-6.json": () => readFileSync(join(process.cwd(), "data/kb/ap-6.json"), "utf-8"),
+  "data/kb/ap-7.json": () => readFileSync(join(process.cwd(), "data/kb/ap-7.json"), "utf-8"),
+  "data/kb/ap-8.json": () => readFileSync(join(process.cwd(), "data/kb/ap-8.json"), "utf-8"),
+  "data/kb/ap-9.json": () => readFileSync(join(process.cwd(), "data/kb/ap-9.json"), "utf-8"),
+  "data/kb/belts-1.json": () => readFileSync(join(process.cwd(), "data/kb/belts-1.json"), "utf-8"),
+  "data/kb/belts-2.json": () => readFileSync(join(process.cwd(), "data/kb/belts-2.json"), "utf-8"),
+  "data/kb/belts-3.json": () => readFileSync(join(process.cwd(), "data/kb/belts-3.json"), "utf-8"),
+  "data/kb/belts-4.json": () => readFileSync(join(process.cwd(), "data/kb/belts-4.json"), "utf-8"),
+  "data/kb/belts-5.json": () => readFileSync(join(process.cwd(), "data/kb/belts-5.json"), "utf-8"),
+  "data/kb/belts-6.json": () => readFileSync(join(process.cwd(), "data/kb/belts-6.json"), "utf-8"),
+  "data/kb/belts-7.json": () => readFileSync(join(process.cwd(), "data/kb/belts-7.json"), "utf-8"),
+  "data/kb/belts-8.json": () => readFileSync(join(process.cwd(), "data/kb/belts-8.json"), "utf-8"),
+  "data/kb/belts-perfiles.json": () => readFileSync(join(process.cwd(), "data/kb/belts-perfiles.json"), "utf-8"),
+  "data/kb/eq-1.json": () => readFileSync(join(process.cwd(), "data/kb/eq-1.json"), "utf-8"),
+  "data/kb/eq-2.json": () => readFileSync(join(process.cwd(), "data/kb/eq-2.json"), "utf-8"),
+  "data/kb/eq-3.json": () => readFileSync(join(process.cwd(), "data/kb/eq-3.json"), "utf-8"),
+  "data/kb/glosario.json": () => readFileSync(join(process.cwd(), "data/kb/glosario.json"), "utf-8"),
+  "data/kb/precios.json": () => readFileSync(join(process.cwd(), "data/kb/precios.json"), "utf-8"),
+  "data/kb/tech-1.json": () => readFileSync(join(process.cwd(), "data/kb/tech-1.json"), "utf-8"),
+  "data/kb/tech-10.json": () => readFileSync(join(process.cwd(), "data/kb/tech-10.json"), "utf-8"),
+  "data/kb/tech-11.json": () => readFileSync(join(process.cwd(), "data/kb/tech-11.json"), "utf-8"),
+  "data/kb/tech-12.json": () => readFileSync(join(process.cwd(), "data/kb/tech-12.json"), "utf-8"),
+  "data/kb/tech-2.json": () => readFileSync(join(process.cwd(), "data/kb/tech-2.json"), "utf-8"),
+  "data/kb/tech-3.json": () => readFileSync(join(process.cwd(), "data/kb/tech-3.json"), "utf-8"),
+  "data/kb/tech-4.json": () => readFileSync(join(process.cwd(), "data/kb/tech-4.json"), "utf-8"),
+  "data/kb/tech-5.json": () => readFileSync(join(process.cwd(), "data/kb/tech-5.json"), "utf-8"),
+  "data/kb/tech-6.json": () => readFileSync(join(process.cwd(), "data/kb/tech-6.json"), "utf-8"),
+  "data/kb/tech-7.json": () => readFileSync(join(process.cwd(), "data/kb/tech-7.json"), "utf-8"),
+  "data/kb/tech-8.json": () => readFileSync(join(process.cwd(), "data/kb/tech-8.json"), "utf-8"),
+  "data/kb/tech-9.json": () => readFileSync(join(process.cwd(), "data/kb/tech-9.json"), "utf-8"),
+};
+
 function loadJson<T>(rel: string): T[] {
+  const leer = KB_READERS[rel];
+  if (!leer) return [];
   try {
-    return JSON.parse(readFileSync(join(process.cwd(), rel), "utf-8")) as T[];
+    return JSON.parse(leer()) as T[];
   } catch {
     return [];
   }

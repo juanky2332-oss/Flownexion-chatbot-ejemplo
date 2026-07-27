@@ -10,6 +10,19 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+
+  // ⚠️ El KB (data/kb/*.json) llega a la función serverless porque lib/kb.ts
+  // escribe cada ruta LITERALMENTE en su readFileSync — ver KB_READERS allí.
+  // El rastreador de ficheros de Next solo sabe seguir rutas literales: con
+  // la versión anterior, que pasaba la ruta como variable, NINGÚN JSON del KB
+  // se empaquetaba (solo glosario.json, el único ya literal) y el bot decía
+  // "no tengo información técnica" teniendo el dato. En local nunca se nota,
+  // porque ahí los ficheros están en disco.
+  //
+  // outputFileTracingIncludes se probó como alternativa y NO surtió efecto en
+  // esta versión de Next; la garantía son las rutas literales. Al tocar la
+  // carga del KB, comprobar que .next/server/app/api/chat/route.js.nft.json
+  // sigue listando los 36 ficheros de data/kb.
   eslint: {
     ignoreDuringBuilds: true,
   },
