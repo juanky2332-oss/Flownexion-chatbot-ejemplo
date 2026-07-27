@@ -837,13 +837,32 @@ async function runTool(
   return JSON.stringify({ error: `Herramienta desconocida: ${name}` });
 }
 
+type AgentResult = {
+  output: string;
+  products: Product[];
+  needsHuman?: boolean;
+  humanContext?: string;
+};
+
+/**
+ * Límite DURO de la conversación. Por debajo de maxDuration (60 s) con margen
+ * suficiente para serializar y devolver la respuesta.
+ *
+ * Garantiza que /api/chat SIEMPRE devuelve JSON. Sin esto, cuando la
+ * conversación se pasaba del tiempo era Vercel quien cortaba, sirviendo su
+ * propia página de error: el widget no recibía JSON y el cliente veía
+ * "Lo siento, no he podido procesar tu consulta", sin respuesta y sin ninguna
+ * vía de contacto. Reproducido con "quiero comprar el rodamiento 3309".
+ */
+export const LIMITE_DURO_MS = 50000;
+
 export async function runAgent(
   message: string,
   history: Message[],
   cart?: CartItem[],
   customerGroupId?: number,
   customerId?: number
-): Promise<{ output: string; products: Product[]; needsHuman?: boolean; humanContext?: string }> {
+): Promise<AgentResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("Falta OPENAI_API_KEY en las variables de entorno.");
@@ -977,14 +996,23 @@ export async function runAgent(
   // catálogo en frío), y es el peor final posible: sin respuesta y sin
   // contacto al que acudir.
   //
-  // Con el presupuesto, al agotarse se deja de llamar a herramientas y se
-  // pide al modelo que responda YA con lo que tenga. Se pierde algún dato
-  // accesorio, pero el cliente siempre recibe una respuesta útil.
+  // Hay DOS límites, y hacen falta los dos:
+  //
+  // 1. PRESUPUESTO (blando): deja de empezar rondas nuevas y pide al modelo
+  //    que responda con lo que ya tiene. Da la mejor respuesta posible.
+  // 2. LÍMITE DURO (más abajo, con Promise.race): corta pase lo que pase.
+  //    El presupuesto por sí solo NO basta — solo impide EMPEZAR otra ronda,
+  //    no acota lo que tarda la que ya está en marcha. Medido: con el
+  //    presupuesto en 38 s, "quiero comprar el rodamiento 3309" seguía
+  //    saliéndose de los 60 s porque la última ronda (catálogo en frío +
+  //    varias herramientas) se comía otros 25 s.
   const inicio = Date.now();
-  const PRESUPUESTO_MS = 38000;
+  const PRESUPUESTO_MS = 28000;
   const agotado = (): boolean => Date.now() - inicio > PRESUPUESTO_MS;
 
-  for (let i = 0; i < 6; i++) {
+  // Menos vueltas que antes (6): cada ronda puede costar varios segundos y en
+  // la práctica con 4 se resuelve cualquier consulta real.
+  for (let i = 0; i < 4; i++) {
     if (agotado()) break;
     const completion = await openai.chat.completions.create({
       model: MODEL,

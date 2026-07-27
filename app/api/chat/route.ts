@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runAgent } from "@/lib/agent";
+import { runAgent, LIMITE_DURO_MS } from "@/lib/agent";
 import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
 import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
@@ -110,13 +110,38 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { output, products, needsHuman, humanContext } = await runAgent(
-      message,
-      history,
-      cart,
-      customerGroupId,
-      customerId
-    );
+    // Límite DURO: esta ruta SIEMPRE tiene que devolver JSON. Si la
+    // conversación se pasara de tiempo, sería Vercel quien cortase (maxDuration
+    // = 60 s) sirviendo su propia página de error; el widget no recibiría JSON
+    // y el cliente vería "Lo siento, no he podido procesar tu consulta", sin
+    // respuesta y sin ninguna vía de contacto. Pasaba de verdad con "quiero
+    // comprar el rodamiento 3309" cuando el catálogo estaba en frío.
+    //
+    // runAgent tiene además su propio presupuesto interno (más corto) para
+    // cerrar bien la respuesta; esto es solo la red de seguridad final.
+    let temporizador: ReturnType<typeof setTimeout> | undefined;
+    const porTiempo = new Promise<Awaited<ReturnType<typeof runAgent>>>((resolve) => {
+      temporizador = setTimeout(
+        () =>
+          resolve({
+            output:
+              "Esta consulta me está llevando más de lo normal. Dime la referencia o la medida exacta y lo miro enseguida; " +
+              "y si prefieres resolverlo ya, escríbenos por teléfono o e-mail y te atendemos al momento.",
+            products: [],
+            needsHuman: true,
+            humanContext: message.slice(0, 150),
+          }),
+        LIMITE_DURO_MS
+      );
+    });
+
+    const { output, products, needsHuman, humanContext } = await Promise.race([
+      runAgent(message, history, cart, customerGroupId, customerId),
+      porTiempo,
+    ]).finally(() => {
+      if (temporizador) clearTimeout(temporizador);
+    });
+
     return NextResponse.json({ output, products, needsHuman, humanContext }, { headers });
   } catch (err) {
     // El detalle (clave de OpenAI ausente/inválida, sin cuota, etc.) es
