@@ -73,3 +73,41 @@ export function isPromptExtractionAttempt(message: string): boolean {
   const norm = normalize(message);
   return SUBSTRING_TRIGGERS.some((t) => norm.includes(normalize(t)));
 }
+
+// ─────────────────────────────────────────────────────────────
+// Cierres vacíos: "¿te gustaría que busque...?"
+//
+// El prompt lo prohíbe en dos sitios distintos y el modelo lo seguía haciendo
+// igual al final de las consultas de diagnóstico. Es una pregunta que no
+// aporta nada: el cliente ya ha dicho que necesita una solución, y devolverle
+// la pelota sin pedirle el dato que de verdad hace falta le cuesta un turno.
+//
+// Cuando algo no se corrige por prompt, se corrige por código. Aquí se
+// sustituye esa frase por el cierre útil: pedirle la referencia o la medida.
+// ─────────────────────────────────────────────────────────────
+
+const CIERRE_VACIO =
+  /[^.!?\n]*¿\s*(?:te\s+gustar[ií]a|quieres|deseas|prefieres|necesitas)\s+que\s+(?:te\s+|lo\s+|la\s+)*(?:busque|mire|consulte|revise|localice|comprueb\w+)\b[^?]*\?/gi;
+
+const CIERRE_UTIL =
+  "Si me dices la referencia que monta o el diámetro del eje, te confirmo al momento si lo tenemos y a qué precio.";
+
+/**
+ * Sustituye el cierre vacío por uno accionable. Si el texto no lo lleva, lo
+ * devuelve intacto: no toca nada más de la respuesta.
+ */
+export function limpiarCierreVacio(texto: string): string {
+  if (!texto || !CIERRE_VACIO.test(texto)) {
+    CIERRE_VACIO.lastIndex = 0;
+    return texto;
+  }
+  CIERRE_VACIO.lastIndex = 0;
+
+  const limpio = texto.replace(CIERRE_VACIO, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trimEnd();
+
+  // Si ya termina ofreciendo el contacto con un técnico, no hace falta añadir
+  // nada: esa ya es una salida concreta.
+  if (/t[eé]cnico|tel[eé]fono|e-?mail|correo/i.test(limpio.slice(-220))) return limpio;
+
+  return `${limpio}\n\n${CIERRE_UTIL}`;
+}

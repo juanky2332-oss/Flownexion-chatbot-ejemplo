@@ -18,6 +18,7 @@ import {
   extractQueryCandidates,
 } from "./kb";
 import { searchOfficialSource } from "./websearch";
+import { limpiarCierreVacio } from "./guardrails";
 
 const MODEL = "gpt-4o";
 // Bajada de 0.2 a 0 tras detectar en pruebas reales que, con la misma
@@ -1159,7 +1160,7 @@ export async function runAgent(
     const toolCalls = choice.tool_calls ?? [];
     if (toolCalls.length === 0) {
       return {
-        output: choice.content ?? "",
+        output: limpiarCierreVacio(choice.content ?? ""),
         products: collected.slice(0, 3),
         needsHuman: escalation.needsHuman,
         humanContext: escalation.context,
@@ -1214,7 +1215,7 @@ export async function runAgent(
     messages,
   });
 
-  const salida = (final.choices[0]?.message?.content ?? "").trim();
+  const salida = limpiarCierreVacio((final.choices[0]?.message?.content ?? "").trim());
 
   return {
     // Red de seguridad final: si el modelo devolviera texto vacío, el widget

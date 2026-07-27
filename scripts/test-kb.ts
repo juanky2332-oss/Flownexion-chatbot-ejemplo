@@ -214,6 +214,36 @@ for (const [msg, esperado] of [
   ok(r === esperado, `ref de "${msg.slice(0, 44)}"`, `${r ?? "(ninguna)"}${r === esperado ? "" : " [esperado " + (esperado ?? "ninguna") + "]"}`);
 }
 
+section("CIERRE VACIO — se sustituye por uno accionable");
+const { limpiarCierreVacio } = require("../lib/guardrails") as typeof import("../lib/guardrails");
+{
+  // Caso real de produccion: tras explicar un diagnostico cerraba asi.
+  const real =
+    "Las causas mas frecuentes son exceso de grasa y desalineacion.\n\n" +
+    "Si necesitas mas ayuda, puedo ayudarte a buscar el rodamiento adecuado. ¿Te gustaria que busque un rodamiento especifico o necesitas mas informacion?";
+  const r = limpiarCierreVacio(real);
+  ok(!/¿Te gustar[ií]a que busque/i.test(r), "quita el cierre vacio");
+  ok(/referencia|di[aá]metro/i.test(r), "lo sustituye por uno accionable", r.slice(-90));
+  ok(/exceso de grasa/.test(r), "conserva el contenido tecnico anterior");
+
+  // Si ya ofrece tecnico, esa es una salida concreta: no se anade nada.
+  const conTecnico =
+    "No puedo confirmarlo sin ver la pieza. ¿Quieres que lo busque? Puedes hablar con un tecnico de ESGAS.";
+  const r2 = limpiarCierreVacio(conTecnico);
+  ok(!/¿Quieres que lo busque/i.test(r2), "quita el cierre vacio tambien aqui");
+  ok(!/di[aá]metro del eje/i.test(r2), "no anade cierre si ya ofrece tecnico", r2.slice(-70));
+
+  // Lo que NO debe tocar.
+  for (const intacto of [
+    "Aqui tienes el SNR 6205. Precio: 1.93 EUR. Stock: 12 uds.",
+    "¿Que diametro tiene el eje?",
+    "¿Es la longitud interior o la primitiva?",
+    "El 2RZ es una junta sin contacto, a diferencia del 2RS.",
+  ]) {
+    ok(limpiarCierreVacio(intacto) === intacto, `no toca: "${intacto.slice(0, 42)}"`);
+  }
+}
+
 section("REGRESIONES — equivalencias y ficha tecnica ya existentes");
 const eq1 = findEquivalence("puedes decirme que equivalencia hay para el 3309 a de skf en ntn o snr?");
 ok(
