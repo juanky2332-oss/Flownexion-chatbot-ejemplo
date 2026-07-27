@@ -10,7 +10,7 @@ const MAX_MESSAGE_LENGTH = 1500;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 45;
+export const maxDuration = 60;
 
 export function OPTIONS(req: NextRequest) {
   return preflight(req);

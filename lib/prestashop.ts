@@ -73,6 +73,42 @@ function assertConfig() {
 
 const PS_HEADERS = { Accept: "application/json" };
 
+// Ninguna llamada al Webservice puede quedarse colgada indefinidamente.
+// Sin límite, un Prestashop lento se lleva por delante la función entera:
+// Vercel la mata a los 60 s y el cliente ve la página de error de la
+// plataforma en vez de una respuesta del chat. Fallo real reproducido el
+// 2026-07-27: cualquier consulta de producto devolvía 504.
+// Con un tope por llamada, si la tienda va lenta se degrada de forma
+// controlada (ese dato se queda sin confirmar y el bot ofrece el contacto)
+// pero la conversación NUNCA se cae.
+const PS_TIMEOUT_MS = 9000;
+const PS_CATALOG_TIMEOUT_MS = 14000;
+
+async function psFetch(url: string, timeoutMs = PS_TIMEOUT_MS): Promise<Response | null> {
+  try {
+    return await fetch(url, {
+      headers: PS_HEADERS,
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch {
+    // Timeout, DNS, red… el llamante decide cómo degradar.
+    return null;
+  }
+}
+
+/**
+ * Igual que psFetch pero lanzando si no hay respuesta, para los puntos que ya
+ * estaban dentro de un try/catch y esperan una Response. Mantiene el
+ * comportamiento anterior (un fallo de red también lanzaba desde fetch),
+ * añadiendo únicamente el límite de tiempo.
+ */
+async function psFetchOrThrow(url: string, timeoutMs = PS_TIMEOUT_MS): Promise<Response> {
+  const res = await psFetch(url, timeoutMs);
+  if (!res) throw new Error("Prestashop no respondio dentro del tiempo limite");
+  return res;
+}
+
 function buildUrl(
   resource: string,
   opts: {
@@ -156,9 +192,9 @@ async function getAllNames(): Promise<Array<{ id: number; name: string; referenc
   if (_nameCache && Date.now() - _nameCacheTs < NAME_CACHE_TTL) return _nameCache;
 
   const url = buildUrl("products", { display: "[id,name,reference,supplier_reference]" });
+  const res = await psFetch(url, PS_CATALOG_TIMEOUT_MS);
+  if (!res || !res.ok) return [];
   try {
-    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
-    if (!res.ok) return [];
     const data = await res.json().catch(() => ({}));
     const list = (data?.products ?? []).map((p: any) => ({
       id: Number(p.id),
@@ -175,6 +211,64 @@ async function getAllNames(): Promise<Array<{ id: number; name: string; referenc
   }
 }
 
+/**
+ * Búsqueda RÁPIDA delegando el filtrado al propio Prestashop.
+ *
+ * getAllNames() se descarga el catálogo entero (5.400+ artículos) y filtra en
+ * memoria. Es exhaustivo, pero el Webservice tarda muchísimo en servir esa
+ * consulta y era la causa real de que TODA consulta de producto acabase en
+ * timeout de la función. Aquí se pregunta primero por lo concreto —tres
+ * consultas pequeñas y en paralelo, por referencia, referencia de proveedor y
+ * nombre— que devuelven en cientos de milisegundos.
+ *
+ * Es una OPTIMIZACIÓN, no un reemplazo: si no encuentra nada, el llamante
+ * sigue cayendo al catálogo completo, así que no se pierde ni un resultado
+ * respecto al comportamiento anterior.
+ */
+async function quickSearchNames(
+  query: string
+): Promise<Array<{ id: number; name: string; reference: string }>> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const campos = ["reference", "supplier_reference", "name"] as const;
+  const peticiones = campos.map((campo) =>
+    psFetch(
+      buildUrl("products", {
+        display: "[id,name,reference,supplier_reference]",
+        limit: "10",
+        // %valor% = "contiene", la sintaxis LIKE del Webservice de Prestashop.
+        filters: { [`filter[${campo}]`]: `%[${q}]%` },
+      })
+    )
+  );
+
+  const respuestas = await Promise.all(peticiones);
+  const porId = new Map<number, { id: number; name: string; reference: string }>();
+
+  for (const res of respuestas) {
+    if (!res || !res.ok) continue;
+    try {
+      const data = await res.json().catch(() => ({}));
+      for (const p of data?.products ?? []) {
+        const id = Number(p?.id);
+        if (!id || porId.has(id)) continue;
+        porId.set(id, {
+          id,
+          name: plainText(p?.name),
+          reference: [plainText(p?.reference), plainText(p?.supplier_reference)]
+            .filter(Boolean)
+            .join(" "),
+        });
+      }
+    } catch {
+      /* una vía puede fallar sin invalidar las demás */
+    }
+  }
+
+  return [...porId.values()];
+}
+
 // ─── Nombres reales de proveedor y grupo de cliente (para cruce con precios.json) ──
 
 let _supplierCache: Map<number, string> | null = null;
@@ -187,7 +281,7 @@ async function getSupplierName(id: number): Promise<string | null> {
   }
   try {
     const url = buildUrl("suppliers", { display: "[id,name]" });
-    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    const res = await psFetchOrThrow(url);
     if (!res.ok) return _supplierCache?.get(id) ?? null;
     const data = await res.json().catch(() => ({}));
     const map = new Map<number, string>();
@@ -210,7 +304,7 @@ async function getGroupName(id: number): Promise<string | null> {
   }
   try {
     const url = buildUrl("groups", { display: "[id,name]" });
-    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    const res = await psFetchOrThrow(url);
     if (!res.ok) return _groupCache?.get(id) ?? null;
     const data = await res.json().catch(() => ({}));
     const map = new Map<number, string>();
@@ -263,7 +357,7 @@ async function psGetBestSpecificPrice(
       display: "full",
       filters: { "filter[id_product]": `[${productId}]` },
     });
-    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    const res = await psFetchOrThrow(url);
     if (!res.ok) return { price: basePrice, discountPct: null };
 
     const data = await res.json().catch(() => ({}));
@@ -342,7 +436,7 @@ async function psGetRealPrices(
     url.searchParams.set("secret", PRICE_SECRET);
     if (idCustomer) url.searchParams.set("id_customer", String(idCustomer));
 
-    const res = await fetch(url.toString(), { headers: PS_HEADERS, cache: "no-store" });
+    const res = await psFetchOrThrow(url.toString());
     if (!res.ok) return {};
     const data = await res.json().catch(() => ({}));
 
@@ -409,7 +503,7 @@ export async function psGetCustomer(email: string): Promise<PSCustomer | null> {
       display: "[id,id_default_group,firstname,lastname,email,secure_key]",
       filters: { "filter[email]": `[${enc}]` },
     });
-    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    const res = await psFetchOrThrow(url);
     if (!res.ok) return null;
     const data = await res.json().catch(() => ({}));
     const c = data?.customers?.[0];
@@ -441,7 +535,7 @@ export async function psGetCustomerById(id: number): Promise<PSCustomer | null> 
       display: "[id,id_default_group,firstname,lastname,email,secure_key]",
       filters: { "filter[id]": `[${id}]` },
     });
-    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    const res = await psFetchOrThrow(url);
     if (!res.ok) return null;
     const data = await res.json().catch(() => ({}));
     const c = data?.customers?.[0];
@@ -473,18 +567,24 @@ export async function searchProducts(
   const qLow = safeQuery.toLowerCase();
   const qNorm = qLow.replace(/[\s\-\/\.]/g, "");
 
-  const allNames = await getAllNames();
-  if (allNames.length === 0) return [];
+  const encaja = (p: { name: string; reference: string }): boolean => {
+    const nl = p.name.toLowerCase();
+    const nn = nl.replace(/[\s\-\/\.]/g, "");
+    const rl = p.reference.toLowerCase();
+    const rn = rl.replace(/[\s\-\/\.]/g, "");
+    return nl.includes(qLow) || nn.includes(qNorm) || rl.includes(qLow) || rn.includes(qNorm);
+  };
 
-  const matched = allNames
-    .filter((p) => {
-      const nl = p.name.toLowerCase();
-      const nn = nl.replace(/[\s\-\/\.]/g, "");
-      const rl = p.reference.toLowerCase();
-      const rn = rl.replace(/[\s\-\/\.]/g, "");
-      return nl.includes(qLow) || nn.includes(qNorm) || rl.includes(qLow) || rn.includes(qNorm);
-    })
-    .slice(0, 5);
+  // 1º la vía rápida (Prestashop filtra por nosotros). 2º, solo si no ha
+  // encontrado nada, el barrido completo del catálogo — más lento pero
+  // exhaustivo, que es el comportamiento que había antes.
+  let matched = (await quickSearchNames(safeQuery)).filter(encaja).slice(0, 5);
+
+  if (matched.length === 0) {
+    const allNames = await getAllNames();
+    if (allNames.length === 0) return [];
+    matched = allNames.filter(encaja).slice(0, 5);
+  }
 
   if (matched.length === 0) return [];
 
@@ -497,7 +597,7 @@ export async function searchProducts(
 
   let rawProducts: any[] = [];
   try {
-    const res = await fetch(detailUrl, { headers: PS_HEADERS, cache: "no-store" });
+    const res = await psFetchOrThrow(detailUrl);
     if (res.ok) {
       const data = await res.json().catch(() => ({}));
       rawProducts = data?.products ?? [];
@@ -604,7 +704,7 @@ async function getStockBulk(ids: number[]): Promise<Record<number, number>> {
       display: "full",
       filters: { "filter[id_product]": `[${ids.join("|")}]` },
     });
-    const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+    const res = await psFetchOrThrow(url);
     if (!res.ok) return {};
     const data = await res.json().catch(() => ({}));
     const list = Array.isArray(data?.stock_availables) ? data.stock_availables : [];
@@ -633,7 +733,7 @@ export async function getStock(idProduct: number): Promise<StockInfo> {
     filters: { "filter[id_product]": String(idProduct) },
   });
 
-  const res = await fetch(url, { headers: PS_HEADERS, cache: "no-store" });
+  const res = await psFetchOrThrow(url);
   if (!res.ok) throw new Error(`stock_availables respondio ${res.status}`);
 
   const data = await res.json().catch(() => ({}));

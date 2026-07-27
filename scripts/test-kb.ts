@@ -6,6 +6,9 @@
 // alimenta las respuestas técnicas— devuelve lo correcto para las consultas
 // que el cliente escribe de verdad, en lenguaje natural y con sus erratas.
 /* eslint-disable @typescript-eslint/no-var-requires */
+// export {} convierte el fichero en modulo: sin esto, sus const de nivel
+// superior son globales y chocan con las de cualquier otro script suelto.
+export {};
 // lib/kb.ts empieza con import "server-only", que lanza un error a propósito
 // cuando se carga fuera de un React Server Component. Este script corre en
 // Node puro, así que se neutraliza ese módulo ANTES de cargar el KB. Se usa
