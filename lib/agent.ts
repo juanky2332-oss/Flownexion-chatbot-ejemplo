@@ -253,6 +253,9 @@ Con 2-3 datos ya puedes buscar y proponer: no esperes a tenerlo todo. Y si por e
 
 Excepción única: si el cliente te pide expresamente que le digas TODO lo que necesitas saber, ahí sí puedes enumerar los datos de una vez.
 
+**Cómo cerrar cuando te falta un dato para buscar.** Es un caso muy frecuente: has explicado bien la teoría (qué familia le encaja, qué tipo de carga aguanta cada una) pero no puedes proponer una referencia porque no sabes la medida. La forma CORRECTA de rematar es haciendo la pregunta que te desbloquea: "¿Qué diámetro tiene el eje? Con ese dato te digo la referencia exacta y el precio."
+PROHIBIDO cerrar con "¿te gustaría que busque alguna de estas opciones?", "¿quieres que mire alguna en concreto?" o similar. Es una pregunta vacía: el cliente ya ha dicho que quiere una solución, y devolverle la pelota sin pedirle el dato que realmente necesitas le hace perder un turno. O tienes el dato y buscas, o te falta y lo pides — nunca preguntar si buscas.
+
 **Peticiones de tamaño relativo ("más pequeño", "más grande", "uno más pequeño que este"):** toma como referencia las medidas del ÚLTIMO producto que le has mostrado en la conversación (dØ interior, DØ exterior, anchura B) y busca la siguiente medida estándar por debajo o por encima en la misma serie o tabla de este prompt. NUNCA reinterpretes la petición asumiendo un criterio o unidad que el cliente no ha dado (p.ej. no conviertas "más pequeño" en un límite de longitud en cm si nadie ha hablado de cm). Si de verdad hay ambigüedad sobre qué medida quiere reducir/aumentar (diámetro interior, exterior o anchura), pregunta UNA cosa concreta: "¿más pequeño en diámetro o en anchura?" — no asumas y no te inventes la interpretación.
 
 # CONCEPTOS TÉCNICOS — NUNCA LOS EXPLIQUES DE MEMORIA
@@ -786,6 +789,24 @@ interface EscalationState {
   context?: string;
 }
 
+/**
+ * Quita las URLs del producto ANTES de dárselo al modelo.
+ *
+ * El prompt ya le prohíbe escribir enlaces y botones (los pone la tarjeta),
+ * pero teniendo las URLs delante en el JSON acababa pegándolas en el texto:
+ * "[Ver producto](https://b2b.esgas.es/...) | [Añadir al carrito](...)". Sale
+ * un mensaje recargado y duplicado, porque la tarjeta ya trae ese enlace y ese
+ * botón. Mismo criterio que con las fuentes de search_official_source: si el
+ * dato no puede aparecer en la respuesta, no se le pasa al modelo.
+ *
+ * Las URLs siguen intactas en "collected", que es lo que recibe la interfaz
+ * para pintar la tarjeta.
+ */
+function sinEnlaces(p: Product): Omit<Product, "link" | "cartLink" | "checkoutLink"> {
+  const { link, cartLink, checkoutLink, ...resto } = p;
+  return resto;
+}
+
 async function runTool(
   name: string,
   args: any,
@@ -833,7 +854,7 @@ async function runTool(
     for (const p of products.slice(0, 3)) {
       if (!collected.some((c) => c.id === p.id)) collected.push(p);
     }
-    return JSON.stringify(products.slice(0, 5));
+    return JSON.stringify(products.slice(0, 5).map(sinEnlaces));
   }
   if (name === "search_by_bore") {
     const boreMm = Number(args?.bore_mm ?? 0);
@@ -841,7 +862,7 @@ async function runTool(
     for (const p of products.slice(0, 6)) {
       if (!collected.some((c) => c.id === p.id)) collected.push(p);
     }
-    return JSON.stringify(products.slice(0, 6));
+    return JSON.stringify(products.slice(0, 6).map(sinEnlaces));
   }
   if (name === "get_stock") {
     const stock = await getStock(Number(args?.id_product ?? 0));
