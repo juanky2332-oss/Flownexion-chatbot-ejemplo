@@ -188,12 +188,27 @@ const NAME_CACHE_TTL = 5 * 60 * 1000;
 // contuviese literalmente la referencia era invisible para el bot aunque
 // existiera en la tienda (fallo real de fiabilidad: "no lo tenemos" siendo
 // falso, que es exactamente lo que no nos podemos permitir).
+// Marca de cuándo falló el último intento de bajar el catálogo completo.
+//
+// Sin esto, un Prestashop lento sale carísimo: la llamada agota sus 14 s, no
+// se cachea nada, y la SIGUIENTE búsqueda de la misma conversación vuelve a
+// intentarlo y a esperar otros 14 s. Medido en producción: "quiero comprar el
+// rodamiento 3309" encadenaba varios intentos y se plantaba en 50 s.
+// Recordando el fallo durante un rato, el primer intento paga el coste y los
+// demás fallan al instante y tiran de las búsquedas rápidas.
+let _nameCacheFalloTs = 0;
+const NAME_FAIL_TTL = 60 * 1000;
+
 async function getAllNames(): Promise<Array<{ id: number; name: string; reference: string }>> {
   if (_nameCache && Date.now() - _nameCacheTs < NAME_CACHE_TTL) return _nameCache;
+  if (Date.now() - _nameCacheFalloTs < NAME_FAIL_TTL) return [];
 
   const url = buildUrl("products", { display: "[id,name,reference,supplier_reference]" });
   const res = await psFetch(url, PS_CATALOG_TIMEOUT_MS);
-  if (!res || !res.ok) return [];
+  if (!res || !res.ok) {
+    _nameCacheFalloTs = Date.now();
+    return [];
+  }
   try {
     const data = await res.json().catch(() => ({}));
     const list = (data?.products ?? []).map((p: any) => ({
@@ -712,18 +727,11 @@ export async function searchByBore(
   const prefixes = seriesPrefixesForBoreCode(code);
   const normPrefijos = prefixes.map((p) => p.prefix.toLowerCase().replace(/[\s\-\/\.]/g, ""));
 
-  // UNA sola pasada al catálogo para las seis series, en vez de seis búsquedas
-  // completas e independientes (ver hydrateProducts): el índice de nombres ya
-  // está cacheado en el proceso, así que filtrar aquí las seis series no
-  // cuesta ni una petición extra.
-  const allNames = await getAllNames();
-  if (allNames.length === 0) return [];
-
   const seen = new Set<number>();
   const matched: Array<{ id: number; name: string }> = [];
-  for (const pref of normPrefijos) {
-    for (const p of allNames) {
-      if (matched.length >= 6) break;
+  const anotar = (lista: Array<{ id: number; name: string; reference: string }>, pref: string): void => {
+    for (const p of lista) {
+      if (matched.length >= 6) return;
       if (seen.has(p.id)) continue;
       const nn = p.name.toLowerCase().replace(/[\s\-\/\.]/g, "");
       const rn = p.reference.toLowerCase().replace(/[\s\-\/\.]/g, "");
@@ -732,6 +740,21 @@ export async function searchByBore(
         matched.push({ id: p.id, name: p.name });
       }
     }
+  };
+
+  // 1º las búsquedas rápidas por serie, en paralelo: son consultas pequeñas
+  // que Prestashop resuelve en milisegundos. Antes esto pasaba siempre por el
+  // catálogo completo, y cuando esa descarga va lenta se lleva por delante
+  // toda la conversación.
+  const rapidas = await Promise.all(normPrefijos.map((pref) => quickSearchNames(pref)));
+  normPrefijos.forEach((pref, i) => anotar(rapidas[i], pref));
+
+  // 2º solo si no ha salido nada, el barrido completo del catálogo — una vez,
+  // y compartido por las seis series.
+  if (matched.length === 0) {
+    const allNames = await getAllNames();
+    if (allNames.length === 0) return [];
+    for (const pref of normPrefijos) anotar(allNames, pref);
   }
 
   return hydrateProducts(matched, groupId, idCustomer, 6);
