@@ -1,0 +1,35 @@
+name: Validar glosario técnico
+
+# Red de seguridad para que ESGAS pueda editar data/kb/glosario.json desde
+# GitHub sin miedo: en cuanto se guarda un cambio, esto lo revisa y avisa con
+# un aspa roja si hay una coma de más, un campo vacío o un id repetido.
+# Si sale la marca verde, el cambio es correcto y ya está publicándose.
+
+on:
+  push:
+    paths:
+      - "data/kb/glosario.json"
+      - "scripts/check-glosario.ts"
+  pull_request:
+    paths:
+      - "data/kb/glosario.json"
+      - "scripts/check-glosario.ts"
+  workflow_dispatch:
+
+jobs:
+  validar:
+    name: Comprobar que el glosario es correcto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci --ignore-scripts
+
+      - name: Validar data/kb/glosario.json
+        run: npm run check:glosario

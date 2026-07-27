@@ -11,7 +11,8 @@
     "build:kb": "ts-node --skip-project scripts/build-kb.ts",
     "test:kb": "ts-node --project tsconfig.scripts.json scripts/test-kb.ts",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm run test:kb && npm run build"
+    "verify": "npm run typecheck && npm run check:glosario && npm run test:kb && npm run build",
+    "check:glosario": "ts-node --project tsconfig.scripts.json scripts/check-glosario.ts"
   },
   "dependencies": {
     "next": "14.2.5",
