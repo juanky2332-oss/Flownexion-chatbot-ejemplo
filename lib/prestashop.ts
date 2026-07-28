@@ -728,6 +728,22 @@ async function hydrateProducts(
  * reutilizando searchProducts (y por tanto DEMO_MODE, precios y stock ya
  * resueltos) y devuelve los resultados reales fusionados sin duplicados.
  */
+/**
+ * ¿El texto contiene el prefijo de serie como número COMPLETO?
+ *
+ * Buscar el prefijo como subcadena suelta metía basura de verdad: pidiendo
+ * rodamientos de dØ25 mm salían un "NTN 22326 EA K W33 C3" y un
+ * "33600 52RS TL" porque sus referencias contienen "6005" en medio de otro
+ * número. Se exige que no haya un dígito pegado ni delante ni detrás.
+ */
+function esDeLaSerie(texto: string, prefijo: string): boolean {
+  const i = texto.indexOf(prefijo);
+  if (i < 0) return false;
+  const antes = texto[i - 1];
+  const despues = texto[i + prefijo.length];
+  return !/\d/.test(antes ?? "") && !/\d/.test(despues ?? "");
+}
+
 export async function searchByBore(
   boreMm: number,
   groupId?: number,
@@ -761,7 +777,7 @@ export async function searchByBore(
       if (seen.has(p.id)) continue;
       const nn = p.name.toLowerCase().replace(/[\s\-\/\.]/g, "");
       const rn = p.reference.toLowerCase().replace(/[\s\-\/\.]/g, "");
-      if (nn.includes(pref) || rn.includes(pref)) {
+      if (esDeLaSerie(nn, pref) || esDeLaSerie(rn, pref)) {
         seen.add(p.id);
         matched.push({ id: p.id, name: p.name });
       }

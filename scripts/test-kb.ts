@@ -273,6 +273,7 @@ const {
   refDeConversacion,
   ordenarParaTarjetas,
   filtrarFueraDeFamilia,
+  tarjetasParaRespuesta,
 } = require("../lib/variantes") as typeof import("../lib/variantes");
 
 section("VARIANTES — partir la referencia en base + sufijos");
@@ -397,6 +398,23 @@ const limpio = filtrarFueraDeFamilia("6205", catalogo6205);
 ok(limpio.length === 2 && !limpio.some((p: any) => p.id === 3), "descarta el producto de otra familia", limpio.map((p: any) => p.reference).join(", "));
 const soloRuido = filtrarFueraDeFamilia("6205", [P(3, "NTN 22216 EA W33", "NTN 22216 EA W33", 5)]);
 ok(soloRuido.length === 1, "si NADA es de la familia, no vacia la lista (puede ser un acierto por nombre)");
+
+section("TARJETAS — las del producto que el texto NOMBRA (fallo visto en produccion)");
+// Caso real: el bot describia el SNR 6305 C3 pero las tarjetas mostraban tres
+// productos de una busqueda por diametro anterior, por orden de llegada.
+const recogidos = [
+  P(20, "SNR 6005", "SNR 6005", 0),
+  P(21, "NTN 22326 EA K W33 C3", "NTN 22326 EA K W33 C3", 0),
+  P(22, "TL 33600 52RS", "3360052RSTL", 170),
+  P(23, "SNR 6305 C3", "SNR 6305 C3", 9),
+];
+const respuestaReal = "Aqui tienes un rodamiento mas grande que el SNR 6205:\n\n**SNR 6305 C3**\n**Ref: SNR 6305 C3**\nMedidas: dO25 x DO62 x B17 mm";
+const cards = tarjetasParaRespuesta(respuestaReal, recogidos).slice(0, 3).map((p: any) => p.id);
+ok(cards[0] === 23, "la tarjeta del producto descrito va primera", String(cards));
+ok(
+  tarjetasParaRespuesta(respuestaReal, recogidos).length === recogidos.length,
+  "no descarta ninguno, solo reordena (el resto sigue detras)"
+);
 
 section("BLOQUE INYECTADO — variantes (el texto real que ve el modelo)");
 const bloque = bloqueVariantes(a1);

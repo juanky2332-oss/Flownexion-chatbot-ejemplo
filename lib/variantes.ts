@@ -247,6 +247,28 @@ export function filtrarFueraDeFamilia(refPedida: string, productos: Product[]): 
   return familia.length > 0 ? familia : productos;
 }
 
+/**
+ * Elige qué productos se llevan las (máx. 3) tarjetas del chat: los que el bot
+ * ha nombrado DE VERDAD en su respuesta van primero.
+ *
+ * Fallo real visto en producción: ante "enséñame uno más grande", el modelo
+ * describía el SNR 6305 C3 pero las tarjetas mostraban un SNR 6005, un NTN
+ * 22326 y un TL — productos de una búsqueda por diámetro anterior que habían
+ * entrado antes en la lista. Las tarjetas se cogían por orden de llegada, así
+ * que el producto del que hablaba el texto se quedaba fuera y el cliente veía
+ * tres fichas que no eran la suya.
+ */
+export function tarjetasParaRespuesta(respuesta: string, productos: Product[]): Product[] {
+  const texto = String(respuesta ?? "").toUpperCase().replace(/[\s\-/.]/g, "");
+  const nombrado = (p: Product): boolean => {
+    const ref = normalizarRef(p.reference || p.name);
+    return ref.length >= 3 && texto.includes(ref);
+  };
+  const citados = productos.filter(nombrado);
+  const resto = productos.filter((p) => !nombrado(p));
+  return [...citados, ...resto];
+}
+
 // ── Comparativa técnica entre dos o más referencias ──────────────────────────
 
 /**

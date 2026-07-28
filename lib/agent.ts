@@ -26,6 +26,7 @@ import {
   ordenarParaTarjetas,
   pideOtraMedida,
   refDeConversacion,
+  tarjetasParaRespuesta,
 } from "./variantes";
 import { searchOfficialSource } from "./websearch";
 import { limpiarCierreVacio } from "./guardrails";
@@ -1270,9 +1271,12 @@ export async function runAgent(
 
     const toolCalls = choice.tool_calls ?? [];
     if (toolCalls.length === 0) {
+      const texto = limpiarCierreVacio(choice.content ?? "");
       return {
-        output: limpiarCierreVacio(choice.content ?? ""),
-        products: collected.slice(0, 3),
+        output: texto,
+        // Las tarjetas son las del producto que el texto nombra de verdad, no
+        // las primeras que se buscaron (ver tarjetasParaRespuesta).
+        products: tarjetasParaRespuesta(texto, collected).slice(0, 3),
         needsHuman: escalation.needsHuman,
         humanContext: escalation.context,
       };
@@ -1328,14 +1332,18 @@ export async function runAgent(
 
   const salida = limpiarCierreVacio((final.choices[0]?.message?.content ?? "").trim());
 
+  // Red de seguridad final: si el modelo devolviera texto vacío, el widget
+  // mostraría su mensaje de error genérico. Mejor una respuesta corta y
+  // accionable que un "no he podido procesar tu consulta".
+  const textoFinal =
+    salida ||
+    "Ahora mismo no he podido completar la consulta. Cuéntame la referencia o la medida que necesitas y lo miro de nuevo, o si lo prefieres puedes escribirnos por teléfono o e-mail y te lo resolvemos al momento.";
+
   return {
-    // Red de seguridad final: si el modelo devolviera texto vacío, el widget
-    // mostraría su mensaje de error genérico. Mejor una respuesta corta y
-    // accionable que un "no he podido procesar tu consulta".
-    output:
-      salida ||
-      "Ahora mismo no he podido completar la consulta. Cuéntame la referencia o la medida que necesitas y lo miro de nuevo, o si lo prefieres puedes escribirnos por teléfono o e-mail y te lo resolvemos al momento.",
-    products: collected.slice(0, 3),
+    output: textoFinal,
+    // Las tarjetas son las del producto que el texto nombra de verdad, no las
+    // primeras que se buscaron (ver tarjetasParaRespuesta).
+    products: tarjetasParaRespuesta(textoFinal, collected).slice(0, 3),
     needsHuman: escalation.needsHuman,
     humanContext: escalation.context,
   };
