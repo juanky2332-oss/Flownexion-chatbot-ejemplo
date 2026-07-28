@@ -624,7 +624,11 @@ export async function searchProducts(
   }
 
   if (matched.length === 0) return [];
-  return hydrateProducts(matched, groupId, idCustomer);
+  // Hasta 5 (antes 3): una misma referencia base convive con varias variantes
+  // de sufijo (6205, 6205 ZZ, 6205 LLU, 6205 C3...) y con el corte en 3 la
+  // única que tenía unidades podía no llegar a verse. El coste es una consulta
+  // de stock por lotes algo mayor; el precio ya se resolvía para todas.
+  return hydrateProducts(matched, groupId, idCustomer, 5);
 }
 
 /**

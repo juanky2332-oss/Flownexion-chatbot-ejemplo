@@ -17,6 +17,15 @@ import {
   findBeltForMessage,
   extractQueryCandidates,
 } from "./kb";
+import {
+  analizarVariantes,
+  bloqueOtraMedida,
+  bloqueVariantes,
+  compararTecnico,
+  ordenarParaTarjetas,
+  pideOtraMedida,
+  refDeConversacion,
+} from "./variantes";
 import { searchOfficialSource } from "./websearch";
 import { limpiarCierreVacio } from "./guardrails";
 
@@ -293,6 +302,34 @@ Nunca presentes una referencia con distinto sellado o distinto juego como si fue
 
 **Cuando el cliente pregunta si le vale una variante concreta ("¿me sirve el ZZ en vez del 2RS?"), la respuesta lleva las dos cosas en el MISMO mensaje:** (1) la diferencia real y qué implica para su caso, y (2) esa variante YA BUSCADA con search_products, con su ficha, precio y stock. Está PROHIBIDO cerrar con "¿quieres que lo busque?" o "¿te gustaría que mire el ZZ en la página?": si ya sabes qué referencia mirar, se busca y se enseña, y que decida con el producto delante. Preguntar en vez de buscar le hace perder un turno para nada.
 
+# VARIANTES DE LA MISMA REFERENCIA — SI LA EXACTA NO SE PUEDE SERVIR, OFRECE LA QUE SÍ
+Una misma referencia base convive en el catálogo con varias variantes que solo se diferencian en el sufijo (6205, 6205 C3, 6205 2RS, 6205 ZZ C3...). Es MUY frecuente que justo la que pidió el cliente esté a cero y otra de la misma familia tenga unidades disponibles ahora mismo. Enseñar las dos sueltas, sin relacionarlas, es tirar una venta que sí podíamos servir y dejar al cliente pensando que no tenemos nada.
+
+Cuando entre los productos que vas a mostrar haya varias variantes de la misma referencia base y la que pidió el cliente NO tenga stock:
+1. **Ligalas en una sola frase, sin rodeos:** "El **[REF exacta]** está sin stock en la página ahora mismo; lo que sí tenemos disponible es el **[REF variante]**, con [N] uds." Nunca las dejes como dos fichas independientes que el cliente tenga que relacionar por su cuenta.
+2. **Di en qué se diferencian**, nombrando el sufijo concreto que cambia (C3, 2RS, ZZ, LLU...) y qué implica en su montaje. La explicación del sufijo sale SIEMPRE del glosario (explain_technical_term o el bloque 🔒 GLOSARIO TÉCNICO VERIFICADO si ya está en la conversación) — ver CONCEPTOS TÉCNICOS. Nunca presentes la variante como "la misma pieza" (ver SUSTITUCIONES).
+3. **Mójate sobre si le sirve o no.** Si por la conversación sabes dónde va montada, di directamente si esa variante le vale o no le vale. Si no lo sabes y el sufijo lo decide, haz UNA sola pregunta que lo resuelva ("¿va en un motor o algo que caliente en marcha? Ahí el C3 es la opción correcta").
+4. **Cierra ofreciendo la compra de la variante que SÍ hay**, con sus unidades. La referencia sin stock no se ofrece como compra.
+5. Si NINGUNA variante de la familia tiene stock, entonces sí: di lo que no se puede tramitar por la página y ofrece el contacto con **escalate_to_human**, como en STOCK Y CIERRE DE VENTAS.
+
+PROHIBIDO invitar a comprar, a añadir al carrito o a "pedirlo" una referencia con 0 unidades, y PROHIBIDO la frase "puedes añadirlo al carrito cuando haya stock" o cualquier variante: es una frase vacía y contradictoria (si no hay unidades, por la página no se puede pedir). Lo que se ofrece es la variante disponible, o el contacto — nunca una espera indefinida.
+
+# COMPARATIVA OBLIGATORIA CUANDO LO QUE OFRECES NO ES EXACTAMENTE LO QUE PIDIÓ
+Siempre que propongas algo distinto de lo que trae el cliente —otra medida ("enséñame uno más grande"), otra variante de sufijo, un equivalente de otra marca, o la opción más próxima por medidas— tienes que darle la DIFERENCIA CONCRETA entre la suya y la que propones, no solo la ficha de la nueva. Es lo que necesita para comprobar si le encaja en el hueco que ya tiene mecanizado; sin eso le obligas a comparar dos fichas él a mano, y ahí es donde se equivoca y devuelve la pieza.
+
+1. Llama a **compare_products** con las dos referencias, la del cliente PRIMERO y la que propones después. Te devuelve la tabla ya calculada campo a campo, con la diferencia exacta en mm, kN o rpm respecto a la suya. Es local, instantánea y verificada: úsala siempre que compares, no calcules tú de cabeza.
+2. Preséntalo como un bloque de diferencias explícito, después de la ficha del producto propuesto:
+   **Diferencias frente al [REF del cliente]:**
+   - **Diámetro interior dØ:** 25 mm → 30 mm (+5 mm)
+   - **Diámetro exterior DØ:** 52 mm → 62 mm (+10 mm)
+   - **Ancho B:** 15 mm → 16 mm (+1 mm)
+   - **Capacidad de carga dinámica:** 14,8 kN → 20,6 kN (+5,8 kN)
+   - El resto de características se mantienen.
+3. Remata en UNA frase qué implica ese cambio en la práctica: si necesita otro alojamiento o eje, si admite más carga, si pierde velocidad límite, si cambia el sellado.
+4. Si compare_products no tiene ficha de alguna de las dos referencias, monta la comparativa con lo que sí puedas confirmar (TABLAS DIMENSIONALES de este prompt) e indica solo esos campos. Nunca rellenes un hueco de la tabla con una medida inventada.
+
+Esto aplica igual cuando el cliente pregunta directamente "¿en qué se diferencian el X y el Y?" o "¿me vale este en vez de este otro?": ahí la comparativa ES la respuesta, no un añadido.
+
 # APOYO TÉCNICO GENERAL (más allá de vender una referencia)
 Dentro de rodamientos y transmisión industrial, eres soporte técnico real, no solo un buscador de catálogo. Responde con seguridad preguntas de tipo: diferencia entre tipos de sellado, cuándo usar C3 vs C2, cómo se monta/desmonta un rodamiento, señales de fallo, vida útil aproximada, diferencias entre series, mantenimiento y lubricación, tolerancias de eje/alojamiento, etc. Para todo lo que sea un CONCEPTO (sellado, juego, jaula, precisión, sufijos, perfiles de correa) la fuente es explain_technical_term, obligatoria (ver CONCEPTOS TÉCNICOS). Para el resto, usa primero las tablas de este prompt; si la pregunta es más específica o no la cubren, llama a search_official_source para confirmarla con una fuente real antes de responder. Si ni el glosario, ni las tablas, ni la búsqueda oficial la resuelven, dilo con seguridad y ofrece escalar a un técnico (ver ESCALADO A TÉCNICO) en vez de especular.
 
@@ -444,6 +481,7 @@ Llama a get_stock además, específicamente, cuando el cliente pregunte disponib
 3ter. **find_belt** → SIEMPRE ante una consulta de correa, antes de search_products y antes de dar cualquier negativa. Tienes el catálogo Continental completo (ver CORREAS CONTINENTAL).
 4. **search_official_source** → cuando el KB no cubra la duda técnica (referencia, medida o equivalencia que no reconoces, get_technical_info sin resultado, o concepto que explain_technical_term no recoge). Máximo 1 llamada por consulta — con una búsqueda bien planteada basta.
 5. **search_by_bore** → cuando el cliente dé un diámetro interior exacto, pida "otras opciones con este diámetro" o "el siguiente diámetro arriba/abajo" (ver secciones dedicadas más arriba). Prueba TODAS las series reales de catálogo para ese bore en una sola llamada — úsala en vez de adivinar referencias sueltas.
+5bis. **compare_products** → SIEMPRE que ofrezcas algo que no sea exactamente lo que pidió el cliente (otra medida, otra variante de sufijo, un equivalente de otra marca, la opción más próxima), o cuando pregunte en qué se diferencian dos referencias. Devuelve la tabla comparativa campo a campo con la diferencia ya calculada en mm/kN/rpm (ver COMPARATIVA OBLIGATORIA). Es local e instantánea: llamarla no tiene coste.
 6. **search_products** → para buscar una referencia o serie concreta que ya conoces (exacta o casi exacta) en tu catálogo real (máximo 2 llamadas por consulta de producto)
 7. **get_stock** → SOLO cuando pregunten disponibilidad o indiquen cantidad
 8. **note_qty** → SIEMPRE que el cliente mencione unidades específicas
@@ -521,6 +559,9 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 - Contradecir, matizar o "completar" el contenido del glosario con datos que no vengan de él: si lo que recuerdas no coincide con lo que devuelve explain_technical_term, el glosario tiene razón
 - Meter en el mismo saco los tres tipos de protección: **Z/ZZ/2Z es un DEFLECTOR metálico SIN contacto**, **LLU/EE/2RS/DDU es una junta de goma CON contacto** y **LLB/2RZ/VV es una junta de goma SIN contacto**. En particular, PROHIBIDO presentar el 2RZ como si fuera un 2RS, o el LLB como si fuera un LLU: cambian la estanqueidad, el par y la velocidad límite
 - Presentar como equivalente o como "la misma pieza" una referencia con distinto sufijo de sellado o distinto juego (ZZ por 2RS, CN por C3...) sin advertir explícitamente de la diferencia y de lo que implica (ver SUSTITUCIONES)
+- Mostrar dos variantes de la misma referencia base (p.ej. el 6205 sin stock y el 6205 C3 con unidades) como dos productos sueltos, sin decir explícitamente que la que pidió no se puede servir, que la otra SÍ está disponible ahora mismo, y en qué se diferencian — es tirar una venta que sí podíamos hacer (ver VARIANTES DE LA MISMA REFERENCIA)
+- Invitar a comprar, a añadir al carrito o a "pedir" una referencia con 0 unidades, y en particular decir "puedes añadirlo al carrito cuando haya stock" o cualquier variante de esa frase: si no hay unidades no se puede tramitar por la página, así que se ofrece la variante disponible o el contacto, nunca una espera
+- Proponer otra medida, otra variante o un equivalente sin dar la comparativa de diferencias frente a la referencia del cliente (compare_products): sin esos números el cliente no puede comprobar si le encaja (ver COMPARATIVA OBLIGATORIA)
 - Responder una consulta de correa sin haber llamado a find_belt, o dar por inexistente una correa sin haberla buscado ahí — tienes el catálogo Continental íntegro
 - Elegir en silencio entre dos correas que encajan por vías distintas (una por longitud interior Li y otra por primitiva Ld) cuando el cliente ha dado un número a secas: enséñale las dos y pregunta cuál lleva grabada (ver CORREAS CONTINENTAL)
 - Presentar la disponibilidad que devuelve find_belt (stock / bajo pedido / descatalogada en Continental) como si fuera el stock de ESGAS — es información del fabricante; el stock y el precio salen siempre de search_products
@@ -639,6 +680,26 @@ const tools: ChatCompletionTool[] = [
           },
         },
         required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "compare_products",
+      description:
+        "Compara campo a campo la ficha técnica de dos o más referencias NTN/SNR y devuelve la tabla ya montada con la DIFERENCIA calculada respecto a la primera (en mm, kN, rpm o gramos): medidas dØ/DØ/B, capacidades de carga, velocidades, tolerancia, junta, material de jaula, peso. Úsala SIEMPRE que vayas a ofrecer al cliente algo que no es exactamente lo que pidió —otra medida ('uno más grande'), otra variante de sufijo (C3, 2RS, ZZ), un equivalente de otra marca o la opción más próxima por medidas— y también cuando pregunte en qué se diferencian dos referencias. Es local, instantánea y verificada: nunca calcules tú las diferencias de cabeza.",
+      parameters: {
+        type: "object",
+        properties: {
+          refs: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Las referencias a comparar, la del cliente PRIMERO y la propuesta después, p.ej. ['6205', '6305'] o ['6205 ZZ', '6205 ZZ C3']. Máximo 4.",
+          },
+        },
+        required: ["refs"],
       },
     },
   },
@@ -843,6 +904,12 @@ async function runTool(
     const results = findBelt(String(args?.query ?? ""));
     return JSON.stringify(results);
   }
+  if (name === "compare_products") {
+    const refs = Array.isArray(args?.refs)
+      ? (args.refs as unknown[]).map((r) => String(r ?? ""))
+      : [String(args?.refs ?? "")];
+    return JSON.stringify(compararTecnico(refs));
+  }
   if (name === "search_official_source") {
     // No se le pasan las URLs de las fuentes al modelo: el cliente pidió
     // explícitamente que nunca se le ofrezcan enlaces externos, así que
@@ -858,7 +925,13 @@ async function runTool(
     }
   }
   if (name === "search_products") {
-    const products = await searchProducts(String(args?.query ?? ""), groupId, idCustomer);
+    const query = String(args?.query ?? "");
+    // Mismo criterio que en la búsqueda automática: la referencia exacta y las
+    // variantes CON stock son las que se llevan las tarjetas.
+    const products = ordenarParaTarjetas(
+      query,
+      await searchProducts(query, groupId, idCustomer)
+    );
     for (const p of products.slice(0, 3)) {
       if (!collected.some((c) => c.id === p.id)) collected.push(p);
     }
@@ -1095,13 +1168,20 @@ export async function runAgent(
   );
   if (refDetectada) {
     try {
-      const encontrados = await searchProducts(refDetectada, groupId, customerId);
+      // Ordenado antes de repartir las tarjetas: la referencia exacta primero
+      // y, justo detrás, las variantes que SÍ tienen unidades. Con una familia
+      // numerosa (6205, 6205 ZZ, 6205 LLU, 6205 C3...) la única variante
+      // comprable se quedaba fuera de las 3 tarjetas.
+      const encontrados = ordenarParaTarjetas(
+        refDetectada,
+        await searchProducts(refDetectada, groupId, customerId)
+      );
       for (const p of encontrados.slice(0, 3)) {
         if (!collected.some((c) => c.id === p.id)) collected.push(p);
       }
       if (encontrados.length) {
         const resumen = encontrados
-          .slice(0, 3)
+          .slice(0, 4)
           .map((p) => `- ${p.name} (Ref: ${p.reference}) — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`)
           .join("\n");
         messages.push({
@@ -1118,10 +1198,37 @@ export async function runAgent(
             `Si el cliente pedía una variante concreta (sellado o juego distintos) y arriba solo está otra, dilo ` +
             `con claridad y explica en qué difiere, pero sin negar que tenemos lo que sí aparece.`,
         });
+
+        // VARIANTES DE LA MISMA FAMILIA — el caso que reportó el cliente:
+        // pidió un 6205, el catálogo devolvió el 6205 a cero y el 6205 C3 con
+        // 12 uds, y el bot enseñó las dos fichas sueltas sin decir que la
+        // segunda SÍ se podía comprar ni en qué se diferencia. Se resuelve en
+        // código (lib/variantes.ts): el emparejamiento por referencia base y
+        // el sufijo que cambia son deterministas, no hace falta que el modelo
+        // los deduzca. El texto del bloque vive junto a esa lógica para poder
+        // probarlo con el código real en npm run test:kb.
+        const bloqueVar = bloqueVariantes(analizarVariantes(refDetectada, encontrados));
+        if (bloqueVar) messages.push({ role: "system", content: bloqueVar });
       }
     } catch {
       // Si la tienda falla, el modelo siempre puede llamar a search_products
       // por su cuenta; esto es un refuerzo, no la única vía.
+    }
+  }
+
+  // AUTODETECCIÓN DE "OTRA MEDIDA" — el segundo fallo que reportó el cliente:
+  // al pedir "uno más grande" el bot proponía otra referencia pero no decía en
+  // qué se diferenciaba de la que el cliente ya tenía delante, que es
+  // justamente lo que hace falta para comprobar si le encaja en el montaje.
+  //
+  // El producto de partida está en un turno ANTERIOR de la conversación, así
+  // que aquí se localiza en código (la referencia de la ficha ya mostrada) y
+  // se inyecta con su ficha técnica real. Sin esto, el modelo compara contra
+  // lo que cree recordar del turno anterior.
+  if (pideOtraMedida(message)) {
+    const refPrevia = refDeConversacion(history);
+    if (refPrevia) {
+      messages.push({ role: "system", content: bloqueOtraMedida(refPrevia) });
     }
   }
 

@@ -258,5 +258,166 @@ ok(t1.length > 0, "ficha tecnica 6205", t1[0] ? `${t1[0].marca} ${t1[0].referenc
 const t2 = findTechnicalInfo("6205 ZZ C3");
 ok(t2.length > 0, "ficha tecnica 6205 ZZ C3", t2[0] ? `${t2[0].marca} ${t2[0].referencia}` : "");
 
+// ── VARIANTES Y COMPARATIVAS (lib/variantes.ts) ─────────────────────────────
+// Cubre los dos fallos reportados por el cliente sobre la conversacion real
+// del 6205: la variante C3 con stock que no se ofrecia, y la falta de
+// diferencias al proponer otra medida.
+const {
+  partirReferencia,
+  normalizarRef,
+  analizarVariantes,
+  compararTecnico,
+  pideOtraMedida,
+  bloqueVariantes,
+  bloqueOtraMedida,
+  refDeConversacion,
+  ordenarParaTarjetas,
+} = require("../lib/variantes") as typeof import("../lib/variantes");
+
+section("VARIANTES — partir la referencia en base + sufijos");
+for (const [entrada, base, sufijos] of [
+  ["SNR 6205", "6205", ""],
+  ["SNR 6205 C3", "6205", "C3"],
+  ["6205ZZC3", "6205", "ZZ C3"],
+  ["6205 2RS", "6205", "2RS"],
+  ["NTN 6205 LLU", "6205", "LLU"],
+  ["UC205", "UC205", ""],
+  ["NTN 22216 EA W33", "22216", "EA W33"],
+] as [string, string, string][]) {
+  const r = partirReferencia(entrada);
+  ok(
+    r.base === base && r.sufijos.join(" ") === sufijos,
+    `"${entrada}" -> base ${base} + [${sufijos}]`,
+    `base ${r.base} + [${r.sufijos.join(" ")}]`
+  );
+}
+ok(normalizarRef("SNR 6205 C3") === "6205C3", "normalizarRef quita marca y separadores");
+
+section("VARIANTES — el caso real: 6205 sin stock, 6205 C3 con 12 uds");
+const P = (id: number, name: string, reference: string, stock: number) =>
+  ({
+    id,
+    name,
+    reference,
+    price: 1.93,
+    link: "",
+    cartLink: "",
+    checkoutLink: "",
+    stock,
+  }) as any;
+
+const catalogo6205 = [
+  P(1, "SNR 6205", "SNR 6205", 0),
+  P(2, "SNR 6205 C3", "SNR 6205 C3", 12),
+  P(3, "NTN 22216 EA W33", "NTN 22216 EA W33", 0),
+];
+const a1 = analizarVariantes("6205", catalogo6205);
+ok(a1.exactas.length === 1 && a1.exactas[0].producto.id === 1, "localiza la referencia exacta pedida");
+ok(a1.exactaSinStock, "detecta que la exacta no se puede servir");
+ok(
+  a1.alternativasConStock.length === 1 && a1.alternativasConStock[0].producto.id === 2,
+  "propone el 6205 C3 como variante disponible",
+  a1.alternativasConStock.map((v) => v.producto.reference).join(", ")
+);
+ok(
+  a1.alternativasConStock[0]?.anade.join(" ") === "C3",
+  "identifica que la diferencia es el sufijo C3",
+  a1.alternativasConStock[0]?.anade.join(" ")
+);
+ok(
+  !a1.familia.some((v) => v.producto.id === 3),
+  "descarta el 22216, que no es de la misma familia"
+);
+
+// El sufijo que cambia tiene que tener entrada en el glosario: es de donde
+// sale la explicacion que se le inyecta al modelo (nunca de memoria).
+ok(findGlossary("C3", 1).length > 0, "el glosario cubre el sufijo C3 (explicacion verificada)");
+
+section("VARIANTES — NO dispara cuando la exacta si tiene stock");
+const a2 = analizarVariantes("6205", [P(1, "SNR 6205", "SNR 6205", 30), P(2, "SNR 6205 C3", "SNR 6205 C3", 12)]);
+ok(!a2.exactaSinStock, "con stock en la exacta no hay caso de sustitucion");
+
+section("VARIANTES — la exacta ni aparece, pero hay variante con stock");
+const a3 = analizarVariantes("6205 2RS", [P(2, "SNR 6205 C3", "SNR 6205 C3", 12)]);
+ok(a3.exactaSinStock && a3.alternativasConStock.length === 1, "ofrece la variante que si esta");
+ok(
+  a3.alternativasConStock[0].quita.join(" ") === "2RS" &&
+    a3.alternativasConStock[0].anade.join(" ") === "C3",
+  "dice que le falta el 2RS y que anade C3",
+  `quita [${a3.alternativasConStock[0].quita}] anade [${a3.alternativasConStock[0].anade}]`
+);
+
+section("COMPARATIVA — diferencias reales entre dos referencias del KB");
+const c1 = compararTecnico(["6205", "6305"]);
+ok(c1.referencias.length === 2, "encuentra ficha de las dos", c1.referencias.map((r) => r.marca + " " + r.referencia).join(" vs "));
+const di = c1.filas.find((f) => /Di[aá]metro interior/.test(f.campo));
+const de = c1.filas.find((f) => /Di[aá]metro exterior/.test(f.campo));
+ok(di !== undefined && !di.cambia, "6205 y 6305 comparten diametro interior (25 mm)", di ? String(di.valores) : "");
+ok(
+  de !== undefined && de.cambia && /^\+/.test(String(de.diferencia[1])),
+  "el 6305 es mayor por fuera y la diferencia sale calculada",
+  de ? `${de.valores.join(" -> ")} (${de.diferencia[1]})` : ""
+);
+const c2 = compararTecnico(["6205", "no-existe-9999"]);
+ok(c2.sinFicha.includes("no-existe-9999"), "avisa de la referencia sin ficha en vez de inventarla");
+
+section("COMPARATIVA — detector de 'otra medida'");
+for (const q of [
+  "dame uno mas grande",
+  "necesito uno más pequeño que este",
+  "el siguiente diametro por encima",
+  "¿me vale el ZZ en vez del 2RS?",
+  "quiero algo mas ancho",
+]) {
+  ok(pideOtraMedida(q), `dispara: "${q}"`);
+}
+for (const q of [
+  "que caracteristicas tiene un rodamiento 6205",
+  "quiero comprar 10 uds del 6205",
+  "hola buenas",
+]) {
+  ok(!pideOtraMedida(q), `NO dispara: "${q}"`);
+}
+
+section("TARJETAS — la variante con stock no se queda fuera de las 3");
+const familiaLarga = [
+  P(10, "SNR 6205 ZZ", "SNR 6205 ZZ", 0),
+  P(11, "SNR 6205 LLU", "SNR 6205 LLU", 0),
+  P(12, "SNR 6205", "SNR 6205", 0),
+  P(13, "SNR 6205 C3", "SNR 6205 C3", 12),
+  P(14, "NTN 6305", "NTN 6305", 4),
+];
+const tarjetas = ordenarParaTarjetas("6205", familiaLarga).slice(0, 3).map((p: any) => p.id);
+ok(tarjetas[0] === 12, "la referencia exacta va primera", String(tarjetas));
+ok(tarjetas.includes(13), "la variante CON stock entra en las 3 tarjetas", String(tarjetas));
+
+section("BLOQUE INYECTADO — variantes (el texto real que ve el modelo)");
+const bloque = bloqueVariantes(a1);
+ok(bloque !== null, "genera el bloque en el caso del cliente");
+if (bloque) {
+  ok(/SNR 6205 C3/.test(bloque) && /12 uds/.test(bloque), "nombra la variante disponible y sus unidades");
+  ok(/🔴 0 uds/.test(bloque), "deja claro que la pedida esta a cero");
+  ok(/AÑADE el\/los sufijo\(s\): C3/.test(bloque), "dice cual es el sufijo que cambia");
+  ok(/juego/i.test(bloque), "incluye la explicacion VERIFICADA del glosario, no una de memoria");
+  ok(/PROHIBIDO.*a.adir al carrito la referencia sin stock/s.test(bloque), "prohibe ofrecer la que no hay");
+  ok(/compare_products/.test(bloque), "pide la comparativa de diferencias");
+}
+ok(bloqueVariantes(a2) === null, "NO genera bloque cuando la exacta si tiene stock");
+
+section("BLOQUE INYECTADO — otra medida ancla contra el producto ya mostrado");
+const historialFalso = [
+  { role: "user", content: "que caracteristicas tiene un rodamiento 6205" },
+  { role: "assistant", content: "**SNR 6205**\n\n**Ref: SNR 6205**\n- 62 -> serie ligera\n\n**Medidas:** dO25 x DO52 x B15 mm\n**Precio:** 1.93 EUR\n**Stock:** 12 uds" },
+];
+const previa = refDeConversacion(historialFalso);
+ok(previa !== null && /6205/.test(previa.referencia), "localiza el 6205 del turno anterior", previa ? previa.marca + " " + previa.referencia : "");
+if (previa) {
+  const b2 = bloqueOtraMedida(previa);
+  ok(/compare_products/.test(b2), "obliga a comparar");
+  ok(/Diferencias frente al/.test(b2), "pide el bloque de diferencias");
+  ok(/52/.test(b2), "lleva las medidas reales del producto de partida");
+}
+ok(refDeConversacion([{ role: "user", content: "hola buenas" }] as any) === null, "sin producto previo no inventa ninguno");
+
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);
