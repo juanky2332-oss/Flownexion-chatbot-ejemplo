@@ -751,7 +751,7 @@ const tools: ChatCompletionTool[] = [
     function: {
       name: "search_products",
       description:
-        "Busca productos en el catálogo real de ESGAS por nombre o referencia. Máximo 2 llamadas por consulta de producto.",
+        "Busca productos en el catálogo real de ESGAS por nombre o referencia. Devuelve un objeto con 'productos' (la lista, con precio y stock reales) y, cuando la referencia buscada está sin stock pero otra variante de la misma familia sí tiene unidades, un campo 'aviso_variantes' con instrucciones OBLIGATORIAS que debes seguir en esa respuesta. Máximo 2 llamadas por consulta de producto.",
       parameters: {
         type: "object",
         properties: {
@@ -931,16 +931,25 @@ async function runTool(
   }
   if (name === "search_products") {
     const query = String(args?.query ?? "");
-    // Mismo criterio que en la búsqueda automática: la referencia exacta y las
-    // variantes CON stock son las que se llevan las tarjetas.
+    // Mismo criterio que en la búsqueda automática: fuera lo que no es de la
+    // familia, y la referencia exacta y las variantes CON stock delante, que
+    // son las que se llevan las tarjetas.
     const products = ordenarParaTarjetas(
       query,
-      await searchProducts(query, groupId, idCustomer)
+      filtrarFueraDeFamilia(query, await searchProducts(query, groupId, idCustomer))
     );
     for (const p of products.slice(0, 3)) {
       if (!collected.some((c) => c.id === p.id)) collected.push(p);
     }
-    return JSON.stringify(products.slice(0, 5).map(sinEnlaces));
+    // El aviso de variantes también aquí, no solo sobre la referencia que
+    // escribe el cliente: cuando el propio modelo busca una referencia (p.ej.
+    // el 6305 que ha elegido como "uno más grande") y esa está a cero pero una
+    // variante suya tiene unidades, el cliente tiene que enterarse igual.
+    const aviso = bloqueVariantes(analizarVariantes(query, products));
+    return JSON.stringify({
+      productos: products.slice(0, 5).map(sinEnlaces),
+      ...(aviso ? { aviso_variantes: aviso } : {}),
+    });
   }
   if (name === "search_by_bore") {
     const boreMm = Number(args?.bore_mm ?? 0);
