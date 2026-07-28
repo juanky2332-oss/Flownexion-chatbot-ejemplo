@@ -274,6 +274,8 @@ const {
   ordenarParaTarjetas,
   filtrarFueraDeFamilia,
   tarjetasParaRespuesta,
+  direccionDeTamano,
+  candidatosPorTamano,
 } = require("../lib/variantes") as typeof import("../lib/variantes");
 
 section("VARIANTES — partir la referencia en base + sufijos");
@@ -428,6 +430,24 @@ if (bloque) {
   ok(/compare_products/.test(bloque), "pide la comparativa de diferencias");
 }
 ok(bloqueVariantes(a2) === null, "NO genera bloque cuando la exacta si tiene stock");
+
+section("DIRECCION DE TAMANO — 'mas grande' no puede devolver algo mas pequeno");
+// Fallo real visto en produccion: partiendo del 6205, ante "ensename uno mas
+// grande" el bot ofrecio el SNR 6005, que es MAS PEQUENO (DO47 vs 52, B12 vs
+// 15), contradiciendo su propia tabla de diferencias.
+const ficha6205 = findTechnicalInfo("6205")[0];
+ok(direccionDeTamano("ensename uno mas grande") === "mas_grande", "detecta 'mas grande'");
+ok(direccionDeTamano("quiero uno mas pequeno") === "mas_pequeno", "detecta 'mas pequeno'");
+ok(direccionDeTamano("que caracteristicas tiene el 6205") === null, "no detecta direccion donde no la hay");
+const arriba = candidatosPorTamano(ficha6205, "mas_grande").map((c: any) => c.ref);
+ok(arriba.includes("6305") && arriba.includes("6206"), "mas grande que el 6205 -> 6305 y 6206", String(arriba));
+ok(!arriba.includes("6005") && !arriba.includes("6204"), "y NUNCA el 6005 ni el 6204", String(arriba));
+const abajo = candidatosPorTamano(ficha6205, "mas_pequeno").map((c: any) => c.ref);
+ok(abajo.includes("6005") && abajo.includes("6204"), "mas pequeno que el 6205 -> 6005 y 6204", String(abajo));
+ok(!abajo.includes("6305"), "y nunca el 6305", String(abajo));
+const bloqueDir = bloqueOtraMedida(ficha6205, "ensename uno mas grande");
+ok(/6305/.test(bloqueDir), "el bloque inyecta los candidatos correctos");
+ok(/COMPROBACI[OÓ]N OBLIGATORIA/.test(bloqueDir), "el bloque obliga a comprobar el signo de las diferencias");
 
 section("BLOQUE INYECTADO — otra medida ancla contra el producto ya mostrado");
 const historialFalso = [

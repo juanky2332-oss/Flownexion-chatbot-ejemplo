@@ -1,6 +1,7 @@
 import "server-only";
 import type { Product } from "./types";
 import { findTechnicalInfo, findGlossary, extractQueryCandidates, type TechInfo } from "./kb";
+import { boreCodeFor, nextStandardBore } from "./bearingSizes";
 
 /**
  * Análisis de VARIANTES y COMPARATIVAS.
@@ -495,14 +496,107 @@ export function bloqueVariantes(analisis: AnalisisVariantes): string | null {
   );
 }
 
+/** Dirección del cambio de tamaño que pide el cliente, si es que la pide. */
+export function direccionDeTamano(mensaje: string): "mas_grande" | "mas_pequeno" | null {
+  const m = String(mensaje ?? "");
+  if (/\b(m[aá]s\s+(grande|ancho|gordo|resistente)|mayor|superior|por\s+encima|siguiente\s+(medida|di[aá]metro|talla))\b/i.test(m)) {
+    return "mas_grande";
+  }
+  if (/\b(m[aá]s\s+(peque[nñ]o|estrecho|fino|corto)|menor|inferior|por\s+debajo)\b/i.test(m)) {
+    return "mas_pequeno";
+  }
+  return null;
+}
+
+const SERIES_POR_TAMANO = ["60", "62", "63"];
+
+/**
+ * Candidatos REALES que de verdad son más grandes (o más pequeños) que la
+ * referencia de partida, calculados en código y comprobados contra la ficha
+ * técnica del KB.
+ *
+ * Hace falta porque el modelo se equivocaba de dirección: ante "enséñame uno
+ * más grande" partiendo de un 6205 ofrecía el 6005, que es MÁS PEQUEÑO
+ * (DØ47 frente a 52, B12 frente a 15), y lo hacía contradiciendo su propia
+ * tabla de diferencias, que ya mostraba los signos negativos.
+ */
+export function candidatosPorTamano(
+  refPrevia: TechInfo,
+  direccion: "mas_grande" | "mas_pequeno"
+): { ref: string; motivo: string }[] {
+  const partida = partirReferencia(refPrevia.referencia);
+  const m = partida.base.match(/^(6[023])(\d{2})$/);
+  if (!m) return [];
+  const [, serie, code] = m;
+
+  const dePartida = Number(
+    String(refPrevia.datos["Diámetro exterior DØ (mm)"] ?? "").replace(",", ".")
+  );
+  const arriba = direccion === "mas_grande";
+
+  const propuestas: { ref: string; motivo: string }[] = [];
+
+  // 1) Mismo eje (mismo bore), serie más pesada o más ligera: cambia el
+  //    diámetro exterior y la anchura sin tocar el eje del cliente.
+  const i = SERIES_POR_TAMANO.indexOf(serie);
+  const serieNueva = i >= 0 ? SERIES_POR_TAMANO[i + (arriba ? 1 : -1)] : undefined;
+  if (serieNueva) {
+    propuestas.push({
+      ref: `${serieNueva}${code}`,
+      motivo: `mismo eje dØ, serie ${arriba ? "más pesada" : "más ligera"} (cambia DØ y B)`,
+    });
+  }
+
+  // 2) Misma serie, siguiente diámetro de eje en la progresión ISO.
+  const boreMm = Number(code) >= 4 ? Number(code) * 5 : null;
+  if (boreMm) {
+    const nuevo = nextStandardBore(boreMm, arriba ? "up" : "down");
+    const codeNuevo = nuevo ? boreCodeFor(nuevo) : null;
+    if (codeNuevo) {
+      propuestas.push({
+        ref: `${serie}${codeNuevo}`,
+        motivo: `misma serie, eje dØ${nuevo} mm (${arriba ? "mayor" : "menor"} que el actual)`,
+      });
+    }
+  }
+
+  // Solo se proponen las que existen en la ficha técnica Y que de verdad van
+  // en la dirección pedida: la comprobación se hace aquí, no se le pide al
+  // modelo que la haga de cabeza.
+  return propuestas.filter((p) => {
+    const ficha = findTechnicalInfo(p.ref)[0];
+    if (!ficha) return false;
+    const de = Number(String(ficha.datos["Diámetro exterior DØ (mm)"] ?? "").replace(",", "."));
+    if (!Number.isFinite(de) || !Number.isFinite(dePartida)) return true;
+    return arriba ? de > dePartida : de < dePartida;
+  });
+}
+
 /** Bloque de OTRA MEDIDA: ancla la comparación al producto ya mostrado. */
-export function bloqueOtraMedida(refPrevia: TechInfo): string {
+export function bloqueOtraMedida(refPrevia: TechInfo, mensaje = ""): string {
   const ficha = Object.entries(refPrevia.datos)
     .map(([k, v]) => `${k}: ${v}`)
     .join(" · ");
+
+  const direccion = direccionDeTamano(mensaje);
+  const candidatos = direccion ? candidatosPorTamano(refPrevia, direccion) : [];
+  const bloqueDireccion = direccion
+    ? `El cliente pide algo ${direccion === "mas_grande" ? "MÁS GRANDE" : "MÁS PEQUEÑO"} que esta referencia.` +
+      (candidatos.length
+        ? ` Estas opciones SÍ van en esa dirección (comprobado contra la ficha técnica, no las descartes por otras que ` +
+          `no lo estén):\n${candidatos.map((c) => `- ${c.ref} — ${c.motivo}`).join("\n")}\n` +
+          `Búscalas con search_products y ofrece la que encaje.`
+        : "") +
+      ` COMPROBACIÓN OBLIGATORIA antes de enviar la respuesta: si tu tabla de diferencias sale con signo ` +
+      `${direccion === "mas_grande" ? "NEGATIVO (−) en el diámetro exterior o en la anchura, lo que has elegido es MÁS PEQUEÑO" : "POSITIVO (+) en el diámetro exterior o en la anchura, lo que has elegido es MÁS GRANDE"} ` +
+      `y NO es lo que te han pedido: cambia de referencia antes de contestar. Presentar una pieza diciendo que es ` +
+      `más grande cuando tus propios números dicen lo contrario es un fallo grave.\n\n`
+    : "";
+
   return (
     `🔒 PRODUCTO DE REFERENCIA DE ESTA CONVERSACIÓN — el cliente pide otra medida/variante partiendo de:\n` +
     `${refPrevia.marca} ${refPrevia.referencia} → ${ficha}\n\n` +
+    bloqueDireccion +
     `Toma ESTAS medidas como punto de partida para interpretar "más grande", "más pequeño", "el siguiente" ` +
     `o "en vez de este" — nunca un criterio o una unidad que el cliente no haya mencionado. ` +
     `OBLIGATORIO en esta respuesta: llama a compare_products con ["${refPrevia.referencia}", "<la que propongas>"] ` +
