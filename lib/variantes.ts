@@ -226,6 +226,27 @@ export function ordenarParaTarjetas(refPedida: string, productos: Product[]): Pr
   return [...productos].sort((a, b) => peso(a) - peso(b));
 }
 
+/**
+ * Quita del resultado de una búsqueda POR REFERENCIA los productos que no son
+ * de esa familia.
+ *
+ * Caso real: preguntando por el 6205 salía como tercera tarjeta un "NTN 22216
+ * EA W33" de 77 € y sin stock, que no tiene nada que ver (lo cuela la búsqueda
+ * del Webservice por supplier_reference). Al cliente le desconcierta y ocupa
+ * el sitio de una variante que sí le sirve.
+ *
+ * Solo se aplica cuando la búsqueda venía de una referencia detectada: si
+ * NINGÚN resultado es de la familia, se devuelve la lista intacta (puede ser
+ * un acierto legítimo por nombre o descripción y no queremos perderlo).
+ */
+export function filtrarFueraDeFamilia(refPedida: string, productos: Product[]): Product[] {
+  const pedida = partirReferencia(refPedida);
+  const familia = productos.filter(
+    (p) => partirReferencia(p.reference || p.name).base === pedida.base
+  );
+  return familia.length > 0 ? familia : productos;
+}
+
 // ── Comparativa técnica entre dos o más referencias ──────────────────────────
 
 /**

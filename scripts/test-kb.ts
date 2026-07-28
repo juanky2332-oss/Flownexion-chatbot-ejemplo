@@ -272,6 +272,7 @@ const {
   bloqueOtraMedida,
   refDeConversacion,
   ordenarParaTarjetas,
+  filtrarFueraDeFamilia,
 } = require("../lib/variantes") as typeof import("../lib/variantes");
 
 section("VARIANTES — partir la referencia en base + sufijos");
@@ -390,6 +391,12 @@ const familiaLarga = [
 const tarjetas = ordenarParaTarjetas("6205", familiaLarga).slice(0, 3).map((p: any) => p.id);
 ok(tarjetas[0] === 12, "la referencia exacta va primera", String(tarjetas));
 ok(tarjetas.includes(13), "la variante CON stock entra en las 3 tarjetas", String(tarjetas));
+
+section("RUIDO — el 22216 no puede salir en una busqueda del 6205");
+const limpio = filtrarFueraDeFamilia("6205", catalogo6205);
+ok(limpio.length === 2 && !limpio.some((p: any) => p.id === 3), "descarta el producto de otra familia", limpio.map((p: any) => p.reference).join(", "));
+const soloRuido = filtrarFueraDeFamilia("6205", [P(3, "NTN 22216 EA W33", "NTN 22216 EA W33", 5)]);
+ok(soloRuido.length === 1, "si NADA es de la familia, no vacia la lista (puede ser un acierto por nombre)");
 
 section("BLOQUE INYECTADO — variantes (el texto real que ve el modelo)");
 const bloque = bloqueVariantes(a1);

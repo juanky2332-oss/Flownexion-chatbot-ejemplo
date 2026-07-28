@@ -22,6 +22,7 @@ import {
   bloqueOtraMedida,
   bloqueVariantes,
   compararTecnico,
+  filtrarFueraDeFamilia,
   ordenarParaTarjetas,
   pideOtraMedida,
   refDeConversacion,
@@ -1174,7 +1175,10 @@ export async function runAgent(
       // comprable se quedaba fuera de las 3 tarjetas.
       const encontrados = ordenarParaTarjetas(
         refDetectada,
-        await searchProducts(refDetectada, groupId, customerId)
+        filtrarFueraDeFamilia(
+          refDetectada,
+          await searchProducts(refDetectada, groupId, customerId)
+        )
       );
       for (const p of encontrados.slice(0, 3)) {
         if (!collected.some((c) => c.id === p.id)) collected.push(p);
