@@ -265,9 +265,14 @@ export function tarjetasParaRespuesta(respuesta: string, productos: Product[]): 
     const ref = normalizarRef(p.reference || p.name);
     return ref.length >= 3 && texto.includes(ref);
   };
+  // Entre los que el texto nombra, delante el que se puede comprar: si el bot
+  // habla del 6305 y del 6305 C3 y solo el C3 tiene unidades, esa es la ficha
+  // que el cliente necesita tener a mano.
   const citados = productos.filter(nombrado);
+  const conStock = citados.filter((p) => (p.stock ?? 0) > 0);
+  const sinStock = citados.filter((p) => (p.stock ?? 0) <= 0);
   const resto = productos.filter((p) => !nombrado(p));
-  return [...citados, ...resto];
+  return [...conStock, ...sinStock, ...resto];
 }
 
 // ── Comparativa técnica entre dos o más referencias ──────────────────────────

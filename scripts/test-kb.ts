@@ -417,6 +417,10 @@ ok(
   tarjetasParaRespuesta(respuestaReal, recogidos).length === recogidos.length,
   "no descarta ninguno, solo reordena (el resto sigue detras)"
 );
+// Si el texto nombra la referencia y su variante, delante la que se puede comprar.
+const dosCitados = [P(30, "SNR 6305", "SNR 6305", 0), P(31, "SNR 6305 C3", "SNR 6305 C3", 9)];
+const conC3 = tarjetasParaRespuesta("El SNR 6305 C3 es una opcion mas grande que el 6205", dosCitados);
+ok(conC3[0].id === 31, "entre las citadas, primero la que tiene unidades", conC3.map((p: any) => p.reference).join(", "));
 
 section("BLOQUE INYECTADO — variantes (el texto real que ve el modelo)");
 const bloque = bloqueVariantes(a1);
