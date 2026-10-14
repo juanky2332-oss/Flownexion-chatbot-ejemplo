@@ -96,14 +96,37 @@ const CIERRE_UTIL =
  * Sustituye el cierre vacío por uno accionable. Si el texto no lo lleva, lo
  * devuelve intacto: no toca nada más de la respuesta.
  */
-export function limpiarCierreVacio(texto: string): string {
-  if (!texto || !CIERRE_VACIO.test(texto)) {
-    CIERRE_VACIO.lastIndex = 0;
-    return texto;
-  }
-  CIERRE_VACIO.lastIndex = 0;
+// Coletillas pasivas que devuelven la pelota al cliente sin darle una salida
+// ("Si necesitas más información, házmelo saber.", "puedo ayudarte a
+// buscarla"). Vistas en pruebas del 14-10-2026 cerrando fichas de soportes y
+// correas. Se quita la frase entera.
+const CIERRE_PASIVO =
+  /[^.!?\n]*(?:h[aá]zmelo\s+saber|no\s+dudes\s+en\s+(?:preguntar|consultar|escribir|contactar)\w*|puedo\s+ayudarte\s+a\s+(?:buscarl[oa]s?|localizarl[oa]s?|encontrarl[oa]s?)|puedo\s+buscarl[oa]s?|estar[eé]\s+encantado\s+de\s+(?:ayudarte|asistirte))[^.!?\n]*[.!]?/gi;
 
-  const limpio = texto.replace(CIERRE_VACIO, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trimEnd();
+const CIERRE_CONTACTO =
+  "Para conseguirlo o confirmar su disponibilidad, escríbenos por teléfono o e-mail y te lo gestionamos al momento.";
+
+export function limpiarCierreVacio(texto: string, hayTarjetas = false): string {
+  if (!texto) return texto;
+  const conPregunta = CIERRE_VACIO.test(texto);
+  CIERRE_VACIO.lastIndex = 0;
+  const conPasivo = CIERRE_PASIVO.test(texto);
+  CIERRE_PASIVO.lastIndex = 0;
+  if (!conPregunta && !conPasivo) return texto;
+
+  const limpio = texto
+    .replace(CIERRE_VACIO, "")
+    .replace(CIERRE_PASIVO, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd();
+
+  if (!conPregunta) {
+    // Si hay tarjeta, la vía de compra ya está en pantalla; si el texto ya
+    // ofrece el contacto, también. Si no, se añade el contacto.
+    if (hayTarjetas || /t[eé]cnico|tel[eé]fono|e-?mail|correo/i.test(limpio.slice(-220))) return limpio;
+    return `${limpio}\n\n${CIERRE_CONTACTO}`;
+  }
 
   // Si ya termina ofreciendo el contacto con un técnico, no hace falta añadir
   // nada: esa ya es una salida concreta.

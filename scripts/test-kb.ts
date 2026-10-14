@@ -552,6 +552,19 @@ section("SOPORTES TL — ficha oficial del catalogo Translink");
   ok(sinFicha.length === 0, `las ${todos.length} referencias TL se encuentran por su propia referencia`, sinFicha.slice(0, 5).map((s) => s.ref).join(","));
 }
 
+section("CIERRES PASIVOS — se sustituyen por una salida concreta");
+{
+  const { limpiarCierreVacio } = require("../lib/guardrails") as typeof import("../lib/guardrails");
+  const base = "**TL-UCFL207**\n- **Peso:** 1,2 kg";
+  const r1 = limpiarCierreVacio(`${base}\n\nSi necesitas más información o quieres saber si está disponible para compra, házmelo saber.`);
+  ok(!/h[aá]zmelo/.test(r1) && /tel[eé]fono o e-mail/.test(r1), "'házmelo saber' -> contacto", r1.slice(-90));
+  const r2 = limpiarCierreVacio(`${base}\n\nSi necesitas adquirirla, puedo ayudarte a buscarla.`, true);
+  ok(!/buscarla/.test(r2) && !/tel[eé]fono/.test(r2), "con tarjeta comprable: se quita y no se añade nada", r2.slice(-60));
+  const li = "Para confirmar cuál es la correcta, necesito saber si el número que tienes es la longitud interior (Li) o la primitiva (Ld). Con ese dato, puedo indicarte cuál es la opción adecuada.";
+  ok(limpiarCierreVacio(li) === li, "la pregunta Li/Ld (necesaria) NO se toca");
+  ok(limpiarCierreVacio(base) === base, "texto sin coletilla, intacto");
+}
+
 section("FICHA TECNICA EN PDF — se extrae de respuestas REALES del bot");
 // Las fixtures son respuestas literales de produccion (14-10-2026) a las
 // preguntas del documento del cliente. El PDF tiene que llevar exactamente

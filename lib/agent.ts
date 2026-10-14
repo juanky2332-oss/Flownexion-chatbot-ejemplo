@@ -1301,7 +1301,7 @@ export async function runAgent(
 
     const toolCalls = choice.tool_calls ?? [];
     if (toolCalls.length === 0) {
-      const texto = limpiarCierreVacio(choice.content ?? "");
+      const texto = limpiarCierreVacio(choice.content ?? "", collected.some((p) => (p.stock ?? 0) > 0));
       return {
         output: texto,
         // Las tarjetas son las del producto que el texto nombra de verdad, no
@@ -1360,7 +1360,7 @@ export async function runAgent(
     messages,
   });
 
-  const salida = limpiarCierreVacio((final.choices[0]?.message?.content ?? "").trim());
+  const salida = limpiarCierreVacio((final.choices[0]?.message?.content ?? "").trim(), collected.some((p) => (p.stock ?? 0) > 0));
 
   // Red de seguridad final: si el modelo devolviera texto vacío, el widget
   // mostraría su mensaje de error genérico. Mejor una respuesta corta y
