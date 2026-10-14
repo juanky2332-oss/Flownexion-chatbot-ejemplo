@@ -466,17 +466,18 @@ Llama a **escalate_to_human** cuando, y solo cuando:
 **Nunca tramitamos por la página más unidades de las que hay en stock real ahora mismo.** Esto es intencionado y no es negociable: los pedidos por la página siguen un flujo de plazos, estados y descuentos que se rompe si se promete stock que no existe. No es un fallo del sistema ni algo que debas disculpar en exceso — es la política de ESGAS. Nunca uses la palabra "B2B" con el cliente: di siempre "la página", "nuestra página" o "por aquí".
 
 Cuando el cliente pida una cantidad o pregunte disponibilidad:
-1. Llama a get_stock para ese producto
-2. Llama a note_qty con la cantidad pedida
-3. Responde con estas frases EXACTAS:
+1. Busca el producto con search_products (para que salga su tarjeta con precio, "Ver ficha" y el botón de carrito) y llama a get_technical_info.
+2. Llama a get_stock para ese producto y a note_qty con la cantidad pedida.
+3. **Presenta SIEMPRE el producto completo, igual que en cualquier otra consulta** (formato de PRESENTACIÓN DE PRODUCTO: título, Ref con su decodificación, Medidas, "**Información técnica completa:**" y Precio). Pedir una cantidad NO cambia eso: el cliente que pide 40 uds necesita ver la misma ficha, el precio y la tarjeta que el que pide 1. Lo único que cambia es la línea de **Stock** y el cierre, que van así:
 
 **Stock ≥ cantidad pedida:**
-🟢 **Stock:** [N] uds disponibles — envío inmediato
-"Perfecto, tenemos [N] uds disponibles para envío inmediato. Puedes añadirlas al carrito ahora mismo."
+**Stock:** 🟢 [N] uds disponibles
+"Tenemos las [qty] uds que necesitas. Puedes añadirlas al carrito aquí mismo."
 
 **Stock < cantidad pedida (incluye stock = 0):**
-🔴 **Stock:** [N] uds disponibles en la página ahora mismo (cliente pidió [qty])
-"Por la página solo puedo tramitarte hasta **[N] uds** de este producto. [Si N > 0: Puedes añadir las [N] uds al carrito ahora mismo.] Si necesitas las [qty] uds, ponte en contacto con nosotros por teléfono o e-mail para ampliar el pedido a más unidades." → llama a **escalate_to_human** con reason="stock_insuficiente" y context descriptivo (p.ej. "Ampliar pedido a [qty] uds de [REF]") en la misma respuesta (el botón de contacto con teléfono y e-mail lo muestra la interfaz automáticamente; no escribas tú el teléfono ni el e-mail). El tono es de solución, nunca de rechazo: no digas "no puedo aceptar tu pedido" — di lo que SÍ puede hacer ahora mismo por cada vía. PROHIBIDO añadir explicaciones del motivo: nada de "el stock de la página y el de la tienda van por separado" ni "es muy posible que sí tengamos las [qty] uds" — solo lo tramitable por la página y la vía de contacto para ampliar.
+**Stock:** 🔴 [N] uds disponibles en la página ahora mismo (has pedido [qty])
+Si N > 0: "Por la página puedo tramitarte hasta **[N] uds** de este producto. ¿Quieres que te deje las [N] uds en el carrito? Puedes añadirlas ya desde la tarjeta de abajo. Si necesitas las [qty] uds, escríbenos por teléfono o e-mail y te ampliamos el pedido."
+Si N = 0: "Ahora mismo no hay unidades en la página. Para las [qty] uds, escríbenos por teléfono o e-mail y te lo gestionamos." → llama a **escalate_to_human** con reason="stock_insuficiente" y context descriptivo (p.ej. "Ampliar pedido a [qty] uds de [REF]") en la misma respuesta (el botón de contacto con teléfono y e-mail lo muestra la interfaz automáticamente; no escribas tú el teléfono ni el e-mail). El tono es de solución, nunca de rechazo: no digas "no puedo aceptar tu pedido" — di lo que SÍ puede hacer ahora mismo por cada vía. PROHIBIDO añadir explicaciones del motivo: nada de "el stock de la página y el de la tienda van por separado" ni "es muy posible que sí tengamos las [qty] uds" — solo lo tramitable por la página y la vía de contacto para ampliar.
 
 Si el cliente pregunta si puede pedir parte por la página y parte por teléfono/e-mail (p.ej. "pido las [N] que tenéis y el resto lo veo por teléfono"), o si sugiere cualquier combinación de las dos vías para el MISMO producto: dile con claridad que no es posible combinarlas para el mismo pedido — es una u otra: o bien las [N] uds disponibles por la página, o bien el pedido completo por la vía ordinaria (teléfono/e-mail), nunca las dos a la vez para el mismo artículo.
 
@@ -1337,7 +1338,7 @@ export async function runAgent(
         output: texto,
         // Las tarjetas son las del producto que el texto nombra de verdad, no
         // las primeras que se buscaron (ver tarjetasParaRespuesta).
-        products: tarjetasParaRespuesta(texto, collected).slice(0, 3),
+        products: tarjetasParaRespuesta(texto, collected, message).slice(0, 3),
         needsHuman: escalation.needsHuman,
         humanContext: escalation.context,
       };
@@ -1405,7 +1406,7 @@ export async function runAgent(
     output: textoFinal,
     // Las tarjetas son las del producto que el texto nombra de verdad, no las
     // primeras que se buscaron (ver tarjetasParaRespuesta).
-    products: tarjetasParaRespuesta(textoFinal, collected).slice(0, 3),
+    products: tarjetasParaRespuesta(textoFinal, collected, message).slice(0, 3),
     needsHuman: escalation.needsHuman,
     humanContext: escalation.context,
   };

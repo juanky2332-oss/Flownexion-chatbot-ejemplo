@@ -587,6 +587,11 @@ section("SALVAGUARDAS DE CORREAS — sobre respuestas reales que fallaron en la 
   const tA48 = tarjetasParaRespuesta("**Continental A48** (Li 1220 / Ld 1250) y **TL-A48** (Li 1220 / Ld 1250)", pA48).map((p: any) => p.reference);
   ok(tA48.includes("33A48TL") && tA48.includes("CORREA CONTINENTAL A48") && !tA48.includes("175125031000A"),
     "A48: tarjetas TL (33A48TL) y Continental, nunca el tubo Bondioli", tA48.join(","));
+  // Caso real del cliente: "necesito 40 rodamientos 6205 zz c3" -> el texto
+  // hablaba solo del stock y la tarjeta (para añadir las 19 uds) no salia.
+  const p6205 = [{ reference: "SNR 6205 ZZ C3", name: "SNR 6205 ZZ C3", stock: 19 }] as any[];
+  const tStock = tarjetasParaRespuesta("**Stock:** 🔴 19 uds disponibles (has pedido 40)", p6205, "necesito 40 rodamientos 6205 zz c3");
+  ok(tStock.length === 1, "sobre-pedido: sale la tarjeta del producto que nombro el cliente");
 }
 
 section("SEGUIMIENTO SIN REFERENCIA — la ficha del producto de la conversacion");

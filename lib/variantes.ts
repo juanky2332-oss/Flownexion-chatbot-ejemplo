@@ -259,8 +259,11 @@ export function filtrarFueraDeFamilia(refPedida: string, productos: Product[]): 
  * que el producto del que hablaba el texto se quedaba fuera y el cliente veía
  * tres fichas que no eran la suya.
  */
-export function tarjetasParaRespuesta(respuesta: string, productos: Product[]): Product[] {
-  const bruto = String(respuesta ?? "").toUpperCase();
+export function tarjetasParaRespuesta(respuesta: string, productos: Product[], mensajeCliente = ""): Product[] {
+  // El producto que el CLIENTE ha nombrado también es relevante aunque el
+  // texto del bot no lo repita: "necesito 40 rodamientos 6205 zz c3" tiene
+  // que acabar con la tarjeta del 6205 ZZ C3 para poder añadir las uds.
+  const bruto = `${String(respuesta ?? "")}\n${String(mensajeCliente ?? "")}`.toUpperCase();
   const texto = bruto.replace(/[\s\-/.]/g, "");
   // Tokens del texto ("TL-A48" → "TLA48"... y también "A48" suelto).
   const tokensTexto = new Set(
