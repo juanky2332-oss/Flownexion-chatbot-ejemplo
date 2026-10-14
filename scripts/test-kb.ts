@@ -589,6 +589,25 @@ section("SALVAGUARDAS DE CORREAS — sobre respuestas reales que fallaron en la 
     "A48: tarjetas TL (33A48TL) y Continental, nunca el tubo Bondioli", tA48.join(","));
 }
 
+section("SEGUIMIENTO SIN REFERENCIA — la ficha del producto de la conversacion");
+{
+  const v = require("../lib/variantes") as typeof import("../lib/variantes");
+  // Caso real de la preview: "¿y cuánto pesa?" -> el bot invento 1,3 kg.
+  ok(v.esPreguntaTecnicaSinRef("¿y qué rodamiento lleva y cuánto pesa?"), "detecta pregunta tecnica sin referencia");
+  ok(!v.esPreguntaTecnicaSinRef("¿cuánto pesa el UCP206?"), "con referencia nueva no aplica");
+  ok(!v.esPreguntaTecnicaSinRef("vale, gracias"), "sin pregunta tecnica no aplica");
+  const hist = [
+    { role: "user", content: "¿puedes facilitarme las características de un soporte UCP205?" },
+    { role: "assistant", content: "**TL (Translink) UCP205**\n\n**Ref: TL-UCP205**\n- **Diámetro del eje:** 25 mm" },
+  ];
+  const f = v.fichasDeConversacion(hist);
+  const tlF = f.find((x) => x.referencia === "TL-UCP205");
+  ok(!!tlF && tlF.datos["Peso (kg)"] === "0,81" && tlF.datos["Referencia del rodamiento"] === "UC205", "ficha TL-UCP205: 0,81 kg y UC205", JSON.stringify(tlF?.datos));
+  const b = v.bloqueFichaConversacion(f) ?? "";
+  ok(/0,81/.test(b) && /PROHIBIDO dar cualquier valor/.test(b), "el bloque lleva el dato y la prohibicion de inventar");
+  ok(/termopl[aá]stico/i.test(tlF?.aviso ?? ""), "la ficha TL avisa de que no vale para la version termoplastica");
+}
+
 section("CIERRES PASIVOS — se sustituyen por una salida concreta");
 {
   const { limpiarCierreVacio } = require("../lib/guardrails") as typeof import("../lib/guardrails");

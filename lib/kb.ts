@@ -433,6 +433,8 @@ export interface TechInfo {
   referencia: string;
   ean: string;
   datos: Record<string, string | number>;
+  /** Advertencia para el modelo (no es un dato de la ficha ni va al PDF). */
+  aviso?: string;
 }
 
 function labelTech(row: TechEntry): TechInfo {
@@ -531,7 +533,13 @@ function labelTlSoporte(r: TlSoporteRow): TechInfo {
   if (r.rodamiento) datos["Referencia del rodamiento"] = r.rodamiento;
   if (r.unidad_equivalente) datos["Unidad de fundición equivalente"] = r.unidad_equivalente;
   if (r.peso_kg !== undefined && r.peso_kg !== null) datos["Peso (kg)"] = fmtMm(r.peso_kg);
-  return { marca: "TL (Translink)", referencia: r.ref, ean: "", datos };
+  // Visto en la preview: el bot copió la ficha del TL-UCP205 de FUNDICIÓN al
+  // soporte TERMOPLÁSTICO "UCP 205" de la página (otra pieza, otro peso).
+  const aviso =
+    `Esta ficha es SOLO de la pieza ${r.ref} (${r.descripcion ?? "catálogo Translink"}). No la apliques a otras ` +
+    "versiones con la misma numeración (termoplástico, inoxidable, chapa, otra serie): si el producto de la página " +
+    "es de otro material o serie, sus datos NO son estos — dilo y ofrece el contacto para confirmarlos.";
+  return { marca: "TL (Translink)", referencia: r.ref, ean: "", datos, aviso };
 }
 
 function findTlSoporte(candidates: string[]): TechInfo[] {

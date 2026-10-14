@@ -31,6 +31,9 @@ import {
   ordenarParaTarjetas,
   pideOtraMedida,
   refDeConversacion,
+  esPreguntaTecnicaSinRef,
+  fichasDeConversacion,
+  bloqueFichaConversacion,
   tarjetasParaRespuesta,
 } from "./variantes";
 import { searchOfficialSource } from "./websearch";
@@ -351,6 +354,7 @@ get_technical_info devuelve, además de las fichas NTN/SNR, la ficha oficial de 
 - En la ficha TL copia las medidas con sus letras, sin inventar qué significa cada letra (el catálogo no lo define); si el cliente pregunta por una cota concreta, la altura del eje a la base es la cota **h** en los soportes de pie.
 - En los soportes de pie NO pongas la línea "Medidas: dØ × DØ × B" de rodamiento: un soporte se define por su Ø de eje y sus cotas.
 - En termoplásticos, "Unidad de fundición equivalente" es la unidad de fundición con las mismas medidas de montaje, no el rodamiento que lleva.
+- **Cada ficha es de UNA pieza concreta.** La del TL-UCP205 (fundición) NO es la del soporte termoplástico, inoxidable o de chapa que en la página se llame parecido ("SOPORTE TERMOPLASTICO TL UCP 205..."): son piezas distintas, con otro material y otro peso. Nunca copies los datos de una a otra. Si el producto de la página es de otro material y no tienes su ficha, preséntalo con su precio y stock, di que su ficha técnica no la tienes en la base de datos y ofrece el contacto para confirmarla.
 
 # CORREAS CONTINENTAL Y TL (TRANSLINK) — TIENES LOS CATÁLOGOS DEL FABRICANTE
 ESGAS distribuye correas Continental y TL (Translink) y dispones de sus catálogos (Continental íntegro, más de 18.000 referencias; TL con más de 3.900 referencias técnicas entre dentadas e industriales) a través de la herramienta **find_belt**. Una consulta de correa NO se responde de memoria ni con una negativa: se busca.
@@ -1279,6 +1283,13 @@ export async function runAgent(
   // que aquí se localiza en código (la referencia de la ficha ya mostrada) y
   // se inyecta con su ficha técnica real. Sin esto, el modelo compara contra
   // lo que cree recordar del turno anterior.
+  // Pregunta de seguimiento sin referencia ("¿y cuánto pesa?"): la ficha del
+  // producto de la conversación, resuelta en código (ver fichasDeConversacion).
+  if (!pideOtraMedida(message) && esPreguntaTecnicaSinRef(message)) {
+    const bloque = bloqueFichaConversacion(fichasDeConversacion(history));
+    if (bloque) messages.push({ role: "system", content: bloque });
+  }
+
   if (pideOtraMedida(message)) {
     const refPrevia = refDeConversacion(history);
     if (refPrevia) {

@@ -633,3 +633,37 @@ export function bloqueOtraMedida(refPrevia: TechInfo, mensaje = ""): string {
     `UNA sola cosa concreta en vez de asumir.`
   );
 }
+
+// ── Preguntas de seguimiento sin referencia ──────────────────────────────────
+// Visto en la preview (14-10-2026): tras la ficha del TL-UCP205, a "¿y qué
+// rodamiento lleva y cuánto pesa?" el bot contestó "1,3 kg" sin consultar
+// nada (son 0,81 kg). Cuando la pregunta es técnica y no trae referencia, la
+// ficha del producto de la conversación se resuelve aquí y se le da hecha.
+
+const PREGUNTA_TECNICA =
+  /\b(pesa|peso|mide|medidas?|dimensi\w+|di[aá]metro|ancho|alto|altura|rodamiento\s+lleva|qu[eé]\s+rodamiento|inserto|rosca|perno|tornillo|cuerpo|carga|velocidad|rpm|tolerancia|juego|junta|sellad\w+|material|jaula|caracter[ií]sticas?|ficha|datos|dientes|desarrollo|longitud)\b/i;
+
+export function esPreguntaTecnicaSinRef(message: string): boolean {
+  const m = String(message ?? "");
+  if (!PREGUNTA_TECNICA.test(m.normalize("NFC"))) return false;
+  return !extractQueryCandidates(m).some((c) => (/\d/.test(c) && /[A-Z]/i.test(c)) || /^\d{3,}$/.test(c));
+}
+
+/** Todas las fichas (NTN/SNR y TL) de la última referencia de la conversación. */
+export function fichasDeConversacion(historial: { content: string }[]): TechInfo[] {
+  const previa = refDeConversacion(historial);
+  if (!previa) return [];
+  const todas = findTechnicalInfo(previa.referencia);
+  return todas.length ? todas : [previa];
+}
+
+export function bloqueFichaConversacion(fichas: TechInfo[]): string | null {
+  if (!fichas.length) return null;
+  return (
+    `🔒 FICHA VERIFICADA DEL PRODUCTO DEL QUE SE ESTÁ HABLANDO (base de datos técnica):\n${JSON.stringify(fichas)}\n` +
+    `El cliente pregunta por un dato de este producto sin repetir la referencia. Contesta SOLO con los valores ` +
+    `de este bloque, copiados tal cual (con su unidad). PROHIBIDO dar cualquier valor que no aparezca aquí: si el ` +
+    `dato que pide no está, dilo con claridad y ofrece el contacto para confirmarlo. Si hay fichas de dos marcas ` +
+    `(p.ej. SNR y TL) con valores distintos, da cada uno con su marca.`
+  );
+}
