@@ -617,7 +617,7 @@ section("FICHA DE OTRA PIEZA — fundicion copiada a un termoplastico (real, pre
   const arreglado = v.quitarFichaDeOtraPieza(real);
   const [fund, termo] = arreglado.split(/\n-{3,}\n/).slice(1, 3);
   ok(/0,81 kg/.test(fund) && /P205/.test(fund), "el de fundicion conserva su ficha (P205, 0,81 kg)");
-  ok(!/0,81 kg|P205|UC205|h 36,5/.test(termo), "el termoplastico ya no lleva los datos de fundicion", termo.slice(0, 200));
+  ok(!/0,81 kg|cuerpo del soporte|Referencia del rodamiento|h 36,5|M10/.test(termo), "el termoplastico ya no lleva los datos de fundicion", termo.slice(0, 200));
   ok(/no la tengo en la base de datos/.test(termo), "y explica que su ficha no esta y ofrece confirmarla");
   ok(v.quitarFichaDeOtraPieza("**SOPORTE FUNDICION TL UCP 205**\n\n**Ref: 33UCP205TL**\n- **Peso:** 0,81 kg") ===
     "**SOPORTE FUNDICION TL UCP 205**\n\n**Ref: 33UCP205TL**\n- **Peso:** 0,81 kg", "misma pieza y material: no se toca");
