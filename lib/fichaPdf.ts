@@ -247,3 +247,157 @@ export async function construirFichaPdf(fichas: FichaTecnica[], logo: string | n
 
   return doc;
 }
+
+// ── Comparativa de varios productos en un solo PDF ───────────────────────────
+// Petición del cliente (14-10-2026): cuando el chat compara varios productos,
+// además del PDF de cada ficha, una comparativa con el logo, el aviso legal al
+// pie y una tabla limpia: una columna por producto y resaltadas las filas en
+// las que difieren.
+
+/** Valor comparable de una celda (sin espacios ni formato de decimales). */
+const clave = (v: string) => v.toUpperCase().replace(/\s+/g, "").replace(/,/g, ".");
+
+export interface FilaComparativa {
+  etiqueta: string;
+  valores: string[];
+  difiere: boolean;
+}
+
+/** Filas de la comparativa: medidas + unión de todos los datos, en orden de aparición. */
+export function filasComparativa(fichas: FichaTecnica[]): FilaComparativa[] {
+  const etiquetas: string[] = [];
+  const porFicha = fichas.map((f) => {
+    const m = new Map<string, string>();
+    if (f.medidas) m.set("Medidas", f.medidas);
+    for (const [k, v] of f.datos) if (v) m.set(k, v);
+    return m;
+  });
+  if (fichas.some((f) => f.medidas)) etiquetas.push("Medidas");
+  for (const f of fichas) for (const [k, v] of f.datos) if (v && !etiquetas.includes(k)) etiquetas.push(k);
+  return etiquetas.map((etiqueta) => {
+    const valores = porFicha.map((m) => m.get(etiqueta) ?? "—");
+    const distintos = new Set(valores.map(clave));
+    return { etiqueta, valores, difiere: distintos.size > 1 };
+  });
+}
+
+export function nombreFicheroComparativa(fichas: FichaTecnica[]): string {
+  const refs = fichas
+    .map((f) => (f.referencia || f.titulo).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, ""))
+    .filter(Boolean)
+    .slice(0, 4)
+    .join("-vs-");
+  return `Comparativa-${refs || "ESGAS"}.pdf`.slice(0, 120);
+}
+
+export async function descargarComparativaPdf(fichas: FichaTecnica[]): Promise<void> {
+  if (fichas.length < 2) return;
+  const doc = await construirComparativaPdf(fichas, await cargarLogo());
+  const nombre = nombreFicheroComparativa(fichas);
+  try {
+    doc.save(nombre);
+  } catch {
+    window.open(doc.output("bloburl").toString(), "_blank", "noopener");
+  }
+}
+
+export async function construirComparativaPdf(fichas: FichaTecnica[], logo: string | null) {
+  const { jsPDF } = await import("jspdf");
+  // Con más de 3 productos la tabla va en horizontal para que quepa holgada.
+  const apaisado = fichas.length > 3;
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: apaisado ? "landscape" : "portrait" });
+  const W = apaisado ? ALTO : ANCHO;
+  const H = apaisado ? ANCHO : ALTO;
+  const anchoUtil = W - MARGEN_X * 2;
+  const limite = H - 95;
+  const filas = filasComparativa(fichas);
+
+  const TAM_T = fichas.length > 3 ? 8 : 9;
+  const LIN = TAM_T + 3;
+  const PAD = 4;
+  const colEtiqueta = Math.min(150, anchoUtil * 0.28);
+  const colProducto = (anchoUtil - colEtiqueta) / fichas.length;
+
+  // Colores sobrios: gris para la cabecera, azul muy claro para las diferencias.
+  const GRIS: [number, number, number] = [235, 237, 240];
+  const DIF: [number, number, number] = [222, 235, 252];
+  const BORDE: [number, number, number] = [190, 195, 202];
+
+  let y = 0;
+  const pie = () => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(0);
+    doc.text(doc.splitTextToSize(latin1(AVISO_LEGAL), anchoUtil), MARGEN_X, H - 70);
+  };
+  const cabeceraPagina = (primera: boolean) => {
+    if (!primera) doc.addPage();
+    if (logo) doc.addImage(logo, "PNG", LOGO.x, LOGO.y, LOGO.w, LOGO.h);
+    pie();
+    y = CUERPO_Y - 10;
+    if (primera) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text("COMPARATIVA TÉCNICA", MARGEN_X, y);
+      y += 16;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      const lista = doc.splitTextToSize(latin1(fichas.map((f) => f.titulo).join("  ·  ")), anchoUtil);
+      doc.text(lista, MARGEN_X, y);
+      y += lista.length * 11 + 4;
+      doc.setFontSize(8);
+      doc.setTextColor(90);
+      doc.text("Las filas resaltadas en azul son las características en las que los productos se diferencian.", MARGEN_X, y);
+      doc.setTextColor(0);
+      y += 14;
+    }
+    filaCabecera();
+  };
+
+  const celda = (texto: string, x: number, ancho: number, alto: number, relleno: [number, number, number] | null, negrita: boolean) => {
+    if (relleno) {
+      doc.setFillColor(...relleno);
+      doc.rect(x, y, ancho, alto, "F");
+    }
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.5);
+    doc.rect(x, y, ancho, alto, "S");
+    doc.setFont("helvetica", negrita ? "bold" : "normal");
+    doc.setFontSize(TAM_T);
+    const lineas: string[] = doc.splitTextToSize(latin1(texto), ancho - PAD * 2);
+    lineas.forEach((l, i) => doc.text(l, x + PAD, y + PAD + TAM_T + i * LIN - 1));
+  };
+
+  const altoFila = (textos: string[], anchos: number[]) => {
+    doc.setFontSize(TAM_T);
+    const n = Math.max(...textos.map((t, i) => (doc.splitTextToSize(latin1(t), anchos[i] - PAD * 2) as string[]).length));
+    return n * LIN + PAD * 2;
+  };
+
+  const anchos = [colEtiqueta, ...fichas.map(() => colProducto)];
+
+  const filaCabecera = () => {
+    const textos = ["Característica", ...fichas.map((f) => f.titulo || f.referencia)];
+    const alto = altoFila(textos, anchos);
+    let x = MARGEN_X;
+    textos.forEach((t, i) => {
+      celda(t, x, anchos[i], alto, GRIS, true);
+      x += anchos[i];
+    });
+    y += alto;
+  };
+
+  cabeceraPagina(true);
+  for (const f of filas) {
+    const textos = [f.etiqueta, ...f.valores];
+    const alto = altoFila(textos, anchos);
+    if (y + alto > limite) cabeceraPagina(false);
+    let x = MARGEN_X;
+    textos.forEach((t, i) => {
+      celda(t, x, anchos[i], alto, f.difiere ? DIF : null, i === 0);
+      x += anchos[i];
+    });
+    y += alto;
+  }
+  return doc;
+}

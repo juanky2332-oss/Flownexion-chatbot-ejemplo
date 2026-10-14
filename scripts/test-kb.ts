@@ -659,6 +659,19 @@ section("FICHA REESCRITA DESDE LA BASE DE DATOS — respuesta REAL de produccion
   ok(v.corregirFichasConKB(otra) === otra, "referencia sin ficha exacta: intacta");
 }
 
+section("COMPARATIVA EN PDF — filas y diferencias");
+{
+  const { filasComparativa, nombreFicheroComparativa } = require("../lib/fichaPdf") as typeof import("../lib/fichaPdf");
+  const fA = { titulo: "SNR 6205", referencia: "6205", resumen: [], medidas: "dØ25 × DØ52 × B15 mm", datos: [["Peso", "125 g"], ["Tolerancia", "CN"], ["Velocidad límite", "22000 rpm"]] as [string, string][] };
+  const fB = { titulo: "SNR 6205 ZZ C3", referencia: "6205 ZZ C3", resumen: [], medidas: "dØ25 × DØ52 × B15 mm", datos: [["Peso", "128 g"], ["Tolerancia", "C3"], ["Junta", "ZZ"]] as [string, string][] };
+  const filas = filasComparativa([fA, fB]);
+  const fila = (e: string) => filas.find((f) => f.etiqueta === e);
+  ok(fila("Medidas")?.difiere === false, "mismas medidas -> no resaltada");
+  ok(fila("Peso")?.difiere === true && fila("Tolerancia")?.difiere === true, "peso y tolerancia distintos -> resaltadas");
+  ok(JSON.stringify(fila("Junta")?.valores) === JSON.stringify(["—", "ZZ"]), "dato que solo tiene uno -> '—' en el otro y resaltada", JSON.stringify(fila("Junta")));
+  ok(nombreFicheroComparativa([fA, fB]) === "Comparativa-6205-vs-6205ZZC3.pdf", "nombre del fichero", nombreFicheroComparativa([fA, fB]));
+}
+
 section("CIERRES PASIVOS — se sustituyen por una salida concreta");
 {
   const { limpiarCierreVacio } = require("../lib/guardrails") as typeof import("../lib/guardrails");

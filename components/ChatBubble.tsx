@@ -191,7 +191,9 @@ export default function ChatBubble({
  * técnica que acaba de mostrar el chat.
  */
 function DescargaFicha({ fichas, primaryColor }: { fichas: FichaTecnica[]; primaryColor: string }) {
-  const [estado, setEstado] = useState<"listo" | "generando" | "error">("listo");
+  // Qué botón está generando ("comparativa" o el índice de la ficha).
+  const [generando, setGenerando] = useState<string | null>(null);
+  const [error, setError] = useState(false);
 
   // Precarga jsPDF y el logo en cuanto aparece el botón: al pulsarlo, la
   // descarga sale en el acto.
@@ -199,36 +201,57 @@ function DescargaFicha({ fichas, primaryColor }: { fichas: FichaTecnica[]; prima
     import("@/lib/fichaPdf").then((m) => m.precargarFichaPdf()).catch(() => undefined);
   }, []);
 
-  const descargar = async () => {
-    if (estado === "generando") return;
-    setEstado("generando");
+  type ModuloPdf = typeof import("@/lib/fichaPdf");
+
+  const ejecutar = async (id: string, accion: (m: ModuloPdf) => Promise<void>) => {
+    if (generando) return;
+    setGenerando(id);
+    setError(false);
     try {
-      const { descargarFichaPdf } = await import("@/lib/fichaPdf");
-      await descargarFichaPdf(fichas);
-      setEstado("listo");
+      await accion(await import("@/lib/fichaPdf"));
     } catch (err) {
       console.error("[ficha pdf]", err);
-      setEstado("error");
+      setError(true);
+    } finally {
+      setGenerando(null);
     }
   };
+
+  const boton = (id: string, texto: string, accion: (m: ModuloPdf) => Promise<void>, secundario = false) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => ejecutar(id, accion)}
+      disabled={generando !== null}
+      className={`rounded-md px-3 py-1.5 text-left text-xs font-semibold shadow-sm transition hover:opacity-90 active:scale-95 disabled:cursor-wait disabled:opacity-70 ${
+        secundario ? "border bg-white" : "text-white"
+      }`}
+      style={secundario ? { borderColor: primaryColor, color: primaryColor } : { backgroundColor: primaryColor }}
+    >
+      {generando === id ? "Generando PDF…" : texto}
+    </button>
+  );
+
+  const varias = fichas.length > 1;
 
   return (
     <div className="mt-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
       <p className="text-xs text-gray-700">
-        {fichas.length > 1
-          ? "Puede descargar la información técnica de estos productos pulsando en el siguiente botón"
+        {varias
+          ? "Puede descargar la comparativa de todos los productos, o la información técnica de cada uno, pulsando en los siguientes botones"
           : "Puede descargar la información técnica pulsando en el siguiente botón"}
       </p>
-      <button
-        type="button"
-        onClick={descargar}
-        disabled={estado === "generando"}
-        className="mt-2 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 active:scale-95 disabled:cursor-wait disabled:opacity-70"
-        style={{ backgroundColor: primaryColor }}
-      >
-        {estado === "generando" ? "Generando PDF…" : "Descargar en formato PDF"}
-      </button>
-      {estado === "error" && (
+      <div className="mt-2 flex flex-col items-start gap-1.5">
+        {varias
+          ? [
+              boton("comparativa", "Descargar comparativa en PDF", (m) => m.descargarComparativaPdf(fichas)),
+              ...fichas.map((f, i) =>
+                boton(String(i), `PDF · ${f.titulo || f.referencia}`, (m) => m.descargarFichaPdf([f]), true)
+              ),
+            ]
+          : boton("0", "Descargar en formato PDF", (m) => m.descargarFichaPdf(fichas))}
+      </div>
+      {error && (
         <p className="mt-1.5 text-[11px] text-red-600">
           No se ha podido generar el PDF. Vuelve a intentarlo en unos segundos.
         </p>
