@@ -271,8 +271,12 @@ export function tarjetasParaRespuesta(respuesta: string, productos: Product[]): 
   const citados = productos.filter(nombrado);
   const conStock = citados.filter((p) => (p.stock ?? 0) > 0);
   const sinStock = citados.filter((p) => (p.stock ?? 0) <= 0);
-  const resto = productos.filter((p) => !nombrado(p));
-  return [...conStock, ...sinStock, ...resto];
+  // Si el texto nombra algún producto, las tarjetas son SOLO esas: visto en la
+  // preview, hablando de la correa A49 salían también los rodamientos NTN
+  // NA4903/NA4909 (la búsqueda por "A49" los había traído). Sin ninguno
+  // nombrado, se deja todo lo encontrado.
+  if (citados.length) return [...conStock, ...sinStock];
+  return productos;
 }
 
 // ── Comparativa técnica entre dos o más referencias ──────────────────────────

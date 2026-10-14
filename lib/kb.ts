@@ -1203,3 +1203,101 @@ export function matchDescuento(
   }
   return null;
 }
+
+// ── Salvaguardas de respuesta para CORREAS ──────────────────────────────────
+// Probado contra la preview (14-10-2026): con los datos correctos delante, el
+// modelo a veces (1) elegía él solo entre las dos lecturas de "A 1250" (A48
+// por Ld o A49 por Li) afirmando que el cliente había dado la Ld, y (2) otras
+// contestaba "no está disponible en la página" sin dar ni un dato. Las dos
+// cosas se comprueban aquí, en código, sobre la respuesta ya redactada.
+
+export interface AmbiguedadLiLd {
+  largo: number;
+  /** Correas cuya longitud INTERIOR es el número del cliente. */
+  porLi: string[];
+  /** Correas cuya longitud PRIMITIVA/de paso es el número del cliente. */
+  porLd: string[];
+}
+
+const ACLARA_LONGITUD = /\b(interior|interna|primitiva|de\s+paso|exterior|li|ld|lp)\b/i;
+
+/** Designación sin prefijo de marca, para buscarla en el texto: "TL-A48" → "A48". */
+function nombreCorto(n: string): string {
+  return n.replace(/^TL-/i, "").replace(/^CORREA\s+CONTINENTAL\s+/i, "").trim();
+}
+
+export function ambiguedadLiLd(message: string, conti: BeltInfo[], tl: TlBeltInfo[]): AmbiguedadLiLd | null {
+  const plano = String(message ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (ACLARA_LONGITUD.test(plano)) return null;
+  const nums = (plano.match(/\b\d{3,5}\b/g) ?? []).map(Number);
+  for (const n of nums) {
+    const porLi = new Set<string>();
+    const porLd = new Set<string>();
+    for (const b of conti) {
+      if (b.longitud_interior_Li_mm === n) porLi.add(nombreCorto(b.nombre));
+      if (b.longitud_primitiva_Ld_mm === n) porLd.add(nombreCorto(b.nombre));
+    }
+    for (const b of tl) {
+      if (b.datos["Longitud interior Li (mm)"] === n) porLi.add(nombreCorto(b.referencia));
+      if (b.datos["Longitud de paso Ld (mm)"] === n) porLd.add(nombreCorto(b.referencia));
+    }
+    const li = [...porLi].filter((x) => !porLd.has(x));
+    const ld = [...porLd].filter((x) => !porLi.has(x));
+    if (li.length && ld.length) return { largo: n, porLi: li, porLd: ld };
+  }
+  return null;
+}
+
+const contiene = (texto: string, ref: string) =>
+  texto.toUpperCase().replace(/[\s\-/.]/g, "").includes(ref.toUpperCase().replace(/[\s\-/.]/g, ""));
+
+// Frases con las que el modelo "decide" por el cliente qué longitud dio.
+const ATRIBUCION_FALSA =
+  /[^.!?\n]*\b(que\s+es\s+la\s+(medida|longitud)\s+que\s+(mencionaste|indicaste|has\s+(indicado|dado|mencionado))|la\s+medida\s+que\s+(mencionaste|indicaste|has\s+indicado))[^.!?\n]*[.!]?/gi;
+
+/**
+ * Si había dos lecturas posibles (Li/Ld) y la respuesta no presenta las dos,
+ * se quita la atribución falsa y se añade la aclaración con ambas.
+ */
+export function asegurarAmbiguedadLiLd(texto: string, amb: AmbiguedadLiLd | null): string {
+  if (!amb) return texto;
+  const tieneLi = amb.porLi.some((r) => contiene(texto, r));
+  const tieneLd = amb.porLd.some((r) => contiene(texto, r));
+  if (tieneLi && tieneLd) return texto;
+  const limpio = texto.replace(ATRIBUCION_FALSA, "").replace(/\n{3,}/g, "\n\n").trimEnd();
+  return (
+    `${limpio}\n\n**Importante, antes de pedirla:** con ${amb.largo} mm hay dos correas distintas: ` +
+    `**${amb.porLd.join(" / ")}** si ${amb.largo} mm es su longitud primitiva o de paso (Ld), y ` +
+    `**${amb.porLi.join(" / ")}** si es su longitud interior (Li). ¿Cuál de las dos medidas es la tuya, ` +
+    `o qué pone grabado en el flanco de la correa?`
+  );
+}
+
+/**
+ * Si había correas encontradas en los catálogos y la respuesta no da los datos
+ * de ninguna, se anteponen los datos en código: el cliente nunca puede
+ * quedarse con un "no está disponible" teniendo el dato técnico.
+ */
+export function asegurarDatosCorrea(texto: string, conti: BeltInfo[], tl: TlBeltInfo[]): string {
+  if (!conti.length && !tl.length) return texto;
+  // "Da los datos" = nombra una designación COMPLETA del fabricante (600-H8M-30,
+  // TL-600-8M) y además algún dato técnico. Que repita lo que escribió el
+  // cliente ("la 600-8M-30 no está disponible") no cuenta.
+  const nombra =
+    conti.some((b) => contiene(texto, b.nombre)) || tl.some((b) => contiene(texto, b.referencia) || contiene(texto, `TL ${nombreCorto(b.referencia)}`));
+  const daDato = /dientes|desarrollo|longitud|\bLi\b|\bLd\b|peso/i.test(texto);
+  if (nombra && daDato) return texto;
+  const lineas: string[] = [];
+  for (const b of conti.slice(0, 3)) {
+    const lon = [
+      b.longitud_interior_Li_mm !== undefined ? `Li ${b.longitud_interior_Li_mm} mm` : "",
+      b.longitud_primitiva_Ld_mm !== undefined ? `Ld ${b.longitud_primitiva_Ld_mm} mm` : "",
+    ].filter(Boolean).join(" · ");
+    lineas.push(`- **${b.nombre}** (Continental, ${b.tipo}, perfil ${b.perfil})${lon ? `: ${lon}` : ""}, ${b.peso_g} g`);
+  }
+  for (const b of tl.slice(0, 3)) {
+    const d = Object.entries(b.datos).map(([k, v]) => `${k.replace(/\s*\((mm|pulgadas)\)/, "")}: ${v}${/\(mm\)/.test(k) ? " mm" : ""}`).join(" · ");
+    lineas.push(`- **${b.referencia}** (TL Translink, ${b.tipo.replace(/^Correa\s+/, "correa ")}): ${d}`);
+  }
+  return `Estos son los datos del fabricante para esa correa:\n\n${lineas.join("\n")}\n\n${texto}`;
+}

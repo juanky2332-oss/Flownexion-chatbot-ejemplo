@@ -17,6 +17,9 @@ import {
   findBeltForMessage,
   findTranslinkBelt,
   findTranslinkBeltForMessage,
+  ambiguedadLiLd,
+  asegurarAmbiguedadLiLd,
+  asegurarDatosCorrea,
   extractQueryCandidates,
 } from "./kb";
 import {
@@ -1134,6 +1137,22 @@ export async function runAgent(
   // sin haber buscado, teniéndola en el KB. Aquí se resuelve en código.
   const beltHits = findBeltForMessage(message);
   const tlBeltHits = findTranslinkBeltForMessage(message);
+  // Dos lecturas posibles de la longitud ("A 1250": A48 por Ld o A49 por Li).
+  // Se avisa antes de redactar y se comprueba después (asegurarRespuesta).
+  const ambLiLd = ambiguedadLiLd(message, beltHits, tlBeltHits);
+  if (ambLiLd) {
+    messages.push({
+      role: "system",
+      content:
+        `🔒 AMBIGÜEDAD DE LONGITUD — el cliente ha dado ${ambLiLd.largo} mm sin decir si es la longitud interior o la primitiva. ` +
+        `Son correas DISTINTAS: ${ambLiLd.porLd.join(" / ")} si ${ambLiLd.largo} es la primitiva o de paso (Ld), y ` +
+        `${ambLiLd.porLi.join(" / ")} si es la interior (Li). OBLIGATORIO: presenta las DOS con sus medidas y pregunta UNA ` +
+        `cosa: cuál de las dos medidas es la suya o qué pone grabado en el flanco. PROHIBIDO elegir una tú, recomendar ` +
+        `comprar una de ellas todavía, o decir que el cliente ha indicado la Li o la Ld: NO lo ha dicho.`,
+    });
+  }
+  const asegurarRespuesta = (t: string): string =>
+    asegurarAmbiguedadLiLd(asegurarDatosCorrea(t, beltHits, tlBeltHits), ambLiLd);
   if (beltHits.length || tlBeltHits.length) {
     messages.push({
       role: "system",
@@ -1301,7 +1320,7 @@ export async function runAgent(
 
     const toolCalls = choice.tool_calls ?? [];
     if (toolCalls.length === 0) {
-      const texto = limpiarCierreVacio(choice.content ?? "", collected.some((p) => (p.stock ?? 0) > 0));
+      const texto = asegurarRespuesta(limpiarCierreVacio(choice.content ?? "", collected.some((p) => (p.stock ?? 0) > 0)));
       return {
         output: texto,
         // Las tarjetas son las del producto que el texto nombra de verdad, no
@@ -1365,9 +1384,10 @@ export async function runAgent(
   // Red de seguridad final: si el modelo devolviera texto vacío, el widget
   // mostraría su mensaje de error genérico. Mejor una respuesta corta y
   // accionable que un "no he podido procesar tu consulta".
-  const textoFinal =
+  const textoFinal = asegurarRespuesta(
     salida ||
-    "Ahora mismo no he podido completar la consulta. Cuéntame la referencia o la medida que necesitas y lo miro de nuevo, o si lo prefieres puedes escribirnos por teléfono o e-mail y te lo resolvemos al momento.";
+    "Ahora mismo no he podido completar la consulta. Cuéntame la referencia o la medida que necesitas y lo miro de nuevo, o si lo prefieres puedes escribirnos por teléfono o e-mail y te lo resolvemos al momento."
+  );
 
   return {
     output: textoFinal,

@@ -414,9 +414,10 @@ const respuestaReal = "Aqui tienes un rodamiento mas grande que el SNR 6205:\n\n
 const cards = tarjetasParaRespuesta(respuestaReal, recogidos).slice(0, 3).map((p: any) => p.id);
 ok(cards[0] === 23, "la tarjeta del producto descrito va primera", String(cards));
 ok(
-  tarjetasParaRespuesta(respuestaReal, recogidos).length === recogidos.length,
-  "no descarta ninguno, solo reordena (el resto sigue detras)"
+  tarjetasParaRespuesta(respuestaReal, recogidos).length === 1,
+  "y las de productos que el texto no nombra (6005, 22326, TL 33600) ya no salen"
 );
+ok(tarjetasParaRespuesta("Sin referencias en el texto", recogidos).length === recogidos.length, "si el texto no nombra ninguno, se dejan todos");
 // Si el texto nombra la referencia y su variante, delante la que se puede comprar.
 const dosCitados = [P(30, "SNR 6305", "SNR 6305", 0), P(31, "SNR 6305 C3", "SNR 6305 C3", 9)];
 const conC3 = tarjetasParaRespuesta("El SNR 6305 C3 es una opcion mas grande que el 6205", dosCitados);
@@ -550,6 +551,34 @@ section("SOPORTES TL — ficha oficial del catalogo Translink");
   ok(conNull.length === 0, `ninguna de las ${todos.length} fichas TL tiene null/NaN`, conNull.slice(0, 5).map((s) => s.ref).join(","));
   const sinFicha = todos.filter((s) => !findTechnicalInfo(s.ref).some((t) => t.marca.startsWith("TL") && t.referencia === s.ref));
   ok(sinFicha.length === 0, `las ${todos.length} referencias TL se encuentran por su propia referencia`, sinFicha.slice(0, 5).map((s) => s.ref).join(","));
+}
+
+section("SALVAGUARDAS DE CORREAS — sobre respuestas reales que fallaron en la preview");
+{
+  const k = require("../lib/kb") as typeof import("../lib/kb");
+  const m = "busco una correa trapecial A 1250";
+  const amb = k.ambiguedadLiLd(m, k.findBeltForMessage(m), k.findTranslinkBeltForMessage(m));
+  ok(!!amb && amb.porLi.includes("A49") && amb.porLd.includes("A48"), "A 1250 -> ambigua: A49 por Li, A48 por Ld", JSON.stringify(amb));
+  ok(k.ambiguedadLiLd("correa A 1250 de longitud interior", k.findBeltForMessage(m), k.findTranslinkBeltForMessage(m)) === null, "si el cliente ya dice 'interior', no hay ambiguedad");
+  // Respuesta real: solo A48 y "que es la medida que mencionaste".
+  const mala = "**Continental A48**\n- Ld 1250\n\n**TL (Translink) A48**\n- Ld 1250\n\nAmbas correas tienen la misma longitud primitiva (Ld) de 1250 mm, que es la medida que mencionaste. Puedes añadir cualquiera de ellas al carrito aquí mismo.";
+  const arreglada = k.asegurarAmbiguedadLiLd(mala, amb);
+  ok(/A49/.test(arreglada) && /A48/.test(arreglada) && /longitud interior \(Li\)/.test(arreglada), "se añade la aclaracion con A48 y A49", arreglada.slice(-160));
+  ok(!/medida que mencionaste/.test(arreglada), "y se quita la atribucion falsa 'que es la medida que mencionaste'");
+  const buena = "**A48** (Li 1220 / Ld 1250) y **A49** (Li 1250 / Ld 1280). ¿Tu 1250 es la Li o la Ld?";
+  ok(k.asegurarAmbiguedadLiLd(buena, amb) === buena, "si ya presenta las dos, no se toca");
+
+  // Respuesta real: "no está disponible" sin ningun dato.
+  const msg = "necesito una correa dentada 600-8M-30, ¿qué características tiene?";
+  const sinDatos = "Actualmente, ninguna de las correas dentadas 600-8M-30 está disponible en nuestra página para compra directa. Puedes contactarnos por teléfono o e-mail.";
+  const conDatos = k.asegurarDatosCorrea(sinDatos, k.findBeltForMessage(msg), k.findTranslinkBeltForMessage(msg));
+  ok(/600-H8M-30/.test(conDatos) && /TL-600-8M/.test(conDatos) && /dientes: 75/.test(conDatos), "se anteponen los datos (600-H8M-30, TL-600-8M, 75 dientes)", conDatos.slice(0, 260));
+  ok(k.asegurarDatosCorrea("La **TL-600-8M** tiene 75 dientes.", [], k.findTranslinkBeltForMessage(msg)) === "La **TL-600-8M** tiene 75 dientes.", "si ya da los datos, no se toca");
+
+  const { tarjetasParaRespuesta } = require("../lib/variantes") as typeof import("../lib/variantes");
+  const prods = [{ reference: "33A49TL", name: "CORREA TL PRO SERIES A49", stock: 42 }, { reference: "NTN NA4903 LL/3AS", name: "NTN NA4903", stock: 5 }] as any[];
+  const t = tarjetasParaRespuesta("**CORREA TL PRO SERIES A49**\n\n**Ref: 33A49TL**", prods);
+  ok(t.length === 1 && t[0].reference === "33A49TL", "hablando de la A49 no salen tarjetas de rodamientos NA4903", t.map((p: any) => p.reference).join(","));
 }
 
 section("CIERRES PASIVOS — se sustituyen por una salida concreta");
