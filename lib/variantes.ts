@@ -260,10 +260,27 @@ export function filtrarFueraDeFamilia(refPedida: string, productos: Product[]): 
  * tres fichas que no eran la suya.
  */
 export function tarjetasParaRespuesta(respuesta: string, productos: Product[]): Product[] {
-  const texto = String(respuesta ?? "").toUpperCase().replace(/[\s\-/.]/g, "");
+  const bruto = String(respuesta ?? "").toUpperCase();
+  const texto = bruto.replace(/[\s\-/.]/g, "");
+  // Tokens del texto ("TL-A48" → "TLA48"... y también "A48" suelto).
+  const tokensTexto = new Set(
+    bruto
+      .split(/[^0-9A-ZÁÉÍÓÚÑ\-/.]+/)
+      .flatMap((t) => [t, ...t.split(/[-/.]/)])
+      .map((t) => t.replace(/[\-/.]/g, ""))
+      .filter(Boolean)
+  );
   const nombrado = (p: Product): boolean => {
     const ref = normalizarRef(p.reference || p.name);
-    return ref.length >= 3 && texto.includes(ref);
+    if (ref.length >= 3 && texto.includes(ref)) return true;
+    // Referencias de la página con prefijo/sufijo de familia ("33A48TL") o
+    // nombres largos ("CORREA CONTINENTAL A48"): vale la designación núcleo
+    // (A48) si aparece como palabra suelta en el texto y lleva algún dígito.
+    const nucleos = [
+      String(p.reference ?? "").toUpperCase().replace(/[\s\-/.]/g, "").replace(/^33(?=[A-Z])/, "").replace(/TL$/, ""),
+      String(p.name ?? "").toUpperCase().trim().split(/\s+/).pop() ?? "",
+    ].map((n) => n.replace(/[\-/.]/g, ""));
+    return nucleos.some((n) => n.length >= 3 && /\d/.test(n) && /[A-Z]/.test(n) && tokensTexto.has(n));
   };
   // Entre los que el texto nombra, delante el que se puede comprar: si el bot
   // habla del 6305 y del 6305 C3 y solo el C3 tiene unidades, esa es la ficha
@@ -273,10 +290,10 @@ export function tarjetasParaRespuesta(respuesta: string, productos: Product[]): 
   const sinStock = citados.filter((p) => (p.stock ?? 0) <= 0);
   // Si el texto nombra algún producto, las tarjetas son SOLO esas: visto en la
   // preview, hablando de la correa A49 salían también los rodamientos NTN
-  // NA4903/NA4909 (la búsqueda por "A49" los había traído). Sin ninguno
-  // nombrado, se deja todo lo encontrado.
-  if (citados.length) return [...conStock, ...sinStock];
-  return productos;
+  // NA4903/NA4909 (la búsqueda por "A49" los había traído); y en "correa A
+  // 1250", sin nombrar ningún producto, salía un tubo Bondioli de 1000 mm
+  // traído por el número. Tarjeta que el texto no nombra = tarjeta que confunde.
+  return [...conStock, ...sinStock];
 }
 
 // ── Comparativa técnica entre dos o más referencias ──────────────────────────

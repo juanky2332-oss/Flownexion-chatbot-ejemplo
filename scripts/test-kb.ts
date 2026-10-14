@@ -417,7 +417,7 @@ ok(
   tarjetasParaRespuesta(respuestaReal, recogidos).length === 1,
   "y las de productos que el texto no nombra (6005, 22326, TL 33600) ya no salen"
 );
-ok(tarjetasParaRespuesta("Sin referencias en el texto", recogidos).length === recogidos.length, "si el texto no nombra ninguno, se dejan todos");
+ok(tarjetasParaRespuesta("Sin referencias en el texto", recogidos).length === 0, "si el texto no nombra ninguno, ninguna tarjeta (nada que no venga a cuento)");
 // Si el texto nombra la referencia y su variante, delante la que se puede comprar.
 const dosCitados = [P(30, "SNR 6305", "SNR 6305", 0), P(31, "SNR 6305 C3", "SNR 6305 C3", 9)];
 const conC3 = tarjetasParaRespuesta("El SNR 6305 C3 es una opcion mas grande que el 6205", dosCitados);
@@ -579,6 +579,14 @@ section("SALVAGUARDAS DE CORREAS — sobre respuestas reales que fallaron en la 
   const prods = [{ reference: "33A49TL", name: "CORREA TL PRO SERIES A49", stock: 42 }, { reference: "NTN NA4903 LL/3AS", name: "NTN NA4903", stock: 5 }] as any[];
   const t = tarjetasParaRespuesta("**CORREA TL PRO SERIES A49**\n\n**Ref: 33A49TL**", prods);
   ok(t.length === 1 && t[0].reference === "33A49TL", "hablando de la A49 no salen tarjetas de rodamientos NA4903", t.map((p: any) => p.reference).join(","));
+  const pA48 = [
+    { reference: "175125031000A", name: "TUBO BONDIOLI HEMBRA G1 1000MM", stock: 0 },
+    { reference: "33A48TL", name: "CORREA TL PRO SERIES A48", stock: 43 },
+    { reference: "CORREA CONTINENTAL A48", name: "CORREA CONTINENTAL A48", stock: 6 },
+  ] as any[];
+  const tA48 = tarjetasParaRespuesta("**Continental A48** (Li 1220 / Ld 1250) y **TL-A48** (Li 1220 / Ld 1250)", pA48).map((p: any) => p.reference);
+  ok(tA48.includes("33A48TL") && tA48.includes("CORREA CONTINENTAL A48") && !tA48.includes("175125031000A"),
+    "A48: tarjetas TL (33A48TL) y Continental, nunca el tubo Bondioli", tA48.join(","));
 }
 
 section("CIERRES PASIVOS — se sustituyen por una salida concreta");
