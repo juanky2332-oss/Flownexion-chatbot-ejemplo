@@ -730,3 +730,171 @@ export function quitarFichaDeOtraPieza(texto: string): string {
   });
   return cambiado ? out.join("") : texto;
 }
+
+// ── Cantidad pedida por el cliente ───────────────────────────────────────────
+// Caso real (14-10-2026): "necesito 40 rodamientos 6205 zz c3" con 26 en
+// stock. La tarjeta salía con 1 ud y el texto no preguntaba si dejar las 26.
+
+export function cantidadPedida(message: string): number | null {
+  const m = String(message ?? "").match(
+    /\b(\d{1,5})\s*(?:uds?\.?|unidades|piezas|pzs?|rodamientos?|correas?|soportes?|retenes|cadenas?)\b/i
+  );
+  const n = m ? Number(m[1]) : NaN;
+  return Number.isFinite(n) && n > 0 && n < 100000 ? n : null;
+}
+
+export function ajustarCantidad(
+  texto: string,
+  productos: Product[],
+  message: string
+): { texto: string; productos: Product[] } {
+  const qty = cantidadPedida(message);
+  if (!qty || !productos.length) return { texto, productos };
+  const ajustados = productos.map((p) => (p.qty ? p : { ...p, qty }));
+  const p = ajustados[0];
+  const stock = p.stock ?? 0;
+  let t = texto;
+  if (stock > 0 && stock < qty && !/¿\s*quieres que te deje/i.test(t)) {
+    t =
+      `${t.trimEnd()}\n\n¿Quieres que te deje las **${stock} uds** en el carrito? En la tarjeta ya tienes ` +
+      `seleccionadas las ${stock} uds: solo tienes que pulsar "Añadir al carrito".`;
+  }
+  return { texto: t, productos: ajustados };
+}
+
+// ── Fichas técnicas reescritas desde la base de datos ────────────────────────
+// Visto EN PRODUCCIÓN (14-10-2026) con "quiero 25 rodamientos 6205 zz c3": el
+// modelo escribió la ficha de memoria — tolerancia "Normal" (es C3), velocidad
+// límite 15.000 (son 17.000 rpm), carga estática 7,8 (son 7,9 kN), jaula de
+// chapa. Ninguna instrucción de prompt garantiza que copie bien. Por eso, antes
+// de enviar la respuesta, cada producto cuya referencia está EXACTA en la base
+// de datos lleva su bloque "Información técnica completa" y su línea de
+// Medidas generados aquí, desde el dato oficial. Si el modelo se saltó la
+// ficha, se inserta. El PDF sale de este texto, así que también es exacto.
+
+/** "Peso (g)": 128 → ["Peso", "128 g"]; une Tolerancia/Junta con su descripción. */
+function lineasFichaKB(ficha: TechInfo): string[] {
+  const d = ficha.datos;
+  const out: string[] = [];
+  const omitir = new Set(["Descripción de la tolerancia", "Descripción de la junta"]);
+  for (const [k, v] of Object.entries(d)) {
+    if (omitir.has(k) || v === null || v === undefined || v === "") continue;
+    // La "Serie" numérica de NTN (6200) es ruido; la de los soportes TL (UCP200) informa.
+    if (k === "Serie" && typeof v === "number") continue;
+    let etiqueta = k;
+    let valor = String(v);
+    const unidad = k.match(/\((mm|g|kg|kN|rpm|°)\)\s*$/);
+    if (unidad) {
+      etiqueta = k.replace(/\s*\([^)]+\)\s*$/, "");
+      valor = `${valor} ${unidad[1]}`.replace(/ °$/, "°");
+    }
+    const desc = (x: unknown) => (x && String(x) !== valor ? ` (${x})` : "");
+    if (k === "Tolerancia") valor += desc(d["Descripción de la tolerancia"]);
+    if (k === "Junta") valor += desc(d["Descripción de la junta"]);
+    out.push(`- **${etiqueta}:** ${valor}`);
+  }
+  return out;
+}
+
+function medidasKB(ficha: TechInfo): string | null {
+  const d = ficha.datos;
+  const di = d["Diámetro interior dØ (mm)"];
+  const de = d["Diámetro exterior DØ (mm)"];
+  const an = d["Ancho B (mm)"];
+  if (di === undefined || de === undefined || an === undefined) return null;
+  return `**Medidas:** dØ${di} × DØ${de} × B${an} mm`;
+}
+
+const normR = (s: string) => String(s ?? "").toUpperCase().replace(/[\s\-/.]/g, "");
+
+/** Ficha de la base de datos cuya referencia coincide EXACTAMENTE (y la marca, si la hay). */
+function fichaExacta(ref: string, titulo: string): TechInfo | null {
+  const r = normR(ref);
+  if (r.length < 3) return null;
+  const marcaTitulo = (titulo.toUpperCase().match(/\b(NTN|SNR|TL|INA|FAG)\b/) ?? [])[1];
+  const sinMarca = normalizarRef(ref);
+  const pagTL = r.replace(/^33(?=[A-Z])/, "").replace(/TL$/, "");
+  const fichas = findTechnicalInfo(ref).filter((f) => {
+    const fr = normR(f.referencia);
+    const frSinTL = fr.replace(/^TL/, "");
+    return fr === r || fr === sinMarca || frSinTL === sinMarca || frSinTL === pagTL;
+  });
+  if (!fichas.length) return null;
+  if (marcaTitulo) {
+    const deMarca = fichas.find((f) => f.marca.toUpperCase().startsWith(marcaTitulo));
+    if (deMarca) return deMarca;
+    if (fichas.length > 1) return null; // ambigua: no se toca
+  }
+  return fichas[0];
+}
+
+const CABECERA_FICHA = /^\s*\**\s*informaci[oó]n t[eé]cnica completa\s*:?\s*\**\s*:?\s*$/i;
+
+export function corregirFichasConKB(texto: string): string {
+  const lineas = String(texto ?? "").split("\n");
+  const salida: string[] = [];
+  let titulo = "";
+  let ficha: TechInfo | null = null;
+  let puesta = false; // ya se escribió el bloque técnico de este producto
+  let saltandoVinetas = false;
+
+  const insertarFicha = () => {
+    if (!ficha || puesta) return;
+    salida.push("**Información técnica completa:**", ...lineasFichaKB(ficha), "");
+    puesta = true;
+  };
+
+  for (let i = 0; i < lineas.length; i++) {
+    const l = lineas[i];
+    const t = l.trim();
+
+    if (saltandoVinetas) {
+      if (/^\s*[-*•]\s+/.test(l) || (!t && /^\s*[-*•]\s+/.test(lineas[i + 1] ?? ""))) continue;
+      saltandoVinetas = false;
+    }
+
+    if (/^\*\*[^*]+\*\*$/.test(t) && /^\s*\**\s*Ref\s*:/i.test((lineas.slice(i + 1).find((x) => x.trim()) ?? ""))) {
+      titulo = t.replace(/\*/g, "");
+      ficha = null;
+      puesta = false;
+      salida.push(l);
+      continue;
+    }
+    const ref = t.match(/^\**\s*Ref\s*:\s*([^*]+?)\s*\**$/i);
+    if (ref) {
+      ficha = fichaExacta(ref[1], titulo);
+      puesta = false;
+      salida.push(l);
+      continue;
+    }
+    // Datos sueltos bajo "Ref:" ("- Peso: 810 g", sin flecha): con ficha de la
+    // base de datos se sustituyen por el bloque oficial (no se fían).
+    if (ficha && !puesta && /^\s*[-*•]\s+/.test(l) && !t.includes("→") && /:\**\s*\S/.test(t)) {
+      continue;
+    }
+    if (ficha && /^\**\s*Medidas\s*:/i.test(t)) {
+      salida.push(medidasKB(ficha) ?? l);
+      continue;
+    }
+    if (ficha && CABECERA_FICHA.test(t)) {
+      if (!puesta) insertarFicha();
+      saltandoVinetas = true;
+      continue;
+    }
+    // Sin bloque técnico: se inserta justo antes del precio.
+    if (ficha && !puesta && /^\**\s*Precio\s*:/i.test(t)) {
+      insertarFicha();
+    }
+    if (/^-{3,}$/.test(t)) {
+      if (ficha && !puesta) insertarFicha();
+      ficha = null;
+      puesta = false;
+    }
+    salida.push(l);
+  }
+  if (ficha && !puesta) {
+    salida.push("");
+    insertarFicha();
+  }
+  return salida.join("\n").replace(/\n{3,}/g, "\n\n");
+}

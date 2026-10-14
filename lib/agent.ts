@@ -35,6 +35,8 @@ import {
   fichasDeConversacion,
   bloqueFichaConversacion,
   quitarFichaDeOtraPieza,
+  ajustarCantidad,
+  corregirFichasConKB,
   tarjetasParaRespuesta,
 } from "./variantes";
 import { searchOfficialSource } from "./websearch";
@@ -579,6 +581,8 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 - Los botones de las tarjetas llevan al carrito.
 - Cierra con: "¡Listo! Puedo modificar tu pedido aquí mismo si lo necesitas."
 - El pago SIEMPRE se completa en la tienda online. El chat NO procesa pagos.
+
+**"Añádemelo tú al carrito" / "mételas en el carrito" / "añade las 25 uds":** las unidades se añaden con el botón de la tarjeta, que ya trae la cantidad puesta. Vuelve a buscar el producto con search_products (para que su tarjeta aparezca otra vez justo debajo de tu respuesta) y contesta en una frase: "Te lo dejo preparado: pulsa **Añadir [N] uds** en la tarjeta de abajo y se añaden a tu carrito de la tienda." PROHIBIDO responder que el chat no gestiona el carrito sin dar esa salida, y PROHIBIDO mandarle al teléfono o e-mail por esto: no le falta nada, solo pulsar el botón.
 
 # PROHIBICIONES
 - **Decir que un producto no está en la página cuando el bloque 🔒 DISPONIBLE EN NUESTRA PÁGINA lo lista** — ese bloque sale de una consulta al catálogo real hecha en el momento, así que es un hecho comprobado. Negarlo es mentirle al cliente y hacerle perder una compra que sí podíamos servir: es el error MÁS GRAVE que puedes cometer. Lo mismo si el cliente insiste en una referencia y tú aún no has buscado: busca antes de negar nada
@@ -1157,8 +1161,11 @@ export async function runAgent(
         `comprar una de ellas todavía, o decir que el cliente ha indicado la Li o la Ld: NO lo ha dicho.`,
     });
   }
+  // ¿Hay ya un producto presentado en la conversación? (para no mandar al
+  // teléfono a quien solo tiene que pulsar el botón de su tarjeta)
+  const productoEnConversacion = history.some((m) => m.role === "assistant" && /Ref\s*:/i.test(String(m.content ?? "")));
   const asegurarRespuesta = (t: string): string =>
-    quitarFichaDeOtraPieza(asegurarAmbiguedadLiLd(asegurarDatosCorrea(t, beltHits, tlBeltHits), ambLiLd));
+    quitarFichaDeOtraPieza(corregirFichasConKB(asegurarAmbiguedadLiLd(asegurarDatosCorrea(t, beltHits, tlBeltHits), ambLiLd)));
   if (beltHits.length || tlBeltHits.length) {
     messages.push({
       role: "system",
@@ -1333,12 +1340,18 @@ export async function runAgent(
 
     const toolCalls = choice.tool_calls ?? [];
     if (toolCalls.length === 0) {
-      const texto = asegurarRespuesta(limpiarCierreVacio(choice.content ?? "", collected.some((p) => (p.stock ?? 0) > 0)));
+      const borrador = asegurarRespuesta(limpiarCierreVacio(choice.content ?? "", collected.some((p) => (p.stock ?? 0) > 0), productoEnConversacion));
+      // Las tarjetas son las del producto que el texto nombra de verdad, no
+      // las primeras que se buscaron (ver tarjetasParaRespuesta); con la
+      // cantidad pedida ya preseleccionada (ver ajustarCantidad).
+      const { texto, productos } = ajustarCantidad(
+        borrador,
+        tarjetasParaRespuesta(borrador, collected, message).slice(0, 3),
+        message
+      );
       return {
         output: texto,
-        // Las tarjetas son las del producto que el texto nombra de verdad, no
-        // las primeras que se buscaron (ver tarjetasParaRespuesta).
-        products: tarjetasParaRespuesta(texto, collected, message).slice(0, 3),
+        products: productos,
         needsHuman: escalation.needsHuman,
         humanContext: escalation.context,
       };
@@ -1392,7 +1405,7 @@ export async function runAgent(
     messages,
   });
 
-  const salida = limpiarCierreVacio((final.choices[0]?.message?.content ?? "").trim(), collected.some((p) => (p.stock ?? 0) > 0));
+  const salida = limpiarCierreVacio((final.choices[0]?.message?.content ?? "").trim(), collected.some((p) => (p.stock ?? 0) > 0), productoEnConversacion);
 
   // Red de seguridad final: si el modelo devolviera texto vacío, el widget
   // mostraría su mensaje de error genérico. Mejor una respuesta corta y
@@ -1402,11 +1415,17 @@ export async function runAgent(
     "Ahora mismo no he podido completar la consulta. Cuéntame la referencia o la medida que necesitas y lo miro de nuevo, o si lo prefieres puedes escribirnos por teléfono o e-mail y te lo resolvemos al momento."
   );
 
+  const ajustado = ajustarCantidad(
+    textoFinal,
+    tarjetasParaRespuesta(textoFinal, collected, message).slice(0, 3),
+    message
+  );
+
   return {
-    output: textoFinal,
+    output: ajustado.texto,
     // Las tarjetas son las del producto que el texto nombra de verdad, no las
     // primeras que se buscaron (ver tarjetasParaRespuesta).
-    products: tarjetasParaRespuesta(textoFinal, collected, message).slice(0, 3),
+    products: ajustado.productos,
     needsHuman: escalation.needsHuman,
     humanContext: escalation.context,
   };

@@ -106,7 +106,7 @@ const CIERRE_PASIVO =
 const CIERRE_CONTACTO =
   "Para conseguirlo o confirmar su disponibilidad, escríbenos por teléfono o e-mail y te lo gestionamos al momento.";
 
-export function limpiarCierreVacio(texto: string, hayTarjetas = false): string {
+export function limpiarCierreVacio(texto: string, hayTarjetas = false, productoEnConversacion = false): string {
   if (!texto) return texto;
   const conPregunta = CIERRE_VACIO.test(texto);
   CIERRE_VACIO.lastIndex = 0;
@@ -124,7 +124,12 @@ export function limpiarCierreVacio(texto: string, hayTarjetas = false): string {
   if (!conPregunta) {
     // Si hay tarjeta, la vía de compra ya está en pantalla; si el texto ya
     // ofrece el contacto, también. Si no, se añade el contacto.
+    // El contacto solo se ofrece si la respuesta dice que algo falta: si el
+    // cliente ya tiene su producto (aunque la tarjeta sea de un turno
+    // anterior), mandarle al teléfono es justo lo contrario de lo que pide.
+    const faltaAlgo = /no\s+(est[aá]|hay|tenemos|lo\s+tengo|la\s+tengo|consta|dispon)|sin\s+stock|agotad|no\s+disponible/i.test(limpio);
     if (hayTarjetas || /t[eé]cnico|tel[eé]fono|e-?mail|correo/i.test(limpio.slice(-220))) return limpio;
+    if (!faltaAlgo && productoEnConversacion) return limpio;
     return `${limpio}\n\n${CIERRE_CONTACTO}`;
   }
 

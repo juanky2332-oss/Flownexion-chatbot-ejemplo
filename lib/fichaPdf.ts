@@ -17,7 +17,6 @@ const AVISO_LEGAL =
   "Esgas no se hace responsable de las decisiones tomadas sobre la base de esta información, ni de los fallos que puedan derivar " +
   "de una aplicación, selección o uso inadecuado del producto.";
 
-const SEPARADOR = "-------------------";
 
 // Medidas de página (A4 en puntos) y márgenes calcados del ejemplo.
 const ANCHO = 595.3;
@@ -218,12 +217,10 @@ export async function construirFichaPdf(fichas: FichaTecnica[], logo: string | n
     hueco(0.6);
   };
 
+  // Sin líneas de guiones entre secciones (petición del cliente, 14-10-2026):
+  // las separa solo el espacio en blanco.
   const separador = () => {
-    sitio(INTERLINEA);
-    doc.setFont("helvetica", "normal");
-    doc.text(SEPARADOR, MARGEN_X, y);
-    y += INTERLINEA;
-    hueco();
+    hueco(0.6);
   };
 
   fichas.forEach((f, idx) => {

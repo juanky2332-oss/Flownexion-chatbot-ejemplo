@@ -592,6 +592,12 @@ section("SALVAGUARDAS DE CORREAS — sobre respuestas reales que fallaron en la 
   const p6205 = [{ reference: "SNR 6205 ZZ C3", name: "SNR 6205 ZZ C3", stock: 19 }] as any[];
   const tStock = tarjetasParaRespuesta("**Stock:** 🔴 19 uds disponibles (has pedido 40)", p6205, "necesito 40 rodamientos 6205 zz c3");
   ok(tStock.length === 1, "sobre-pedido: sale la tarjeta del producto que nombro el cliente");
+  const vv = require("../lib/variantes") as typeof import("../lib/variantes");
+  ok(vv.cantidadPedida("necesito 40 rodamientos 6205 zz c3") === 40, "lee la cantidad pedida (40)");
+  ok(vv.cantidadPedida("rodamiento 6205 zz c3") === null, "sin cantidad no inventa ninguna (6205 no es una cantidad)");
+  const aj = vv.ajustarCantidad("**Stock:** 🔴 26 uds (has pedido 40)", [{ reference: "SNR 6205 ZZ C3", stock: 26 }] as any[], "necesito 40 rodamientos 6205 zz c3");
+  ok(aj.productos[0].qty === 40, "la tarjeta recibe la cantidad (el selector la limita a las 26 de stock)");
+  ok(/¿Quieres que te deje las \*\*26 uds\*\* en el carrito\?/.test(aj.texto), "y se pregunta si se dejan las 26 en el carrito", aj.texto.slice(-120));
 }
 
 section("SEGUIMIENTO SIN REFERENCIA — la ficha del producto de la conversacion");
@@ -618,7 +624,7 @@ section("FICHA DE OTRA PIEZA — fundicion copiada a un termoplastico (real, pre
   const v = require("../lib/variantes") as typeof import("../lib/variantes");
   const { readFileSync } = require("fs");
   const { join } = require("path");
-  const real = readFileSync(join(__dirname, "fixtures", "soporte-termoplastico-con-ficha-de-fundicion.md"), "utf-8");
+  const real = readFileSync(join(__dirname, "fixtures", "soporte-termoplastico-con-ficha-de-fundicion.md"), "utf-8").replace(/\r\n/g, "\n");
   const arreglado = v.quitarFichaDeOtraPieza(real);
   const [fund, termo] = arreglado.split(/\n-{3,}\n/).slice(1, 3);
   ok(/0,81 kg/.test(fund) && /P205/.test(fund), "el de fundicion conserva su ficha (P205, 0,81 kg)");
@@ -626,6 +632,31 @@ section("FICHA DE OTRA PIEZA — fundicion copiada a un termoplastico (real, pre
   ok(/no la tengo en la base de datos/.test(termo), "y explica que su ficha no esta y ofrece confirmarla");
   ok(v.quitarFichaDeOtraPieza("**SOPORTE FUNDICION TL UCP 205**\n\n**Ref: 33UCP205TL**\n- **Peso:** 0,81 kg") ===
     "**SOPORTE FUNDICION TL UCP 205**\n\n**Ref: 33UCP205TL**\n- **Peso:** 0,81 kg", "misma pieza y material: no se toca");
+}
+
+section("FICHA REESCRITA DESDE LA BASE DE DATOS — respuesta REAL de produccion con datos inventados");
+{
+  const v = require("../lib/variantes") as typeof import("../lib/variantes");
+  const { readFileSync } = require("fs");
+  const { join } = require("path");
+  const mala = readFileSync(join(__dirname, "fixtures", "6205zzc3-datos-inventados.md"), "utf-8").replace(/\r\n/g, "\n");
+  const buena = v.corregirFichasConKB(mala);
+  ok(/Tolerancia:\*\* C3 \(Juego radial superior al normal\)/.test(buena), "tolerancia C3 (el modelo puso 'Normal')");
+  ok(/Velocidad límite:\*\* 17000 rpm/.test(buena) && !/15,000/.test(buena), "velocidad limite 17000 rpm (el modelo puso 15.000)");
+  ok(/estática:\*\* 7\.9 kN/.test(buena) && !/7,8 kN/.test(buena), "carga estatica 7.9 kN (el modelo puso 7,8)");
+  ok(/Peso:\*\* 128 g/.test(buena) && !/0\.13 kg/.test(buena), "peso 128 g");
+  ok(!/Chapa de acero/.test(buena), "fuera la jaula inventada");
+  ok(/Precio:/.test(buena) && /26 uds/.test(buena), "precio y stock intactos");
+  const { extraerFichas } = require("../lib/ficha") as typeof import("../lib/ficha");
+  const pdf = extraerFichas(buena)[0];
+  ok(!!pdf && pdf.datos.some(([k, val]) => k === "Velocidad límite" && val === "17000 rpm"), "y el PDF lleva el dato oficial");
+  // Sin bloque tecnico: se inserta antes del precio.
+  const sinFicha = "**SNR 6205 ZZ C3**\n\n**Ref: SNR 6205 ZZ C3**\n- **62** → serie\n\n**Precio:** 1 EUR\n\n**Stock:** 🟢 2 uds";
+  const conFicha = v.corregirFichasConKB(sinFicha);
+  ok(/Información técnica completa/.test(conFicha) && conFicha.indexOf("Información técnica") < conFicha.indexOf("Precio"), "si falta la ficha, se inserta antes del precio");
+  // Referencia que no esta exacta en la base de datos: no se toca.
+  const otra = "**XYZ 999**\n\n**Ref: XYZ 999**\n\n**Información técnica completa:**\n- **Peso:** 5 g";
+  ok(v.corregirFichasConKB(otra) === otra, "referencia sin ficha exacta: intacta");
 }
 
 section("CIERRES PASIVOS — se sustituyen por una salida concreta");
@@ -649,7 +680,8 @@ section("FICHA TECNICA EN PDF — se extrae de respuestas REALES del bot");
   const { readFileSync } = require("fs");
   const { join } = require("path");
   const { extraerFichas, nombreFicheroFicha } = require("../lib/ficha") as typeof import("../lib/ficha");
-  const fx = (n: string) => readFileSync(join(__dirname, "fixtures", n), "utf-8");
+  // Git en Windows puede dejar las fixtures con CRLF; el bot responde en LF.
+  const fx = (n: string) => readFileSync(join(__dirname, "fixtures", n), "utf-8").replace(/\r\n/g, "\n");
 
   const f1 = extraerFichas(fx("ficha-ntn-6812llu5k.md"));
   ok(f1.length === 1, "6812 LLU/5K -> una ficha", String(f1.length));
