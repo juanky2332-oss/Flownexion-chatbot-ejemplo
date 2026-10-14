@@ -4,6 +4,7 @@ import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
 import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
 import { isPromptExtractionAttempt, IDENTITY_DEFLECTION } from "@/lib/guardrails";
+import { extraerFichas } from "@/lib/ficha";
 import type { ChatRequest, Message, CartItem } from "@/lib/types";
 
 const MAX_MESSAGE_LENGTH = 1500;
@@ -142,7 +143,14 @@ export async function POST(req: NextRequest) {
       if (temporizador) clearTimeout(temporizador);
     });
 
-    return NextResponse.json({ output, products, needsHuman, humanContext }, { headers });
+    // Ficha técnica descargable en PDF: solo si la respuesta trae de verdad
+    // la información técnica completa de algún producto (ver lib/ficha.ts).
+    const fichas = extraerFichas(output);
+
+    return NextResponse.json(
+      { output, products, needsHuman, humanContext, ...(fichas.length ? { fichas } : {}) },
+      { headers }
+    );
   } catch (err) {
     // El detalle (clave de OpenAI ausente/inválida, sin cuota, etc.) es
     // información interna de infraestructura: se queda en los logs del

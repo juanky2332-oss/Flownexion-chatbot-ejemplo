@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Message, Product, CartItem } from "@/lib/types";
+import type { FichaTecnica } from "@/lib/ficha";
 import ChatBubble, { type ChatMessage } from "./ChatBubble";
 import RealisticRobot from "./RealisticRobot";
 
@@ -155,7 +156,7 @@ export default function ChatWidget({
           ...(!identityToken && customerId ? { customerId } : {}),
         }),
       });
-      const data: { output?: string; products?: Product[]; needsHuman?: boolean; humanContext?: string } = await res
+      const data: { output?: string; products?: Product[]; needsHuman?: boolean; humanContext?: string; fichas?: FichaTecnica[] } = await res
         .json()
         .catch(() => ({}));
 
@@ -172,6 +173,7 @@ export default function ChatWidget({
             data.output ??
             "No he podido completar la consulta en este momento. Vuelve a intentarlo en unos segundos y, si te corre prisa, escríbenos por teléfono o e-mail y te lo resolvemos al momento.",
           products: data.products,
+          fichas: data.fichas,
           needsHuman: data.needsHuman ?? !data.output,
           humanContext: data.humanContext ?? (data.output ? undefined : text.slice(0, 150)),
         },

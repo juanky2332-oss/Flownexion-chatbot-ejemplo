@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Product } from "@/lib/types";
+import type { FichaTecnica } from "@/lib/ficha";
 import ProductCard from "./ProductCard";
 
 export interface ChatMessage {
@@ -13,6 +15,8 @@ export interface ChatMessage {
   needsHuman?: boolean;
   /** Asunto sugerido para el e-mail de contacto (consulta concreta de la conversación). */
   humanContext?: string;
+  /** Fichas técnicas de la respuesta: si hay, se ofrece descargarlas en PDF. */
+  fichas?: FichaTecnica[];
 }
 
 interface ChatBubbleProps {
@@ -139,6 +143,10 @@ export default function ChatBubble({
           </div>
         )}
 
+        {!isUser && message.fichas && message.fichas.length > 0 && (
+          <DescargaFicha fichas={message.fichas} primaryColor={primaryColor} />
+        )}
+
         {!isUser && message.needsHuman && (supportPhone || supportEmail) && (
           <div className="mt-1.5 flex flex-wrap gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
             <p className="w-full text-xs font-medium text-amber-800">
@@ -173,6 +181,58 @@ export default function ChatBubble({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Recuadro "Descargar en formato PDF" bajo la tarjeta del producto (maqueta
+ * del cliente). El PDF se genera en el propio navegador con la información
+ * técnica que acaba de mostrar el chat.
+ */
+function DescargaFicha({ fichas, primaryColor }: { fichas: FichaTecnica[]; primaryColor: string }) {
+  const [estado, setEstado] = useState<"listo" | "generando" | "error">("listo");
+
+  // Precarga jsPDF y el logo en cuanto aparece el botón: al pulsarlo, la
+  // descarga sale en el acto.
+  useEffect(() => {
+    import("@/lib/fichaPdf").then((m) => m.precargarFichaPdf()).catch(() => undefined);
+  }, []);
+
+  const descargar = async () => {
+    if (estado === "generando") return;
+    setEstado("generando");
+    try {
+      const { descargarFichaPdf } = await import("@/lib/fichaPdf");
+      await descargarFichaPdf(fichas);
+      setEstado("listo");
+    } catch (err) {
+      console.error("[ficha pdf]", err);
+      setEstado("error");
+    }
+  };
+
+  return (
+    <div className="mt-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
+      <p className="text-xs text-gray-700">
+        {fichas.length > 1
+          ? "Puede descargar la información técnica de estos productos pulsando en el siguiente botón"
+          : "Puede descargar la información técnica pulsando en el siguiente botón"}
+      </p>
+      <button
+        type="button"
+        onClick={descargar}
+        disabled={estado === "generando"}
+        className="mt-2 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 active:scale-95 disabled:cursor-wait disabled:opacity-70"
+        style={{ backgroundColor: primaryColor }}
+      >
+        {estado === "generando" ? "Generando PDF…" : "Descargar en formato PDF"}
+      </button>
+      {estado === "error" && (
+        <p className="mt-1.5 text-[11px] text-red-600">
+          No se ha podido generar el PDF. Vuelve a intentarlo en unos segundos.
+        </p>
+      )}
     </div>
   );
 }

@@ -38,3 +38,6 @@ next-env.d.ts
 scripts/*.xlsx
 scripts/*.xls
 data/source/
+
+# Claude Code (local)
+.claude/

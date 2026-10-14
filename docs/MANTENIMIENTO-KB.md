@@ -19,9 +19,9 @@ cuatro fuentes, y cada una se corrige de una forma distinta:
 | # | Fuente | Qué contiene | Dónde se corrige |
 |---|--------|--------------|------------------|
 | 1 | **Glosario técnico** | Conceptos: tipos de sellado, juego interno, jaulas, precisión, sufijos, familias de correa | `data/kb/glosario.json` — texto plano, sin tocar código |
-| 2 | **Base de datos de producto** | Equivalencias, fichas técnicas, aplicaciones, correas Continental | Los Excel de `data/source/` + `npm run build:kb` |
+| 2 | **Base de datos de producto** | Equivalencias, fichas técnicas, aplicaciones, correas Continental, correas y soportes TL | Los Excel de `data/source/` + `npm run build:kb`; los PDF de Translink con `scripts/translink/` (ver 4 bis) |
 | 3 | **Catálogo de la tienda** | Precio, stock, referencias a la venta | PrestaShop (`b2b.esgas.es`) — en vivo, no se toca aquí |
-| 4 | **Búsqueda en webs oficiales** | Solo lo que no cubren 1 y 2 | Automático, restringido a dominios de fabricante |
+| 4 | **Búsqueda en webs oficiales** | Solo lo que no cubren 1 y 2 | Automático, restringido a dominios de fabricante (NTN-SNR, Translink, Sedis, Bondioli, INA/FAG, SKF, Aignep) |
 
 **El caso que detectasteis (el sellado) era de la fuente 1.** Antes, esas
 explicaciones estaban escritas dentro del código, en una sola línea que agrupaba
@@ -132,6 +132,66 @@ más rápida a que el bot cotice mal.
 Lo que el bot sí dice de esta fuente es si una correa, **en Continental**, es de
 stock, bajo pedido o está descatalogada — y tiene instrucciones explícitas de no
 presentarlo como si fuera el stock de ESGAS.
+
+---
+
+## 4 bis. Catálogos técnicos de Translink (TL) — octubre 2026
+
+ESGAS pasó tres catálogos en PDF de Translink. De cada uno se importan
+**exactamente** los datos que pidió:
+
+| Catálogo | Datos | Fichero del KB |
+|----------|-------|----------------|
+| Correas dentadas TL | Nº de dientes (NO. TEETH) y desarrollo (PITCH LENGTH) | `data/kb/tl-dentadas.json` |
+| Correas industriales TL | Longitud interior (INSIDE LENGTH) y de paso (DATUM LENGTH) | `data/kb/tl-industriales.json` |
+| Soportes TL | Ø de eje, medidas, rosca, cuerpo, rodamiento y peso | `data/kb/tl-soportes.json` |
+
+Los PDF no son tablas limpias: se leen por coordenadas con los scripts de
+`scripts/translink/` (Python + pdfplumber) y **cada fila se valida antes de
+entrar**: en las dentadas, dientes × paso tiene que dar el desarrollo impreso; en
+las trapeciales, la diferencia Ld − Li tiene que ser la propia del perfil; en los
+soportes, el rodamiento y el cuerpo tienen que cuadrar con la unidad y con el Ø
+de eje. Las filas con erratas del propio catálogo (p. ej. TL-817L-217, la serie
+AT10 cuya columna de desarrollo repite los dientes, o unas BX con la referencia
+impresa en lugar de la Ld) **se dejaron fuera a propósito**: con ellas el bot
+contestaría un dato equivocado. Para esas referencias el bot recurre a
+Continental, a la página o a la búsqueda oficial.
+
+El bot busca correas TL con la misma herramienta que las Continental
+(`find_belt`, que devuelve las dos marcas) y la ficha de un soporte TL con
+`get_technical_info`, igual que la de un rodamiento NTN/SNR.
+
+Si Translink publica una versión nueva de un catálogo: copiar el PDF a
+`data/source/`, cambiar la ruta `PDF` al principio del script correspondiente,
+ejecutarlo y copiar el JSON resultante a `data/kb/`. Después, `npm run verify`.
+
+---
+
+## 4 ter. Webs de consulta añadidas (octubre 2026)
+
+Además de NTN-SNR, Translink, Sedis y Bondioli, la búsqueda en fuentes oficiales
+consulta ahora los catálogos técnicos de **INA/FAG** (medias.schaeffler.es),
+**SKF** (skf.com) y **Aignep** (aignep.com, neumática). Están en
+`lib/websearch.ts` (`OFFICIAL_DOMAINS` y `CATALOGOS_POR_MARCA`); para añadir otra
+web basta con sumarla a esas dos listas.
+
+---
+
+## 4 quater. Ficha técnica en PDF
+
+Cuando el bot da la información técnica completa de un producto, debajo de la
+tarjeta aparece **«Descargar en formato PDF»**. El PDF sigue la maqueta que pasó
+ESGAS (logo, ficha del producto, resumen de la referencia, información técnica
+completa y la cláusula de responsabilidad al pie) y lleva **exactamente lo que el
+cliente acaba de leer en el chat**, sin precio ni stock. Se genera en el propio
+navegador del cliente: no se guarda en ningún servidor.
+
+- Qué entra en el PDF: `lib/ficha.ts` (lee la respuesta del bot).
+- Cómo se maqueta: `lib/fichaPdf.ts` (logo en `public/esgas-logo-ficha.png`,
+  texto del aviso legal en la constante `AVISO_LEGAL`).
+- Si el bot cambiara el formato de sus fichas y el botón dejase de salir, las
+  pruebas de `npm run test:kb` lo detectan con respuestas reales guardadas en
+  `scripts/fixtures/`.
 
 ---
 

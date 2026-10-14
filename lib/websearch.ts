@@ -11,6 +11,19 @@ const OFFICIAL_DOMAINS = [
   "translinkpt.com",
   "sedis.com",
   "bondioli-pavesi.com",
+  "medias.schaeffler.es",
+  "schaeffler.com",
+  "skf.com",
+  "aignep.com",
+];
+
+// Catálogos técnicos de otras marcas que pidió añadir el cliente (14-10-2026)
+// como base de consulta. Se indica al buscador qué catálogo corresponde a cada
+// marca para que vaya directo a la fuente del fabricante de esa pieza.
+const CATALOGOS_POR_MARCA = [
+  "INA/FAG (Schaeffler): https://medias.schaeffler.es/es/all-products",
+  "SKF: https://www.skf.com/es/products/rolling-bearings",
+  "Aignep (neumática: racores, cilindros, válvulas, tubo): https://www.aignep.com/es/productos/",
 ];
 
 // Herramienta oficial de intercambiabilidad de NTN-SNR: permite introducir la
@@ -46,11 +59,13 @@ export async function searchOfficialSource(query: string): Promise<string> {
         {
           role: "user",
           content:
-            `Eres un buscador técnico de datos de rodamientos y transmisión industrial. ` +
+            `Eres un buscador técnico de datos de rodamientos, transmisión industrial y neumática. ` +
             `Busca información técnica verificable (medidas, equivalencias entre marcas, ` +
             `aplicaciones, tolerancias, características) sobre: "${q}". ` +
             `Prioriza SIEMPRE estas fuentes oficiales de fabricante si tienen el dato: ` +
             `${OFFICIAL_DOMAINS.join(", ")}. ` +
+            `Si la pieza es de una de estas marcas, consulta primero su catálogo técnico ` +
+            `oficial: ${CATALOGOS_POR_MARCA.join(" · ")}. ` +
             `Si la consulta es sobre una EQUIVALENCIA o referencia cruzada entre marcas ` +
             `(p.ej. "equivalencia oficial NTN SNR para SKF 3309A"), usa específicamente la ` +
             `herramienta oficial de intercambiabilidad de NTN-SNR: ${NTN_SNR_INTERCHANGE_TOOLS.join(" o ")}. ` +

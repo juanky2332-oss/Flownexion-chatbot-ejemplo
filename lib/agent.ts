@@ -15,6 +15,8 @@ import {
   findGlossaryForMessage,
   findBelt,
   findBeltForMessage,
+  findTranslinkBelt,
+  findTranslinkBeltForMessage,
   extractQueryCandidates,
 } from "./kb";
 import {
@@ -179,6 +181,7 @@ Procede así, en la MISMA respuesta:
    - **Peso:** [valor] (si se ha podido confirmar)
    - **Material de jaula:** [valor] (si se ha podido confirmar)
    (y cualquier otro campo que get_technical_info haya devuelto con valor: material de anillos, número de hileras, junta, datos de alojamiento en soportes...)
+   **Encabeza SIEMPRE esa lista con la línea exacta "**Información técnica completa:**"**, debajo de la línea de Medidas y antes de Precio/Stock, con cada dato en su viñeta "- **Etiqueta:** valor" (como en el formato de producto). La interfaz detecta ese bloque y añade ella sola, debajo de la tarjeta, el botón "Descargar en formato PDF" con esta misma información (logo de ESGAS, resumen de la referencia y ficha completa). Tú NO menciones el PDF, no lo prometas ni digas "te lo envío": el botón aparece solo. Vale igual para rodamientos, soportes, correas y cualquier otra pieza de la que des la ficha técnica.
 4. Si algún dato concreto no se ha podido confirmar por ninguna vía, omítelo de la lista en vez de inventarlo — nunca vuelvas a decir "puedo darte más si preguntas", entrega directamente todo lo que tienes.
 5. Solo si el cliente pregunta después por UN dato concreto adicional que no salió en la lista, ahí sí responde puntual a eso — pero la primera respuesta a una pregunta amplia debe ir completa.
 
@@ -338,12 +341,20 @@ Las dos formas de subir o bajar de tamaño en un rodamiento son: **misma serie, 
 # APOYO TÉCNICO GENERAL (más allá de vender una referencia)
 Dentro de rodamientos y transmisión industrial, eres soporte técnico real, no solo un buscador de catálogo. Responde con seguridad preguntas de tipo: diferencia entre tipos de sellado, cuándo usar C3 vs C2, cómo se monta/desmonta un rodamiento, señales de fallo, vida útil aproximada, diferencias entre series, mantenimiento y lubricación, tolerancias de eje/alojamiento, etc. Para todo lo que sea un CONCEPTO (sellado, juego, jaula, precisión, sufijos, perfiles de correa) la fuente es explain_technical_term, obligatoria (ver CONCEPTOS TÉCNICOS). Para el resto, usa primero las tablas de este prompt; si la pregunta es más específica o no la cubren, llama a search_official_source para confirmarla con una fuente real antes de responder. Si ni el glosario, ni las tablas, ni la búsqueda oficial la resuelven, dilo con seguridad y ofrece escalar a un técnico (ver ESCALADO A TÉCNICO) en vez de especular.
 
-# CORREAS CONTINENTAL — TIENES LA BASE DE DATOS COMPLETA DEL FABRICANTE
-ESGAS distribuye correas Continental y dispones de su catálogo íntegro (más de 18.000 referencias, todas las gamas y perfiles) a través de la herramienta **find_belt**. Una consulta de correa NO se responde de memoria ni con una negativa: se busca.
+# SOPORTES TL (TRANSLINK) — FICHA TÉCNICA OFICIAL
+get_technical_info devuelve, además de las fichas NTN/SNR, la ficha oficial de los soportes TL (marca "TL (Translink)": pie UCP/UCPX/UCPA/UCPH, bridas UCF/UCFL/UCFC/UCFA/UCFB, tensores UCT/UCST, cartuchos UCC, chapa SAP/SBP, termoplásticos e inoxidables SS...). Sus datos son los que pidió ESGAS: **Diámetro del eje**, **Medidas** (las cotas de la tabla del catálogo TL, con su letra tal cual: h, a, e, b, s1, s2, g, H, B, n...), **Tamaño de rosca (perno)**, **Referencia del cuerpo del soporte**, **Referencia del rodamiento** y **Peso**. Cuando pregunten por un soporte (UCP205, "soporte de pie de 25", "33UCP205TL"...):
+- Si vuelven la ficha SNR y la TL, preséntalas las dos (cada una con su bloque "**Información técnica completa:**"), y di cuál está en la página con search_products.
+- En la ficha TL copia las medidas con sus letras, sin inventar qué significa cada letra (el catálogo no lo define); si el cliente pregunta por una cota concreta, la altura del eje a la base es la cota **h** en los soportes de pie.
+- En los soportes de pie NO pongas la línea "Medidas: dØ × DØ × B" de rodamiento: un soporte se define por su Ø de eje y sus cotas.
+- En termoplásticos, "Unidad de fundición equivalente" es la unidad de fundición con las mismas medidas de montaje, no el rodamiento que lleva.
+
+# CORREAS CONTINENTAL Y TL (TRANSLINK) — TIENES LOS CATÁLOGOS DEL FABRICANTE
+ESGAS distribuye correas Continental y TL (Translink) y dispones de sus catálogos (Continental íntegro, más de 18.000 referencias; TL con más de 3.900 referencias técnicas entre dentadas e industriales) a través de la herramienta **find_belt**. Una consulta de correa NO se responde de memoria ni con una negativa: se busca.
 
 **Flujo obligatorio ante cualquier consulta de correa:**
 1. Llama a **find_belt** con la designación tal cual la diga el cliente ("A 1250", "SPZ 1600", "8PJ356", "600-8M-30", "correa dentada 5M"). La herramienta ya entiende el lenguaje natural, los separadores distintos y la designación en pulgadas o en milímetros — no la traduzcas tú antes.
 2. Presenta lo que devuelva con su **nombre real de fabricante**, el **perfil**, la **gama Continental** y el **peso**. Si devuelve la longitud interior (Li) y la primitiva (Ld), da las dos.
+   **find_belt devuelve DOS catálogos: "continental" y "translink" (correas TL, que también vendemos en la página).** Las TL vienen de los catálogos técnicos oficiales de Translink que nos ha facilitado el fabricante: en las **dentadas** (síncronas: XL, L, H, MXL, HTD 3M/5M/8M/14M, STD S..M, RPP, poliuretano T/AT, doble cara D-) los datos son el **número de dientes** y el **desarrollo** (longitud primitiva, en mm y en pulgadas si es de paso inglés), además del paso y los anchos estándar; en las **trapeciales/industriales** (Y, Z, A, B, C, D, E, 20, 25, ZX/AX/BX/CX, SPZ/SPA/SPB/SPC, XPZ/XPA/XPB/XPC, variador, banda múltiple) los datos son la **longitud interior (Li)** y la **longitud de paso (Ld)**. Si hay resultado de las dos marcas, preséntalas ambas (primero la que el cliente haya nombrado). La regla de Li frente a Ld de abajo vale exactamente igual para las TL. Cuando des la ficha de una correa, usa el formato de producto con el bloque "**Información técnica completa:**" (perfil, tipo, dientes/desarrollo o Li/Ld, anchos...) para que el cliente pueda descargarla en PDF.
 3. Después, y solo después, llama a **search_products** con esa designación para ver si está en la página, y cierra ofreciendo la compra (ver CIERRE).
 
 **Li frente a Ld — la confusión que más devoluciones provoca.** Una correa trapecial tiene DOS longitudes: la interior (Li) y la primitiva o de paso (Ld/Lp), y la Ld siempre es mayor (unos 20-35 mm según perfil). Cuando el cliente da un número a secas ("una correa A 1250"), ese número puede ser cualquiera de las dos, y son correas DISTINTAS. Si find_belt devuelve dos candidatos que encajan por vías diferentes (una por Li y otra por Ld), NO elijas tú en silencio: enséñale las dos con sus medidas completas y pregúntale UNA cosa — si el número que tiene es la longitud interior o la primitiva, o qué pone exactamente grabado en el flanco de la correa. Es un aviso que ahorra una devolución, no una duda que transmita inseguridad.
@@ -395,7 +406,7 @@ Tu estilo de venta es el de un buen técnico de mostrador: resuelves la duda, en
 - Ofrecer un complemento tiene sentido solo si es técnicamente relevante para su caso (ej: el cliente compra un rodamiento para un entorno polvoriento → menciona en una frase que también hay versión sellada LLU). Máximo un complemento por conversación, nunca listas de "también te puede interesar".
 
 # ALCANCE — FUERA DE TEMARIO
-ESGAS distribuye rodamientos, soportes, retenes, correas, cadenas, casquillos, accesorios y transmisión agrícola/industrial. Dentro de esa gama NUNCA declines ayudar — agota búsqueda y KB antes de decir que algo no está.
+ESGAS distribuye rodamientos, soportes, retenes, correas, cadenas, casquillos, accesorios, transmisión agrícola/industrial y neumática (Aignep). Dentro de esa gama NUNCA declines ayudar — agota búsqueda y KB antes de decir que algo no está.
 
 Si el cliente pregunta por artículos fuera de esa gama por completo (herramientas, tornillería, EPIs, electrónica, material de oficina…):
 → "Lo siento, ESGAS trabaja con rodamientos y transmisión industrial. Para ese tipo de artículo necesitarías consultar con un proveedor especializado en esa gama."
@@ -513,7 +524,8 @@ Cuando el cliente mencione SKF, FAG, INA, NSK, Timken, Koyo u otra marca externa
 Estas son las marcas REALES que hay ahora mismo en nuestra página, por familia de producto. Cuando pregunten "¿con qué marcas trabajáis?" o por la marca de una familia concreta, responde con estos datos exactos — nunca inventes marcas que no estén aquí ni digas que "solo" trabajamos con alguna:
 - **Rodamientos**: NTN y SNR (las principales, somos distribuidor oficial), más algunas referencias de INA/FAG (rodamientos de rodillos e insertos).
 - **Soportes**: SNR (SNC, UCF/UCP/UCT, series AGR...) y TL (soportes de fundición UCF/UCFL/UCP...).
-- **Correas**: Continental (catálogo completo del fabricante disponible en find_belt: trapeciales clásicas Z/A/B/C/D, estrechas SPZ/SPA/SPB/SPC, dentadas de flanco abierto ZX/AX/BX/CX y XPZ/XPA/XPB/XPC, multicostilla Poly-V PJ/PK/PL/PM, dentadas síncronas HTD/STD/CTD, Torque Team, Varispeed, planas Polyflat) y TL / TL Pro Series (trapeciales, dentadas de caucho, Poly V).
+- **Correas**: Continental (catálogo completo del fabricante disponible en find_belt: trapeciales clásicas Z/A/B/C/D, estrechas SPZ/SPA/SPB/SPC, dentadas de flanco abierto ZX/AX/BX/CX y XPZ/XPA/XPB/XPC, multicostilla Poly-V PJ/PK/PL/PM, dentadas síncronas HTD/STD/CTD, Torque Team, Varispeed, planas Polyflat) y TL / TL Pro Series (trapeciales, dentadas de caucho y poliuretano, Poly V; los datos técnicos oficiales de sus trapeciales y dentadas están también en find_belt — de las Poly V TL no tienes ficha técnica).
+- **Soportes TL**: además de lo que haya en la página, tienes la ficha técnica oficial de los soportes TL (Ø de eje, medidas, rosca, cuerpo, rodamiento y peso) en get_technical_info.
 - **Cadenas**: Sedis (gama Rolmor: simples, dobles, triples, inox, eje hueco) y TL (también en bobinas e inox).
 - **Retenes**: gama técnica por medidas (doble labio, espejo, tapones), con referencias Corteco (Combi).
 - **Casquillos Taper Lock**: TL.
@@ -538,6 +550,7 @@ NUNCA inventes aplicaciones que no estén en la base de datos.
 # FUENTES FIABLES AUTORIZADAS
 search_official_source prioriza siempre estos dominios de fabricante (uso interno de la tool, para verificar el dato — nunca se muestran al cliente, ver PROHIBICIONES):
 - NTN-SNR productos, NTN-SNR general, Translink (transmisión), Sedis (cadenas y piñones), Bondioli & Pavesi (agrícola).
+- Catálogos técnicos oficiales de otras marcas: **INA/FAG** (Schaeffler), **SKF** (rodamientos) y **Aignep** (neumática: racores, cilindros, válvulas, tubo). Cuando pregunten por las características técnicas de una pieza de INA, FAG, SKF o Aignep que no esté en tu base de datos local, usa search_official_source nombrando la marca y la referencia (p.ej. "características técnicas SKF 6205-2RSH", "datos técnicos FAG 22216-E1", "características Aignep racor 55000") — la herramienta ya va al catálogo oficial de esa marca. Estas consultas técnicas son legítimas y dentro de tu ámbito (también la neumática Aignep): respóndelas con el dato, y después, si es un rodamiento, ofrece su equivalente NTN/SNR de la página como siempre (ver EQUIVALENCIAS DE MARCA).
 
 Cuando search_official_source te devuelva un dato, úsalo como base verificada para responder con el dato en sí, integrado de forma natural en tu texto — **nunca menciones, cites, pegues ni construyas un enlace o URL de ningún tipo, ni digas "según [fuente]" ni "puedes verlo en la web oficial"**: el cliente recibe la información ya resuelta en el chat, no una referencia externa a la que ir. Si la herramienta responde que no ha encontrado nada fiable, no lo compenses inventando — pasa a comprobar tu catálogo (search_products) con lo más próximo que sí puedas identificar, o escala. NUNCA construyas URLs de producto manualmente ni afirmes un dato como verificado si no viene de find_equivalence/find_applications, search_official_source, search_products o las tablas de este prompt.
 
@@ -601,7 +614,7 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 - Decir la palabra "B2B" al cliente en cualquier contexto — es jerga interna; usa siempre "la página" o "nuestra página"
 - Mostrar un producto sin su línea de stock (va siempre, no solo cuando preguntan disponibilidad)
 - Hacer más de 2 llamadas a search_products, o más de 2 a search_by_bore, por consulta de producto
-- Ayudar con productos fuera de la gama de rodamientos y transmisión industrial
+- Ayudar con productos fuera de la gama de rodamientos, transmisión industrial y neumática
 - Compartir información de descuentos de otros clientes o estructuras de precios internas
 - Hacer múltiples preguntas al cliente en el mismo mensaje (siempre UNA sola por turno)
 - Engancharse en conversaciones no relacionadas con rodamientos o transmisión industrial
@@ -713,7 +726,7 @@ const tools: ChatCompletionTool[] = [
     function: {
       name: "find_belt",
       description:
-        "Busca una correa en el catálogo COMPLETO del fabricante Continental (más de 18.000 referencias: trapeciales clásicas y estrechas, dentadas de flanco abierto, multicostilla Poly-V, dentadas síncronas HTD/STD/CTD, Torque Team, Varispeed, planas). Devuelve el nombre real de fabricante, el perfil, la gama, el peso, las longitudes Li y Ld cuando constan, y si en Continental es de stock, bajo pedido o descatalogada. Entiende la designación en lenguaje natural, con cualquier separador y tanto en milímetros como en pulgadas. Úsala SIEMPRE ante una consulta de correa, antes de search_products y antes de dar cualquier negativa. OJO: la disponibilidad que devuelve es del FABRICANTE, no el stock de ESGAS — el stock y el precio salen de search_products.",
+        "Busca una correa en el catálogo COMPLETO del fabricante Continental (más de 18.000 referencias: trapeciales clásicas y estrechas, dentadas de flanco abierto, multicostilla Poly-V, dentadas síncronas HTD/STD/CTD, Torque Team, Varispeed, planas) y, a la vez, en los catálogos técnicos de TL (Translink): dentadas con nº de dientes y desarrollo, y trapeciales con longitud interior Li y de paso Ld. Responde {continental: [...], translink: [...]}. Para Continental devuelve el nombre real de fabricante, el perfil, la gama, el peso, las longitudes Li y Ld cuando constan, y si en Continental es de stock, bajo pedido o descatalogada. Entiende la designación en lenguaje natural, con cualquier separador y tanto en milímetros como en pulgadas. Úsala SIEMPRE ante una consulta de correa, antes de search_products y antes de dar cualquier negativa. OJO: la disponibilidad que devuelve es del FABRICANTE, no el stock de ESGAS — el stock y el precio salen de search_products.",
       parameters: {
         type: "object",
         properties: {
@@ -906,8 +919,8 @@ async function runTool(
     return JSON.stringify(results);
   }
   if (name === "find_belt") {
-    const results = findBelt(String(args?.query ?? ""));
-    return JSON.stringify(results);
+    const q = String(args?.query ?? "");
+    return JSON.stringify({ continental: findBelt(q), translink: findTranslinkBelt(q) });
   }
   if (name === "compare_products") {
     const refs = Array.isArray(args?.refs)
@@ -1119,16 +1132,20 @@ export async function runAgent(
   // contestaba "no he encontrado esa correa en el catálogo de Continental"
   // sin haber buscado, teniéndola en el KB. Aquí se resuelve en código.
   const beltHits = findBeltForMessage(message);
-  if (beltHits.length) {
+  const tlBeltHits = findTranslinkBeltForMessage(message);
+  if (beltHits.length || tlBeltHits.length) {
     messages.push({
       role: "system",
       content:
-        `🔒 CATÁLOGO CONTINENTAL — CORREAS ENCONTRADAS para la consulta actual:\n` +
-        `${JSON.stringify(beltHits)}\n` +
+        `🔒 CATÁLOGOS DE FABRICANTE — CORREAS ENCONTRADAS para la consulta actual:\n` +
+        (beltHits.length ? `Continental: ${JSON.stringify(beltHits)}\n` : "") +
+        (tlBeltHits.length ? `TL (Translink): ${JSON.stringify(tlBeltHits)}\n` : "") +
         `Estas correas EXISTEN en el catálogo del fabricante: no hace falta que vuelvas a llamar a find_belt ` +
         `para esta consulta y tienes PROHIBIDO decir que no has encontrado la correa o que no existe. ` +
-        `Preséntalas con su nombre real de fabricante, perfil, gama, peso y las longitudes Li y Ld cuando ` +
-        `consten. Si hay dos que encajan por vías distintas (una por longitud interior Li y otra por ` +
+        `Preséntalas con su nombre real de fabricante y perfil; en las Continental, además gama, peso y las longitudes Li y Ld cuando ` +
+        `consten; en las TL da sus datos tal cual (nº de dientes y desarrollo en las dentadas; longitud ` +
+        `interior Li y de paso Ld en las trapeciales). Si hay de las dos marcas, menciona ambas. ` +
+        `Si hay dos que encajan por vías distintas (una por longitud interior Li y otra por ` +
         `primitiva Ld), muestra las DOS y pregunta al cliente UNA sola cosa: si su número es la Li o la Ld, ` +
         `o qué pone grabado en el flanco de la correa — nunca elijas tú en silencio. ` +
         `Recuerda que "disponibilidad_fabricante" es de Continental, NO el stock de ESGAS: el stock y el ` +

@@ -117,6 +117,9 @@ const KB_READERS: Record<string, () => string> = {
   "data/kb/tech-7.json": () => readFileSync(join(process.cwd(), "data/kb/tech-7.json"), "utf-8"),
   "data/kb/tech-8.json": () => readFileSync(join(process.cwd(), "data/kb/tech-8.json"), "utf-8"),
   "data/kb/tech-9.json": () => readFileSync(join(process.cwd(), "data/kb/tech-9.json"), "utf-8"),
+  "data/kb/tl-dentadas.json": () => readFileSync(join(process.cwd(), "data/kb/tl-dentadas.json"), "utf-8"),
+  "data/kb/tl-industriales.json": () => readFileSync(join(process.cwd(), "data/kb/tl-industriales.json"), "utf-8"),
+  "data/kb/tl-soportes.json": () => readFileSync(join(process.cwd(), "data/kb/tl-soportes.json"), "utf-8"),
 };
 
 function loadJson<T>(rel: string): T[] {
@@ -451,16 +454,93 @@ function labelTech(row: TechEntry): TechInfo {
 export function findTechnicalInfo(query: string): TechInfo[] {
   const candidates = extractQueryCandidates(query);
   if (!candidates.length) return [];
+  // Soportes TL (catálogo Translink): van detrás de los NTN/SNR, que son la
+  // marca principal; en "UCP205" salen las dos fichas.
+  const tl = findTlSoporte(candidates);
   const data = loadTech();
 
   for (const c of candidates) {
     const exact = data.filter((r) => r.refNorm === c);
-    if (exact.length) return exact.slice(0, 4).map(labelTech);
+    if (exact.length) return [...exact.slice(0, 4).map(labelTech), ...tl];
   }
+  if (tl.length) return tl;
   for (const c of candidates) {
     if (c.length < 4) continue;
     const pref = data.filter((r) => r.refNorm.startsWith(c));
     if (pref.length) return pref.slice(0, 5).map(labelTech);
+  }
+  return [];
+}
+
+// ── Soportes TRANSLINK (TL) ─────────────────────────────────────────────────
+// Catálogo "Soportes TL" del 14-10-2026. Datos que pidió el cliente: Ø de eje,
+// medidas (cotas de la tabla de cada serie), rosca del perno, referencia del
+// cuerpo, referencia del rodamiento y peso.
+
+interface TlSoporteRow {
+  ref: string;
+  ref_base?: string;
+  serie?: string;
+  descripcion?: string;
+  eje_mm?: number | null;
+  eje_pulg?: string | number | null;
+  medidas_mm?: Record<string, number | string>;
+  perno?: string | number | null;
+  perno_pulg?: string;
+  ejes_pulg_compatibles?: string[];
+  rodamiento?: string | null;
+  /** Termoplásticos: el catálogo da la unidad de fundición equivalente, no el inserto. */
+  unidad_equivalente?: string;
+  cuerpo?: string | null;
+  peso_kg?: number | null;
+  pagina?: string;
+}
+
+let _tlSop: { row: TlSoporteRow; claves: string[] }[] | null = null;
+
+function loadTlSoportes() {
+  if (_tlSop !== null) return _tlSop;
+  _tlSop = loadJson<TlSoporteRow>("data/kb/tl-soportes.json").map((row) => {
+    const claves = new Set<string>([norm(row.ref)]);
+    if (row.ref_base) claves.add(norm(row.ref_base));
+    // En la página las TL llevan el prefijo de familia "33" y el sufijo "TL"
+    // ("33UCP205TL"); se indexa también la forma pura.
+    for (const k of [...claves]) claves.add(k.replace(/^TL-?/, "").replace(/-?TL$/, ""));
+    return { row, claves: [...claves].filter(Boolean) };
+  });
+  return _tlSop;
+}
+
+function fmtMm(v: number | string): string {
+  return typeof v === "number" ? String(v).replace(".", ",") : String(v);
+}
+
+function labelTlSoporte(r: TlSoporteRow): TechInfo {
+  const datos: Record<string, string | number> = {};
+  if (r.descripcion) datos["Clase de producto"] = r.descripcion;
+  if (r.serie) datos["Serie"] = r.serie;
+  if (r.eje_mm !== undefined && r.eje_mm !== null) datos["Diámetro del eje (mm)"] = fmtMm(r.eje_mm);
+  if (r.eje_pulg) datos["Diámetro del eje (pulgadas)"] = String(r.eje_pulg);
+  if (r.ejes_pulg_compatibles?.length) datos["Ejes en pulgadas compatibles"] = r.ejes_pulg_compatibles.join(", ");
+  // Las letras son las cotas de la tabla del catálogo TL de esa serie (el
+  // PDF no trae leyenda de su significado, así que no se interpreta).
+  const medidas = Object.entries(r.medidas_mm ?? {}).filter(([, v]) => v !== null && v !== "");
+  if (medidas.length) datos["Medidas (mm)"] = medidas.map(([letra, v]) => `${letra} ${fmtMm(v)}`).join(" · ");
+  if (r.perno) datos["Tamaño de rosca (perno)"] = r.perno_pulg ? `${r.perno} / ${r.perno_pulg}` : String(r.perno);
+  if (r.cuerpo) datos["Referencia del cuerpo del soporte"] = r.cuerpo;
+  if (r.rodamiento) datos["Referencia del rodamiento"] = r.rodamiento;
+  if (r.unidad_equivalente) datos["Unidad de fundición equivalente"] = r.unidad_equivalente;
+  if (r.peso_kg !== undefined && r.peso_kg !== null) datos["Peso (kg)"] = fmtMm(r.peso_kg);
+  return { marca: "TL (Translink)", referencia: r.ref, ean: "", datos };
+}
+
+function findTlSoporte(candidates: string[]): TechInfo[] {
+  const data = loadTlSoportes();
+  if (!data.length) return [];
+  for (const c of candidates) {
+    const puro = c.replace(/^33(?=[A-Z])/, "").replace(/TL$/, "");
+    const hit = data.filter((s) => s.claves.includes(c) || s.claves.includes(puro));
+    if (hit.length) return hit.slice(0, 3).map((s) => labelTlSoporte(s.row));
   }
   return [];
 }
@@ -833,7 +913,7 @@ export function getBeltProfiles(): string[] {
 // se dejan fuera a propósito — si el cliente los usa, lo normal es que diga
 // también "correa", y ese ancla ya los cubre.
 const BELT_INTENT =
-  /\b(CORREAS?|TRAPECIAL\w*|TRAPEZOIDAL\w*|POLY.?V|MULTIRIB|SYNCHRO\w*|SPZ|SPA|SPB|SPC|XPZ|XPA|XPB|XPC|HTD|STD|CTD|POLYFLAT|VARISPEED|TORQUE\s+TEAM)\b/i;
+  /\b(CORREAS?|TRANSLINK|TRAPECIAL\w*|TRAPEZOIDAL\w*|POLY.?V|MULTIRIB|SYNCHRO\w*|SPZ|SPA|SPB|SPC|XPZ|XPA|XPB|XPC|HTD|STD|CTD|POLYFLAT|VARISPEED|TORQUE\s+TEAM)\b/i;
 
 /**
  * Correas a pre-inyectar para un mensaje de cliente, o [] si el mensaje no va
@@ -850,6 +930,214 @@ export function findBeltForMessage(message: string): BeltInfo[] {
   const plain = m.normalize("NFD").replace(/[̀-ͯ]/g, "");
   if (!BELT_INTENT.test(plain)) return [];
   return findBelt(m, 4);
+}
+
+// ── Correas TRANSLINK (TL) ──────────────────────────────────────────────────
+// Catálogos "Correas dentadas TL" y "Correas industriales TL" que pasó el
+// cliente el 14-10-2026. Extraídos de los PDF por coordenadas y validados fila
+// a fila (dientes × paso = desarrollo; Ld − Li constante por perfil); las
+// filas con erratas del propio catálogo se dejaron fuera a propósito. El
+// cliente pidió de cada uno exactamente estos datos:
+//   dentadas     → nº de dientes (NO. TEETH) y desarrollo (PITCH LENGTH)
+//   industriales → longitud interior (INSIDE LENGTH) y de paso (DATUM LENGTH)
+
+interface TlDentadaRow {
+  ref: string;
+  perfil: string;
+  familia: string;
+  paso_mm: number;
+  paso_pulg?: number | null;
+  dientes: number;
+  desarrollo_mm: number;
+  desarrollo_pulg?: number | null;
+  anchos?: string[];
+  doble_cara?: boolean;
+  doble_cara_disponible?: boolean;
+  pagina?: string;
+}
+
+interface TlIndustrialRow {
+  ref: string;
+  perfil: string;
+  familia: string;
+  ld_mm: number | null;
+  li_mm: number | null;
+  pagina?: string;
+}
+
+export interface TlBeltInfo {
+  marca: "TL (Translink)";
+  referencia: string;
+  tipo: string;
+  perfil: string;
+  datos: Record<string, string | number>;
+}
+
+interface TlBeltEntry {
+  info: TlBeltInfo;
+  /** Formas normalizadas por las que se puede encontrar ("6008M", "8M600", "A49"...). */
+  claves: Set<string>;
+  perfilTokens: string[];
+  li: number | null;
+  ld: number | null;
+  dientes: number | null;
+}
+
+let _tlBelts: TlBeltEntry[] | null = null;
+
+function fmtNum(n: number): string {
+  return String(Math.round(n * 100) / 100).replace(".", ",");
+}
+
+/** "TL-600-8M" → "6008M"; "TL-D-1040-8M" → "D10408M". */
+function sinPrefijoTL(ref: string): string {
+  return beltNorm(ref.replace(/^\s*TL[-\s]*/i, ""));
+}
+
+/**
+ * Una clave solo numérica ("6300", que sale de perfil "6" de Y/6 + Li 300) es
+ * indistinguible de una referencia de RODAMIENTO: "rodamiento 6300" devolvía
+ * la correa TL-Y/6-300. Esas claves solo valen escritas con el prefijo TL.
+ */
+function claveSegura(k: string): string {
+  return /[A-Z]/.test(k) ? k : `TL${k}`;
+}
+
+function loadTlBelts(): TlBeltEntry[] {
+  if (_tlBelts !== null) return _tlBelts;
+  _tlBelts = [];
+
+  for (const r of loadJson<TlDentadaRow>("data/kb/tl-dentadas.json")) {
+    const datos: Record<string, string | number> = {
+      "Número de dientes": r.dientes,
+      "Desarrollo (mm)": fmtNum(r.desarrollo_mm),
+    };
+    if (r.desarrollo_pulg) datos["Desarrollo (pulgadas)"] = fmtNum(r.desarrollo_pulg);
+    datos["Paso (mm)"] = fmtNum(r.paso_mm);
+    if (r.anchos?.length) datos["Anchos estándar"] = r.anchos.join(", ");
+    if (r.doble_cara) datos["Doble cara"] = "Sí";
+    else if (r.doble_cara_disponible) datos["Versión doble cara"] = "Disponible";
+
+    const base = sinPrefijoTL(r.ref);
+    const perfil = beltNorm(r.perfil.replace(/^D-/, ""));
+    const largo = Math.round(r.desarrollo_mm);
+    // Pulgadas: "TL-112XL-56" también se pide como "112XL" (sin los dientes).
+    const sinDientes = r.ref.replace(new RegExp(`-${r.dientes}$`), "");
+    // El cliente escribe tanto "600-8M" como "8M 600", "112XL" o "XL 112":
+    // perfil + el número de la designación, en los dos órdenes.
+    const num = r.ref.match(/^TL-(?:D-)?(\d+)/i)?.[1] ?? String(largo);
+    const claves = new Set<string>(
+      [base, sinPrefijoTL(sinDientes), `${perfil}${num}`, `${num}${perfil}`].map(claveSegura)
+    );
+
+    _tlBelts.push({
+      info: {
+        marca: "TL (Translink)",
+        referencia: r.ref,
+        tipo: `Correa dentada síncrona — ${r.familia}`,
+        perfil: r.perfil,
+        datos,
+      },
+      claves,
+      perfilTokens: [perfil],
+      li: null,
+      ld: null,
+      dientes: r.dientes,
+    });
+  }
+
+  for (const r of loadJson<TlIndustrialRow>("data/kb/tl-industriales.json")) {
+    const datos: Record<string, string | number> = {};
+    if (r.li_mm !== null) datos["Longitud interior Li (mm)"] = r.li_mm;
+    if (r.ld_mm !== null) datos["Longitud de paso Ld (mm)"] = r.ld_mm;
+    const base = sinPrefijoTL(r.ref);
+    // "A/13" → ["A","13"] · "W31,5" → ["W31,5"] · "22x8" → ["22X8"]
+    const perfilTokens = r.perfil.split(/[/\s]+/).map((t) => beltNorm(t)).filter(Boolean);
+    const claves = new Set<string>([claveSegura(base)]);
+    for (const p of perfilTokens) {
+      if (r.li_mm !== null) claves.add(claveSegura(`${p}${r.li_mm}`));
+      if (r.ld_mm !== null) claves.add(claveSegura(`${p}${r.ld_mm}`));
+    }
+    _tlBelts.push({
+      info: {
+        marca: "TL (Translink)",
+        referencia: r.ref,
+        tipo: `Correa trapecial — ${r.familia}`,
+        perfil: r.perfil,
+        datos,
+      },
+      claves,
+      perfilTokens,
+      li: r.li_mm,
+      ld: r.ld_mm,
+      dientes: null,
+    });
+  }
+  return _tlBelts;
+}
+
+/**
+ * Busca correas Translink por designación en lenguaje natural ("600-8M-30",
+ * "XL 112", "TL-A49", "SPZ 1250", "correa A 1250"). Mismo planteamiento que
+ * findBelt (Continental): exacta por designación primero y, si no, perfil +
+ * longitud en mm contra la Li y la Ld, devolviendo las dos lecturas.
+ */
+export function findTranslinkBelt(query: string, limit = 6): TlBeltInfo[] {
+  const { candidates, tokens } = beltCandidates(String(query ?? "").replace(/\bTRANSLINK\b/gi, " "));
+  if (!candidates.length) return [];
+  // El catálogo repite referencias (TL-A112...) en la sección de correas de
+  // banda múltiple, con datos distintos a los de la correa suelta. Solo se
+  // ofrecen si el cliente las pide; si no, contestaría con la Li/Ld de otra pieza.
+  const quiereBanda = /\b(BANDA|BANDAS|MULTIPLE|MULTIPLES|BANDED|UNIDAS|POWERBAND|POWER\s*BAND)\b/i.test(
+    String(query ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "")
+  );
+  const todas = loadTlBelts();
+  const sueltas = quiereBanda ? todas : todas.filter((b) => !/banda m[uú]ltiple/i.test(b.info.tipo));
+  // Si la referencia solo existe en banda múltiple, se da igualmente (con su tipo).
+  return buscarTl(sueltas) ?? (sueltas === todas ? [] : buscarTl(todas) ?? []);
+
+  function buscarTl(data: TlBeltEntry[]): TlBeltInfo[] | null {
+    // "correa XL de 60 dientes": el número va con "dientes", así que es el nº
+    // de dientes y NO la designación (60XL = 6", que tiene 30 dientes).
+    const porDientes = String(query ?? "").match(/(\d{1,4})\s*dientes/i);
+    if (porDientes) {
+      const n = Number(porDientes[1]);
+      const perfiles = tokens.map((t) => beltNorm(t)).filter((t) => /[A-Z]/.test(t) && !["TL", "DIENTES", "DIENTE"].includes(t));
+      const hit = data.filter(
+        (b) => b.dientes === n && (!perfiles.length || b.perfilTokens.some((p) => perfiles.includes(p)))
+      );
+      return perfiles.length && hit.length ? hit.slice(0, limit).map((b) => b.info) : null;
+    }
+
+    for (const c of candidates) {
+      const sinTL = c.replace(/^TL/, "");
+      if (sinTL.length < 2) continue;
+      const exact = data.filter((b) => b.claves.has(c) || b.claves.has(sinTL));
+      if (exact.length) return exact.slice(0, limit).map((b) => b.info);
+    }
+
+    const pares: [string, number][] = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = beltNorm(tokens[i]);
+      const solo = tok.match(/^([A-Z]+)(\d{2,5})$/);
+      if (solo) pares.push([solo[1], Number(solo[2])]);
+      const sig = beltNorm(tokens[i + 1] ?? "");
+      if (/^[A-Z]+$/.test(tok) && /^\d{2,5}$/.test(sig)) pares.push([tok, Number(sig)]);
+    }
+    for (const [perfil, largo] of pares) {
+      const hit = data.filter((b) => b.perfilTokens.includes(perfil) && (b.li === largo || b.ld === largo));
+      if (hit.length) return hit.slice(0, limit).map((b) => b.info);
+    }
+    return null;
+  }
+}
+
+/** Correas TL a pre-inyectar para un mensaje (mismo disparador que Continental). */
+export function findTranslinkBeltForMessage(message: string): TlBeltInfo[] {
+  const m = String(message ?? "");
+  const plain = m.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (!BELT_INTENT.test(plain)) return [];
+  return findTranslinkBelt(m, 4);
 }
 
 function normLoose(s: unknown): string {

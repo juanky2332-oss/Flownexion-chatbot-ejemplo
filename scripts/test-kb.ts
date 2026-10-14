@@ -468,5 +468,137 @@ if (previa) {
 }
 ok(refDeConversacion([{ role: "user", content: "hola buenas" }] as any) === null, "sin producto previo no inventa ninguno");
 
+section("CORREAS TL (Translink) — datos de los catalogos del 14-10-2026");
+{
+  const { findTranslinkBelt, findTranslinkBeltForMessage } = require("../lib/kb") as typeof import("../lib/kb");
+  const tl = (q: string) => findTranslinkBelt(q);
+  const r1 = tl("correa dentada 600-8M-30");
+  ok(r1[0]?.referencia === "TL-600-8M" && r1[0].datos["Número de dientes"] === 75 && r1[0].datos["Desarrollo (mm)"] === "600",
+    "600-8M-30 -> TL-600-8M, 75 dientes, 600 mm", JSON.stringify(r1[0]?.datos));
+  ok(tl("correa 8M 600")[0]?.referencia === "TL-600-8M", "orden inverso '8M 600'");
+  const r2 = tl("correa XL 112");
+  ok(r2[0]?.referencia === "TL-112XL-56" && r2[0].datos["Número de dientes"] === 56, "XL 112 -> TL-112XL-56 (56 dientes)", r2[0]?.referencia);
+  ok(tl("TL-D-1040-8M")[0]?.datos["Doble cara"] === "Sí", "doble cara D-1040-8M");
+  // Trapeciales: misma trampa Li/Ld que en Continental — devuelve las dos.
+  const r3 = tl("correa A 1250").map((b) => b.referencia);
+  ok(r3.includes("TL-A48") && r3.includes("TL-A49"), "A 1250 -> A48 (Ld 1250) y A49 (Li 1250)", String(r3));
+  const a49 = tl("TL-A49")[0];
+  ok(a49?.datos["Longitud interior Li (mm)"] === 1250 && a49?.datos["Longitud de paso Ld (mm)"] === 1280, "A49: Li 1250 / Ld 1280");
+  ok(tl("SPZ 1250 translink")[0]?.datos["Longitud de paso Ld (mm)"] === 1250, "SPZ 1250 -> Ld 1250");
+  ok(tl("6205 ZZ").length === 0, "un rodamiento no devuelve correas TL");
+  ok(findTranslinkBeltForMessage("rodamiento 6205").length === 0, "sin intencion de correa no se inyecta nada");
+  ok(findTranslinkBeltForMessage("necesito una correa A 1250").length === 2, "con intencion de correa si");
+  // Fallo encontrado en revision: el perfil "Y/6" + Li 300 generaba la clave
+  // "6300", que es un RODAMIENTO. Ninguna referencia de rodamiento puede
+  // devolver una correa, ni siquiera con "correa" en el mismo mensaje.
+  for (const r of ["6300", "6315", "6400", "6500", "6600", "6205", "22216"]) {
+    ok(tl(r).length === 0, `"${r}" (rodamiento) no devuelve correas TL`, tl(r).map((b) => b.referencia).join(","));
+  }
+  ok(findTranslinkBeltForMessage("cambio la correa del motor y el rodamiento 6300").length === 0, "rodamiento 6300 junto a 'correa' tampoco");
+  ok(tl("TL-Y/6-300")[0]?.referencia === "TL-Y/6-300", "pero TL-Y/6-300 escrita entera si se encuentra");
+  // "60 dientes" es el numero de dientes, no la designacion 60XL (30 dientes).
+  const d60 = tl("correa XL de 60 dientes");
+  ok(d60.length > 0 && d60.every((b) => b.datos["Número de dientes"] === 60), "XL de 60 dientes -> correas de 60 dientes", d60.map((b) => b.referencia).join(","));
+  ok(tl("correa 8M de 75 dientes")[0]?.referencia === "TL-600-8M", "8M de 75 dientes -> TL-600-8M");
+
+  // EXHAUSTIVO: cada correa del catalogo se encuentra por su referencia y
+  // devuelve exactamente su dato (dientes, o Li/Ld). Las de banda multiple
+  // comparten referencia con la suelta: se piden diciendo "banda multiple".
+  const dent = require("../data/kb/tl-dentadas.json") as { ref: string; dientes: number }[];
+  const ind = require("../data/kb/tl-industriales.json") as { ref: string; familia: string; li_mm: number | null; ld_mm: number | null }[];
+  const malas: string[] = [];
+  for (const r of dent) {
+    const x = findTranslinkBelt(r.ref, 50).find((b) => b.referencia === r.ref);
+    if (!x || x.datos["Número de dientes"] !== r.dientes) malas.push(r.ref);
+  }
+  for (const r of ind) {
+    const banda = /Banda/.test(r.familia);
+    const x = findTranslinkBelt((banda ? "banda multiple " : "") + r.ref, 50).find((b) => b.referencia === r.ref && b.tipo.includes(r.familia));
+    if (!x || (x.datos["Longitud interior Li (mm)"] ?? null) !== r.li_mm || (x.datos["Longitud de paso Ld (mm)"] ?? null) !== r.ld_mm) malas.push(r.ref);
+  }
+  ok(malas.length === 0, `las ${dent.length + ind.length} correas TL devuelven su dato exacto`, malas.slice(0, 8).join(","));
+  ok(tl("TL-A112")[0]?.datos["Longitud de paso Ld (mm)"] === 2875 && tl("TL-A112").length === 1, "TL-A112 sin pedir banda -> solo la correa suelta");
+  ok(tl("correa TL-B127")[0]?.tipo.includes("Banda"), "TL-B127 (solo existe en banda multiple) se da igualmente");
+}
+
+section("SOPORTES TL — ficha oficial del catalogo Translink");
+{
+  const tl = (q: string) => findTechnicalInfo(q).filter((t) => t.marca.startsWith("TL"));
+  const u = tl("soporte UCP205")[0];
+  ok(u?.referencia === "TL-UCP205", "UCP205 -> ficha TL", u?.referencia ?? "");
+  ok(u?.datos["Diámetro del eje (mm)"] === "25" && u?.datos["Referencia del rodamiento"] === "UC205" &&
+     u?.datos["Referencia del cuerpo del soporte"] === "P205" && u?.datos["Peso (kg)"] === "0,81",
+     "eje 25 · UC205 · P205 · 0,81 kg (verificado a mano en L11)", JSON.stringify(u?.datos));
+  ok(/h 36,5/.test(String(u?.datos["Medidas (mm)"])) && /M10/.test(String(u?.datos["Tamaño de rosca (perno)"])), "medidas y rosca");
+  ok(findTechnicalInfo("soporte UCP205").some((t) => t.marca === "SNR"), "y sigue saliendo la ficha SNR delante");
+  ok(tl("33UCP205TL")[0]?.referencia === "TL-UCP205", "referencia de la pagina 33UCP205TL");
+  ok(tl("TL-UCFL207-22")[0]?.datos["Diámetro del eje (pulgadas)"] === '1 3/8"', "UCFL207-22 en pulgadas (1 3/8\")");
+  ok(tl("FPL207")[0]?.datos["Unidad de fundición equivalente"] === "UCF207", "termoplastico: unidad equivalente, no rodamiento");
+  ok(tl("6205").length === 0, "un rodamiento no devuelve soportes TL");
+  // Fallo encontrado en revision: 20 UCHA tienen una cota vacia en el PDF.
+  const ucha = tl("UCHA201")[0];
+  ok(!!ucha && !/null|undefined/.test(JSON.stringify(ucha.datos)), "UCHA201 sin cotas 'null'", String(ucha?.datos["Medidas (mm)"]));
+  const todos = require("../data/kb/tl-soportes.json") as { ref: string }[];
+  const conNull = todos.filter((s) => /null|undefined|NaN/.test(JSON.stringify(findTechnicalInfo(s.ref).filter((t) => t.marca.startsWith("TL")).map((t) => t.datos))));
+  ok(conNull.length === 0, `ninguna de las ${todos.length} fichas TL tiene null/NaN`, conNull.slice(0, 5).map((s) => s.ref).join(","));
+  const sinFicha = todos.filter((s) => !findTechnicalInfo(s.ref).some((t) => t.marca.startsWith("TL") && t.referencia === s.ref));
+  ok(sinFicha.length === 0, `las ${todos.length} referencias TL se encuentran por su propia referencia`, sinFicha.slice(0, 5).map((s) => s.ref).join(","));
+}
+
+section("FICHA TECNICA EN PDF — se extrae de respuestas REALES del bot");
+// Las fixtures son respuestas literales de produccion (14-10-2026) a las
+// preguntas del documento del cliente. El PDF tiene que llevar exactamente
+// lo que el cliente acaba de leer en el chat, sin precio ni stock.
+{
+  const { readFileSync } = require("fs");
+  const { join } = require("path");
+  const { extraerFichas, nombreFicheroFicha } = require("../lib/ficha") as typeof import("../lib/ficha");
+  const fx = (n: string) => readFileSync(join(__dirname, "fixtures", n), "utf-8");
+
+  const f1 = extraerFichas(fx("ficha-ntn-6812llu5k.md"));
+  ok(f1.length === 1, "6812 LLU/5K -> una ficha", String(f1.length));
+  ok(f1[0]?.titulo === "NTN 6812 LLU/5K" && f1[0]?.referencia === "6812 LLU/5K", "titulo y referencia", f1[0] ? f1[0].titulo + " / " + f1[0].referencia : "");
+  ok(f1[0]?.resumen.length === 3 && /^68 → /.test(f1[0].resumen[0]), "resumen con la decodificacion (68 → ...)", String(f1[0]?.resumen));
+  ok(f1[0]?.medidas === "dØ60 × DØ78 × B10 mm", "medidas", String(f1[0]?.medidas));
+  ok(f1[0]?.datos.length === 12, "12 datos tecnicos (como el ejemplo del cliente)", String(f1[0]?.datos.length));
+  ok(f1[0]?.datos.some(([k, v]) => k === "Capacidad de carga dinámica" && v === "12.7 kN"), "carga dinamica 12.7 kN");
+  ok(!/precio|stock|EUR/i.test(JSON.stringify(f1)), "sin precio ni stock en la ficha");
+  ok(nombreFicheroFicha(f1) === "Ficha-tecnica-NTN-6812-LLU-5K.pdf", "nombre del fichero", nombreFicheroFicha(f1));
+
+  // Soporte: la respuesta trae 3 productos, pero solo uno con informacion
+  // tecnica completa; las dos tarjetas TL sin ficha no deben generar PDF.
+  const f2 = extraerFichas(fx("ficha-soporte-ucp205.md"));
+  ok(f2.length === 1 && f2[0].referencia === "UCP205", "soporte UCP205 -> solo la ficha con datos", f2.map((f) => f.referencia).join(","));
+  ok((f2[0]?.datos.length ?? 0) >= 20, "con todos sus datos de alojamiento", String(f2[0]?.datos.length));
+
+  const f3 = extraerFichas(fx("ficha-ntn-4t-jm612910pk.md"));
+  ok(f3.length === 1 && f3[0].titulo === "NTN 4T-JM612910PK", "4T-JM612910PK (la captura del cliente)", f3[0]?.titulo ?? "");
+
+  ok(extraerFichas("Hola, soy el **técnico de ESGAS**. ¿Qué rodamiento necesitas?").length === 0, "saludo -> sin PDF");
+
+  // Fallos encontrados en revision.
+  const datos3 = "**Información técnica completa:**\n- **Peso:** 125 g\n- **Tolerancia:** CN\n- **Junta:** No\n";
+  const dos = extraerFichas(`**NTN 6205**\n\n**Ref: 6205**\n- 62 → serie\n\n${datos3}\n---\n\n**SNR 6205**\n\n**Ref: 6205**\n- 62 → serie\n\n${datos3}`);
+  ok(dos.length === 2, "NTN 6205 y SNR 6205 (misma Ref) -> dos fichas en el PDF", dos.map((f) => f.titulo).join(" | "));
+  const h3 = extraerFichas(`### NTN 6205\n\n**Ref: 6205**\n\n${datos3}`);
+  ok(h3.length === 1 && h3[0].titulo === "NTN 6205", "titulo con ### tambien vale", h3[0]?.titulo ?? "");
+  const sinRef = extraerFichas(`**SOPORTE TL UCP205**\n\n${datos3}`);
+  ok(sinRef.length === 1, "ficha sin linea Ref tambien da PDF");
+  const anid = extraerFichas(`**TL-UCP205**\n\n**Ref: TL-UCP205**\n\n**Información técnica completa:**\n- **Peso:** 0,81 kg\n- **Medidas:**\n  - h: 36,5\n  - a: 140\n- **Rosca:** M10\n`);
+  ok(JSON.stringify(anid[0]?.datos) === JSON.stringify([["Peso", "0,81 kg"], ["Medidas h", "36,5"], ["Medidas a", "140"], ["Rosca", "M10"]]),
+    "vinetas anidadas conservan la etiqueta padre", JSON.stringify(anid[0]?.datos));
+  const stockMin = extraerFichas(`**X 1**\n\n**Ref: X1**\n\n**Información técnica completa:**\n- **Stock mínimo de grasa:** 2 g\n- **Peso:** 1 g\n- **Junta:** No\n- **Precio:** 3 EUR\n`);
+  ok(stockMin[0]?.datos.length === 3 && stockMin[0].datos[0][0] === "Stock mínimo de grasa", "solo se quita Precio/Stock exactos", JSON.stringify(stockMin[0]?.datos));
+
+  const { latin1 } = require("../lib/fichaPdf") as typeof import("../lib/fichaPdf");
+  ok(latin1("Temperatura: −30 a +110 °C") === "Temperatura: -30 a +110 °C", "el signo menos (U+2212) no se pierde en el PDF");
+  ok(latin1("Eje 1⅜\"") === "Eje 1 3/8\"", "1⅜ -> 1 3/8 (nunca 13/8)", latin1("Eje 1⅜\""));
+  ok(latin1("dØ25 × DØ52 mm") === "dØ25 × DØ52 mm", "Ø y × se conservan");
+  ok(
+    extraerFichas("**SNR 6205**\n\n**Ref: 6205**\n- 62 → serie\n\n**Precio:** 1.93 EUR\n\n**Stock:** 🟢 12 uds").length === 0,
+    "producto sin ficha tecnica -> sin PDF"
+  );
+}
+
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);

@@ -1,5 +1,7 @@
 // Tipos compartidos del chatbot ESGAS
 
+import type { FichaTecnica } from "./ficha";
+
 export type Role = "user" | "assistant" | "system";
 
 export interface Message {
@@ -92,4 +94,6 @@ export interface ChatResponse {
   needsHuman?: boolean;
   /** Resumen en una línea de la consulta, para prellenar el asunto del e-mail de contacto. */
   humanContext?: string;
+  /** Fichas técnicas que contiene la respuesta, para el botón "Descargar en formato PDF". */
+  fichas?: FichaTecnica[];
 }
