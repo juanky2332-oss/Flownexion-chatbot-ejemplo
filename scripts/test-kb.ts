@@ -608,6 +608,21 @@ section("SEGUIMIENTO SIN REFERENCIA — la ficha del producto de la conversacion
   ok(/termopl[aá]stico/i.test(tlF?.aviso ?? ""), "la ficha TL avisa de que no vale para la version termoplastica");
 }
 
+section("FICHA DE OTRA PIEZA — fundicion copiada a un termoplastico (real, preview)");
+{
+  const v = require("../lib/variantes") as typeof import("../lib/variantes");
+  const { readFileSync } = require("fs");
+  const { join } = require("path");
+  const real = readFileSync(join(__dirname, "fixtures", "soporte-termoplastico-con-ficha-de-fundicion.md"), "utf-8");
+  const arreglado = v.quitarFichaDeOtraPieza(real);
+  const [fund, termo] = arreglado.split(/\n-{3,}\n/).slice(1, 3);
+  ok(/0,81 kg/.test(fund) && /P205/.test(fund), "el de fundicion conserva su ficha (P205, 0,81 kg)");
+  ok(!/0,81 kg|P205|UC205|h 36,5/.test(termo), "el termoplastico ya no lleva los datos de fundicion", termo.slice(0, 200));
+  ok(/no la tengo en la base de datos/.test(termo), "y explica que su ficha no esta y ofrece confirmarla");
+  ok(v.quitarFichaDeOtraPieza("**SOPORTE FUNDICION TL UCP 205**\n\n**Ref: 33UCP205TL**\n- **Peso:** 0,81 kg") ===
+    "**SOPORTE FUNDICION TL UCP 205**\n\n**Ref: 33UCP205TL**\n- **Peso:** 0,81 kg", "misma pieza y material: no se toca");
+}
+
 section("CIERRES PASIVOS — se sustituyen por una salida concreta");
 {
   const { limpiarCierreVacio } = require("../lib/guardrails") as typeof import("../lib/guardrails");

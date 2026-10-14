@@ -667,3 +667,63 @@ export function bloqueFichaConversacion(fichas: TechInfo[]): string | null {
     `(p.ej. SNR y TL) con valores distintos, da cada uno con su marca.`
   );
 }
+
+// ── Ficha de una pieza trasladada a otra de distinto material ────────────────
+// Visto 3 veces seguidas en la preview, con la prohibición ya en el prompt: el
+// bot copiaba la ficha del TL-UCP205 de FUNDICIÓN (P205, UC205, 0,81 kg) al
+// "SOPORTE TERMOPLASTICO TL UCP 205" de la página. Se corrige en código.
+
+type Material = "fundicion" | "termoplastico" | "inox" | "chapa";
+
+function materialDe(texto: string): Material | null {
+  const t = String(texto ?? "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (/TERMOPLAST|\bPLAS\w*|\bPBT\b|POLIAMIDA/.test(t)) return "termoplastico";
+  if (/INOX|STAINLESS/.test(t)) return "inox";
+  if (/CHAPA|ESTAMPAD|PRESSED/.test(t)) return "chapa";
+  if (/FUNDICI|CAST\s+IRON/.test(t)) return "fundicion";
+  return null;
+}
+
+const normValor = (v: unknown) => String(v ?? "").toUpperCase().replace(/[\s"]/g, "").replace(/,/g, ".");
+
+export function quitarFichaDeOtraPieza(texto: string): string {
+  const partes = String(texto ?? "").split(/(\n-{3,}\n)/);
+  let cambiado = false;
+  const out = partes.map((bloque) => {
+    if (/^\n-{3,}\n$/.test(bloque)) return bloque;
+    const lineas = bloque.split("\n");
+    const cabecera = lineas.slice(0, 5).join(" ");
+    const matBloque = materialDe(cabecera);
+    if (!matBloque) return bloque;
+    // Fichas TL de las designaciones que aparecen en el bloque (UCP205, UCFL207...).
+    const designaciones = [...new Set([...bloque.toUpperCase().matchAll(/\b([A-Z]{2,5})\s?(\d{3}(?:-\d{1,2})?)\b/g)].map((m) => m[1] + m[2]))];
+    const ajenas = designaciones
+      .flatMap((d) => findTechnicalInfo(d).filter((f) => f.marca.startsWith("TL")))
+      .filter((f) => {
+        const matFicha = materialDe(String(f.datos["Clase de producto"] ?? ""));
+        return matFicha !== null && matFicha !== matBloque;
+      });
+    if (!ajenas.length) return bloque;
+    const valores = new Set(ajenas.flatMap((f) => Object.values(f.datos).map(normValor)).filter((v) => v.length >= 2));
+    let quitadas = 0;
+    const filtradas = lineas.filter((l) => {
+      const m = l.match(/^\s*[-*•]\s+\**([^:*]+?)\**\s*:\s*\**\s*(.+?)\s*$/);
+      if (!m) return true;
+      const v = normValor(m[2].replace(/\*\*/g, "").replace(/\s*mm$/i, "").replace(/\s*kg$/i, ""));
+      const vCompleto = normValor(m[2].replace(/\*\*/g, ""));
+      const copiado = [...valores].some((x) => x === v || x === vCompleto || x === v.replace(/MM$/, ""));
+      if (copiado) quitadas++;
+      return !copiado;
+    });
+    if (!quitadas) return bloque;
+    cambiado = true;
+    // La nota va justo después de la línea de Ref (o del título si no hay Ref).
+    const iRef = filtradas.findIndex((l) => /Ref:/i.test(l));
+    const nota =
+      "- **Ficha técnica:** la de esta versión no la tengo en la base de datos (no es la misma pieza que la de " +
+      "fundición). Si la necesitas, te la confirmamos por teléfono o e-mail.";
+    filtradas.splice(iRef >= 0 ? iRef + 1 : Math.min(2, filtradas.length), 0, nota);
+    return filtradas.join("\n");
+  });
+  return cambiado ? out.join("") : texto;
+}

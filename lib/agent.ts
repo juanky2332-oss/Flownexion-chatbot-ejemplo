@@ -34,6 +34,7 @@ import {
   esPreguntaTecnicaSinRef,
   fichasDeConversacion,
   bloqueFichaConversacion,
+  quitarFichaDeOtraPieza,
   tarjetasParaRespuesta,
 } from "./variantes";
 import { searchOfficialSource } from "./websearch";
@@ -1156,7 +1157,7 @@ export async function runAgent(
     });
   }
   const asegurarRespuesta = (t: string): string =>
-    asegurarAmbiguedadLiLd(asegurarDatosCorrea(t, beltHits, tlBeltHits), ambLiLd);
+    quitarFichaDeOtraPieza(asegurarAmbiguedadLiLd(asegurarDatosCorrea(t, beltHits, tlBeltHits), ambLiLd));
   if (beltHits.length || tlBeltHits.length) {
     messages.push({
       role: "system",
