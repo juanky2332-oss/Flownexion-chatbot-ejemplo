@@ -519,6 +519,13 @@ section("CORREAS TL (Translink) — datos de los catalogos del 14-10-2026");
   ok(malas.length === 0, `las ${dent.length + ind.length} correas TL devuelven su dato exacto`, malas.slice(0, 8).join(","));
   ok(tl("TL-A112")[0]?.datos["Longitud de paso Ld (mm)"] === 2875 && tl("TL-A112").length === 1, "TL-A112 sin pedir banda -> solo la correa suelta");
   ok(tl("correa TL-B127")[0]?.tipo.includes("Banda"), "TL-B127 (solo existe en banda multiple) se da igualmente");
+
+  // Fallo real en la preview: con "¿qué características tiene?" la busqueda
+  // de Continental devolvia correas de OTRA longitud (288-H8M-30...).
+  const msg = "necesito una correa dentada 600-8M-30, ¿qué características tiene?";
+  const conti = findBelt(msg).map((b) => b.nombre);
+  ok(conti.length > 0 && conti.every((n) => /^600-/.test(n)), "Continental 600-8M-30 con frase de pregunta -> solo correas de 600", String(conti));
+  ok(findTranslinkBeltForMessage(msg)[0]?.referencia === "TL-600-8M", "y TL-600-8M por la parte de Translink");
 }
 
 section("SOPORTES TL — ficha oficial del catalogo Translink");
@@ -575,6 +582,15 @@ section("FICHA TECNICA EN PDF — se extrae de respuestas REALES del bot");
   ok(f3.length === 1 && f3[0].titulo === "NTN 4T-JM612910PK", "4T-JM612910PK (la captura del cliente)", f3[0]?.titulo ?? "");
 
   ok(extraerFichas("Hola, soy el **técnico de ESGAS**. ¿Qué rodamiento necesitas?").length === 0, "saludo -> sin PDF");
+
+  // Respuesta real de la preview (14-10-2026): ficha SNR + ficha TL con los
+  // datos directamente bajo "Ref:", sin encabezado. Tienen que salir las dos.
+  const sop = extraerFichas(fx("ficha-soporte-ucp205-snr-y-tl.md"));
+  ok(sop.length === 2, "UCP205 SNR + TL sin encabezado -> dos fichas", sop.map((f) => f.titulo).join(" | "));
+  const tlf = sop.find((f) => /TL/.test(f.titulo));
+  ok(!!tlf && tlf.datos.some(([k, v]) => /cuerpo/i.test(k) && v === "P205") && tlf.datos.some(([k, v]) => /rodamiento/i.test(k) && v === "UC205"),
+    "la ficha TL lleva cuerpo P205 y rodamiento UC205", JSON.stringify(tlf?.datos));
+  ok(tlf?.datos.length === 8 && !/EUR|33UCP205/.test(JSON.stringify(sop)), "y NADA de la lista de productos/precios de la pagina", String(tlf?.datos.length));
 
   // Fallos encontrados en revision.
   const datos3 = "**Información técnica completa:**\n- **Peso:** 125 g\n- **Tolerancia:** CN\n- **Junta:** No\n";

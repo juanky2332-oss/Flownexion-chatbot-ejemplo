@@ -103,7 +103,7 @@ export function extraerFichas(texto: string): FichaTecnica[] {
     if (esSeparador(t)) {
       // El "---" cierra un producto solo cuando ya se ha leído su ficha; el
       // formato del prompt también abre cada producto con "---".
-      if (actual && modo === "datos") cerrar();
+      if (actual && (modo === "datos" || actual.datos.length)) cerrar();
       continue;
     }
 
@@ -141,7 +141,20 @@ export function extraerFichas(texto: string): FichaTecnica[] {
     }
 
     if (modo === "resumen" && esViñeta(l)) {
-      a.resumen.push(limpiar(sinViñeta(t)));
+      const contenido = limpiar(sinViñeta(t));
+      const par = contenido.includes("→") ? null : partirEtiqueta(sinViñeta(t));
+      // Visto en producción con soportes: el bot pone la ficha ("- Peso: 810 g")
+      // directamente bajo "Ref:", sin el encabezado de información técnica.
+      // Las viñetas "etiqueta: valor" son datos; las de "parte → significado",
+      // la decodificación del resumen.
+      if (par && !ETIQUETA_COMERCIAL.test(par[0])) a.datos.push(par);
+      else a.resumen.push(contenido);
+      continue;
+    }
+    // Un párrafo suelto (cierre, "En nuestra página tenemos…") termina la
+    // parte técnica: lo que venga después ya no es de esta ficha.
+    if (modo === "resumen" && !esViñeta(l) && a.datos.length) {
+      modo = "nada";
       continue;
     }
 

@@ -774,7 +774,10 @@ function labelBelt(b: BeltEntry): BeltInfo {
  * los tokens, para que no contaminen la fusión perfil+longitud.
  */
 const BELT_NOISE =
-  /\b(CORREA|CORREAS|PERFIL|PERFILES|NECESITO|NECESITARIA|QUIERO|QUERIA|TENEIS|TIENES|TIENE|TENGO|HAY|DAME|DIME|BUSCO|BUSCAR|PONME|UNA|UNAS|UN|UNOS|EL|LA|LOS|LAS|DE|DEL|PARA|CON|POR|FAVOR|MM|MILIMETROS|TRAPECIAL|TRAPECIALES|TRAPEZOIDAL|TRAPEZOIDALES|DENTADA|DENTADAS|SINCRONA|SINCRONAS|ESTRECHA|ESTRECHAS|CLASICA|CLASICAS|CONTINENTAL|CONTI|MODELO|REFERENCIA|REF)\b/gi;
+  /\b(CORREA|CORREAS|PERFIL|PERFILES|NECESITO|NECESITARIA|QUIERO|QUERIA|TENEIS|TIENES|TIENE|TENGO|HAY|DAME|DIME|BUSCO|BUSCAR|PONME|UNA|UNAS|UN|UNOS|EL|LA|LOS|LAS|DE|DEL|PARA|CON|POR|FAVOR|MM|MILIMETROS|TRAPECIAL|TRAPECIALES|TRAPEZOIDAL|TRAPEZOIDALES|DENTADA|DENTADAS|SINCRONA|SINCRONAS|ESTRECHA|ESTRECHAS|CLASICA|CLASICAS|CONTINENTAL|CONTI|MODELO|REFERENCIA|REF|QUE|CUAL|CUALES|COMO|CUANTO|CUANTOS|CUANTAS|CARACTERISTICA|CARACTERISTICAS|TECNICA|TECNICAS|TECNICO|TECNICOS|INFORMACION|INFO|DATOS|FICHA|MEDIDA|MEDIDAS|ES|SON|ME|MI|SU|LO|LE|SE|PUEDES|PODRIAS|DECIR|DECIRME|SABER|QUISIERA|HOLA|BUENAS|GRACIAS|AL|ESTA|ESTE|ESA|ESE|LLEVA|PRECIO|STOCK|DISPONIBLE|COMPRAR|DIENTES|DESARROLLO|LONGITUD|ANCHO|INTERIOR|PRIMITIVA|SOBRE|ACERCA|TRANSLINK)\b/gi;
+// (Las palabras de pregunta del final se añadieron tras un fallo real: con
+// "¿qué características tiene la 600-8M-30?" se colaban como tokens, fallaba
+// la pasada de todos los tokens y la parcial devolvía correas de OTRA longitud.)
 
 /** Normalización de designación de correa: mayúsculas, sin acentos ni separadores. */
 function beltNorm(s: unknown): string {
@@ -884,6 +887,11 @@ export function findBelt(query: string, limit = 6): BeltInfo[] {
       return norms.every((t) => hay.includes(t));
     });
     if (hit.length) {
+      // "600" está dentro de "1600": si alguna correa EMPIEZA por la longitud
+      // pedida (600-H8M-30), las que solo la contienen (1600-H8M-30) sobran.
+      const largos = tokens.map((t) => beltNorm(t)).filter((t) => /^\d{3,5}$/.test(t));
+      const empiezan = hit.filter((b) => largos.some((n) => new RegExp(`^${n}(?!\\d)`).test(b.nombreNorm)));
+      if (empiezan.length) hit.splice(0, hit.length, ...empiezan);
       // El nombre más corto es la designación más específica que encaja.
       return hit
         .sort((a, b) => a.nombreNorm.length - b.nombreNorm.length)
@@ -892,10 +900,18 @@ export function findBelt(query: string, limit = 6): BeltInfo[] {
     }
   }
 
-  // 4ª pasada — parcial sobre nombre y descripción, acotada.
+  // 4ª pasada — parcial sobre nombre y descripción, acotada. Toda longitud
+  // que haya dado el cliente (número de 3+ cifras) tiene que estar en la
+  // correa: una parcial por "8M30" no puede devolver una 288-H8M-30 cuando
+  // se ha pedido la 600.
+  const longitudes = tokens.map((t) => beltNorm(t)).filter((t) => /^\d{3,5}$/.test(t));
   for (const c of candidates) {
     if (c.length < 4) continue;
-    const part = data.filter((b) => b.nombreNorm.includes(c) || b.descNorm.includes(c));
+    const part = data.filter(
+      (b) =>
+        (b.nombreNorm.includes(c) || b.descNorm.includes(c)) &&
+        longitudes.every((n) => `${b.nombreNorm} ${b.descNorm}`.includes(n))
+    );
     if (part.length) return part.slice(0, limit).map(labelBelt);
   }
 
