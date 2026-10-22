@@ -103,12 +103,16 @@ export default function ProductCard({
     }
   })();
 
-  // addchat.php ya instalado en la tienda: añade al carrito de la sesión.
+  // addchat.php en la raíz de la tienda: añade al carrito de la sesión y, con
+  // redirect=1, él mismo lleva la pestaña al carrito tras añadir (así el
+  // cliente ve el carrito con las unidades ya puestas, sin ver el JSON ni
+  // depender de ningún temporizador del lado del chat).
   const addchatUrl = (qtyToAdd: number) =>
     `${psBase}/addchat.php` +
     `?id_product=${encodeURIComponent(product.id)}` +
     `&id_product_attribute=${encodeURIComponent(product.idProductAttribute ?? 0)}` +
-    `&qty=${encodeURIComponent(qtyToAdd)}`;
+    `&qty=${encodeURIComponent(qtyToAdd)}` +
+    `&redirect=1`;
 
   const showStoreError = (error: string | null, needsLogin: boolean) => {
     if (needsLogin) {
@@ -138,33 +142,16 @@ export default function ProductCard({
     if (safeQty !== qty) setQty(safeQty);
 
     if (!inStore) {
-      // Fuera de la tienda (web del chat): se abre el addchat.php que ESGAS ya
-      // tiene instalado como PESTAÑA de la tienda. Al ser una navegación de
-      // primer nivel, el navegador manda la sesión del cliente en b2b.esgas.es
-      // y las unidades entran en SU carrito. Comprobado con sesión real el
-      // 22-10-2026: {"ok":true} y el carrito con las unidades. (Funciona
-      // porque al iniciar sesión PrestaShop ya deja guardado un carrito, que
-      // es lo único que ese addchat.php necesita.)
-      // addchat.php responde con un JSON; la pestaña se lleva al carrito en
-      // cuanto ha tenido tiempo de procesarlo. Aunque la navegación llegara a
-      // cortar la espera, el producto ya está añadido: PHP lo guarda antes de
-      // escribir la respuesta.
+      // Fuera de la tienda (web del chat, distinto origen): no se puede leer el
+      // carrito de b2b.esgas.es por seguridad del navegador, así que se abre
+      // addchat.php como PESTAÑA de la tienda (navegación de primer nivel: el
+      // navegador manda la sesión real del cliente). Con redirect=1, addchat.php
+      // añade y lleva esa misma pestaña al carrito, de modo que el cliente ve el
+      // carrito con las unidades YA puestas; no hace falta que el chat adivine
+      // cuándo terminó ni dé un "añadido" que no puede comprobar.
       const url = addchatUrl(safeQty);
       const tab = window.open(url, "_blank");
-      if (!tab) {
-        setStoreLink(url);
-        return;
-      }
-      setAdding(true);
-      setTimeout(() => {
-        try {
-          if (!tab.closed) tab.location.href = cartPage;
-        } catch {
-          /* pestaña cerrada */
-        }
-        setAdding(false);
-        setAdded({ qty: safeQty, cartUrl: cartPage });
-      }, 2500);
+      if (!tab) setStoreLink(url);
       return;
     }
 
