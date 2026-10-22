@@ -26,7 +26,7 @@ $action   = (string) Tools::getValue('action');
 $redirect = ((int) Tools::getValue('redirect', 0) === 1);
 
 if (!$redirect) {
-    header('Access-Control-Allow-Origin: https://esgas.nodoflow.com');
+    header('Access-Control-Allow-Origin: https://flownexion-chatbot-ejemplo.vercel.app');
     header('Access-Control-Allow-Credentials: true');
     header('Access-Control-Allow-Methods: GET, OPTIONS');
     header('Content-Type: application/json; charset=utf-8');

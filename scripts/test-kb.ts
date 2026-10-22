@@ -748,6 +748,40 @@ section("FICHA TECNICA EN PDF — se extrae de respuestas REALES del bot");
     extraerFichas("**SNR 6205**\n\n**Ref: 6205**\n- 62 → serie\n\n**Precio:** 1.93 EUR\n\n**Stock:** 🟢 12 uds").length === 0,
     "producto sin ficha tecnica -> sin PDF"
   );
+
+  // PDF "si o si" (22-10-2026): si el bot no respeta el formato pero consulto
+  // la ficha verificada y nombra la referencia, el PDF sale del KB.
+  const { fichasParaPdf, textoNombraRef } = require("../lib/ficha") as typeof import("../lib/ficha");
+  const kb6205 = findTechnicalInfo("6205").filter((t) => t.referencia.replace(/\s/g, "") === "6205");
+  ok(kb6205.length > 0, "KB tiene la ficha del 6205", kb6205.map((t) => t.marca + " " + t.referencia).join(", "));
+  const prosa = "El SNR 6205 es un rodamiento rígido de bolas de una hilera, con 25 mm de diámetro interior, 52 mm de exterior y 15 mm de ancho. Pesa 125 g.";
+  const pdfProsa = fichasParaPdf(prosa, kb6205);
+  ok(pdfProsa.length >= 1 && pdfProsa[0].datos.length >= 5, "respuesta en prosa (sin formato) -> PDF desde el KB", JSON.stringify(pdfProsa[0]?.datos?.slice(0, 4)));
+  ok(pdfProsa[0]?.medidas === "dØ25 × DØ52 × B15 mm", "medidas montadas desde el KB", pdfProsa[0]?.medidas ?? "");
+  ok(pdfProsa[0]?.datos.some(([k, v]) => k === "Peso" && v === "125 g"), "la unidad pasa de la etiqueta al valor (Peso: 125 g)", JSON.stringify(pdfProsa[0]?.datos));
+  ok(fichasParaPdf("Hola, ¿qué rodamiento necesitas?", kb6205).length === 0, "si la respuesta no nombra la referencia, no hay PDF del KB");
+  ok(!textoNombraRef("el 6205ZZ va con deflectores", "6205"), "6205 no se confunde con 6205ZZ");
+  ok(textoNombraRef("el SNR 6205 ZZ C3 tiene", "6205ZZC3"), "6205ZZC3 se reconoce escrito con espacios");
+  const conFormato = fichasParaPdf(fx("ficha-ntn-6812llu5k.md"), findTechnicalInfo("6812LLU/5K"));
+  ok(conFormato.length === extraerFichas(fx("ficha-ntn-6812llu5k.md")).length, "con formato correcto no se duplica la ficha con la del KB", conFormato.map((f) => f.titulo).join(" | "));
+  const comp = fichasParaPdf("Diferencias entre el SNR 6205 y el SNR 6305: el 6305 es más grande.", [...findTechnicalInfo("6205").slice(0, 1), ...findTechnicalInfo("6305").slice(0, 1)]);
+  ok(comp.length === 2, "comparativa en prosa -> dos fichas -> boton de comparativa PDF", comp.map((f) => f.titulo).join(" | "));
+
+  // Saneado de datos del Excel del cliente (auditoria 22-10-2026).
+  const esc = findTechnicalInfo("ESC201")[0];
+  ok(esc?.datos["Diámetro interior dØ (mm)"] === 12 && esc?.datos["Diámetro exterior DØ (mm)"] === 40,
+    "soporte ESC201: eje y exterior ya no salen intercambiados (dØ12 × DØ40)", JSON.stringify([esc?.datos["Diámetro interior dØ (mm)"], esc?.datos["Diámetro exterior DØ (mm)"]]));
+  const copa = findTechnicalInfo("4T-03162")[0];
+  ok(!!copa && copa.datos["Diámetro interior dØ (mm)"] === undefined && /incoherentes/.test(copa.aviso ?? ""),
+    "4T-03162 (dØ180 > DØ41 en el Excel): no se dan los diametros y el bot recibe aviso");
+  const ft150 = findTechnicalInfo("6001FT150ZZ")[0];
+  ok(!!ft150 && ft150.datos["Peso (g)"] === undefined, "6001FT150ZZ: peso imposible (210 g para 12x28x8) omitido");
+  const nj = findTechnicalInfo("NJ209EAT2XC3")[0];
+  ok(!!nj && nj.datos["Peso (g)"] === undefined, "peso 0 no se da como dato");
+  const sano = findTechnicalInfo("6205")[0];
+  ok(sano?.datos["Peso (g)"] === 125 && !sano.aviso, "una ficha correcta queda intacta y sin aviso");
+  const c915 = findBelt("C91.5")[0];
+  ok(c915?.longitud_interior_Li_mm === 2324, "correa C91.5: Li recuperada del codigo (2324, no 324)", String(c915?.longitud_interior_Li_mm));
 }
 
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);

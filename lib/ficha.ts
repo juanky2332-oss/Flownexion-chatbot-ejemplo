@@ -194,6 +194,96 @@ export function extraerFichas(texto: string): FichaTecnica[] {
   });
 }
 
+// ── Red de seguridad: ficha desde la base de datos técnica ──────────────────
+// El cliente pidió (22-10-2026) que el PDF salga "sí o sí" en cada consulta
+// de ficha técnica. extraerFichas depende de que el bot respete el formato
+// del prompt al pie de la letra; cuando no lo hace (otro encabezado, datos en
+// una frase, tabla...) no salía ningún botón. Si el bot ha consultado la
+// ficha verificada de una referencia (get_technical_info, compare_products o
+// la ficha del producto de la conversación) y la NOMBRA en su respuesta, se
+// monta el PDF con esos mismos datos verificados, que son los que el bot tenía
+// delante al redactar.
+
+/** Forma mínima de la ficha del KB (TechInfo en lib/kb.ts, que es server-only). */
+export interface FichaKb {
+  marca: string;
+  referencia: string;
+  datos: Record<string, string | number>;
+}
+
+const MAX_FICHAS_KB = 4;
+
+const normRef = (s: string) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/** ¿Nombra el texto esta referencia, como pieza entera (no dentro de otra más larga)? */
+export function textoNombraRef(texto: string, referencia: string): boolean {
+  const ref = normRef(referencia);
+  if (ref.length < 3) return false;
+  // ref ya solo tiene [A-Z0-9]: no hay nada que escapar. Entre carácter y
+  // carácter se admite el separador con que lo escribe el bot ("6205 ZZ C3").
+  const patron = ref.split("").join("[\\s\\-/.]*");
+  return new RegExp(`(^|[^A-Z0-9])${patron}($|[^A-Z0-9])`, "i").test(String(texto ?? "").toUpperCase());
+}
+
+function valorPlano(v: string | number): string {
+  return typeof v === "number" ? String(v).replace(".", ",") : String(v).trim();
+}
+
+/** Convierte la ficha del KB al formato del PDF ("Peso (g)" → "Peso: 125 g"). */
+export function fichaDesdeKb(kb: FichaKb): FichaTecnica {
+  const marca = /^TL/i.test(kb.marca) ? "TL" : kb.marca.trim();
+  const datos: [string, string][] = [];
+  let di = "", de = "", an = "";
+  for (const [k, v] of Object.entries(kb.datos ?? {})) {
+    if (v === null || v === undefined || String(v).trim() === "") continue;
+    if (typeof v === "object") continue;
+    const unidad = /\(([^)]+)\)\s*$/.exec(k)?.[1];
+    const etiqueta = unidad ? k.replace(/\s*\([^)]+\)\s*$/, "") : k;
+    const val = valorPlano(v as string | number);
+    if (/^Diámetro interior/i.test(k)) di = val;
+    if (/^Diámetro exterior/i.test(k)) de = val;
+    if (/^Ancho B/i.test(k)) an = val;
+    datos.push([etiqueta, unidad && unidad !== "°" ? `${val} ${unidad}` : unidad === "°" ? `${val}°` : val]);
+  }
+  const medidas = di || de || an
+    ? [di && `dØ${di}`, de && `DØ${de}`, an && `B${an}`].filter(Boolean).join(" × ") + " mm"
+    : undefined;
+  return {
+    titulo: `${marca} ${kb.referencia}`.trim(),
+    referencia: kb.referencia,
+    resumen: [],
+    ...(medidas ? { medidas } : {}),
+    datos,
+  };
+}
+
+/**
+ * Fichas para el PDF de una respuesta: las que trae el propio texto y, para
+ * cada referencia con ficha verificada que el texto nombra y que no salió ya
+ * del texto, la ficha del KB.
+ */
+export function fichasParaPdf(texto: string, consultadas: FichaKb[]): FichaTecnica[] {
+  const delTexto = extraerFichas(texto);
+  const cubiertas = new Set(delTexto.map((f) => normRef(f.referencia || f.titulo)));
+  const yaTitulos = delTexto.map((f) => normRef(f.titulo));
+  const extra: FichaTecnica[] = [];
+  const vistas = new Set<string>();
+  for (const kb of consultadas ?? []) {
+    if (!kb || !kb.referencia || !kb.datos) continue;
+    const clave = normRef(`${kb.marca}${kb.referencia}`);
+    if (vistas.has(clave)) continue;
+    vistas.add(clave);
+    const ref = normRef(kb.referencia);
+    if (cubiertas.has(ref) || yaTitulos.some((t) => t.endsWith(ref))) continue;
+    if (!textoNombraRef(texto, kb.referencia)) continue;
+    const f = fichaDesdeKb(kb);
+    if (f.datos.length < MIN_DATOS) continue;
+    extra.push(f);
+    if (delTexto.length + extra.length >= MAX_FICHAS_KB) break;
+  }
+  return [...delTexto, ...extra];
+}
+
 /** Nombre del fichero: "Ficha-tecnica-NTN-6812-LLU-5K.pdf". */
 export function nombreFicheroFicha(fichas: FichaTecnica[]): string {
   const base = fichas.length === 1 ? fichas[0].titulo || fichas[0].referencia : "varios-productos";

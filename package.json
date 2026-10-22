@@ -12,7 +12,8 @@
     "test:kb": "ts-node --project tsconfig.scripts.json scripts/test-kb.ts",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck && npm run check:glosario && npm run test:kb && npm run build",
-    "check:glosario": "ts-node --project tsconfig.scripts.json scripts/check-glosario.ts"
+    "check:glosario": "ts-node --project tsconfig.scripts.json scripts/check-glosario.ts",
+    "audit:fichas": "node scripts/audit-fichas.js"
   },
   "dependencies": {
     "jspdf": "4.2.1",

@@ -7,26 +7,19 @@ interface ProductCardProps {
   product: Product;
   primaryColor?: string;
   psBase?: string;
+  // Ya no se usan aquí (el carrito lo añade la tienda con la sesión del
+  // cliente); se mantienen para no romper a quien las pase.
   identityToken?: string | null;
   customerId?: number | null;
   supportPhone?: string;
   supportEmail?: string;
 }
 
-function detectIframe(): boolean {
-  try {
-    return window.top !== window.self;
-  } catch {
-    return true;
-  }
-}
 
 export default function ProductCard({
   product,
   primaryColor = "#0066cc",
   psBase = "https://b2b.esgas.es",
-  identityToken,
-  customerId,
   supportPhone = "968 676 983",
   supportEmail = "esgas@esgas.es",
 }: ProductCardProps) {
@@ -76,112 +69,124 @@ export default function ProductCard({
     product.discountPct != null && product.discountPct > 0;
 
   const cartPage = `${psBase}/carrito?action=show`;
+  const [added, setAdded] = useState<{ qty: number; cartUrl: string } | null>(null);
+  // Enlace para terminar la compra en la tienda cuando el chat no está
+  // embebido en ella: la ficha del producto con la orden de añadir.
+  const [storeLink, setStoreLink] = useState<string | null>(null);
 
-  // Vía Webservice API (server-to-server): no depende de ninguna cookie del
-  // navegador, así que funciona tanto de fallback (popup bloqueado) como en
-  // pruebas standalone fuera de b2b.esgas.es. Resuelve el cliente igual que
-  // /api/chat: identityToken > customerId sin firmar > TEST_CUSTOMER_EMAIL.
-  const addViaApi = (qtyToAdd: number) => {
-    fetch("/api/cart", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        items: [{
-          productId: product.id,
-          qty: qtyToAdd,
-          idProductAttribute: product.idProductAttribute ?? 0,
-        }],
-        ...(identityToken ? { identityToken } : {}),
-        ...(!identityToken && customerId ? { customerId } : {}),
-      }),
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          // El servidor vuelve a comprobar el stock real (puede haber
-          // cambiado desde que se cargó la tarjeta): si lo rechaza, no
-          // abrimos el carrito y explicamos el motivo con el stock actual.
-          if (data?.error === "stock_insuficiente" && typeof data?.available === "number") {
-            setAddError({
-              text:
-                data.available > 0
-                  ? `Solo quedan ${data.available} uds disponibles en la página ahora mismo. Para pedir más unidades, contacta por `
-                  : `Sin unidades disponibles en la página para este producto ahora mismo. Para pedirlo, contacta por `,
-              contact: true,
-            });
-          } else {
-            setAddError({ text: "No se pudo añadir al carrito. Por favor, inténtalo de nuevo." });
-          }
-          setAdding(false);
-          return;
-        }
-        window.open((data as { cartUrl?: string }).cartUrl || cartPage, "_blank", "noopener,noreferrer");
-        setAdding(false);
-      })
-      .catch(() => {
-        setAddError({ text: "No se pudo añadir al carrito. Por favor, inténtalo de nuevo." });
-        setAdding(false);
-      });
+  // ── Por qué el carrito se abría vacío (hasta el 22-10-2026) ──────────────
+  // 1) Fuera de la tienda (web de pruebas) se creaba un carrito por la
+  //    Webservice API y se abría un enlace recover_cart que PrestaShop
+  //    ignora: la tienda mostraba el carrito de la sesión, vacío.
+  // 2) Dentro de la tienda se llamaba al addchat.php instalado, que solo
+  //    añade si la sesión YA tiene un carrito guardado. PrestaShop no lo crea
+  //    hasta el primer producto, así que con el carrito vacío respondía
+  //    {"ok":false} sin añadir nada... y aun así se abría el carrito.
+  // Ahora el añadir lo hace widget.js en la propia página de la tienda con el
+  // añadir NATIVO de PrestaShop (el mismo que el botón de la ficha): crea el
+  // carrito si no existe, comprueba el stock y actualiza la cabecera. Y el
+  // carrito solo se ofrece cuando la tienda ha confirmado que lo añadió.
+  const inStore = (() => {
+    if (typeof window === "undefined") return false;
+    try {
+      if (window.top === window.self) return false;
+    } catch {
+      /* iframe de otro origen: seguimos comprobando */
+    }
+    try {
+      const shop = new URL(psBase).origin;
+      const anc = (window.location as Location & { ancestorOrigins?: DOMStringList }).ancestorOrigins;
+      if (anc && anc.length) return anc[0] === shop;
+      return !!document.referrer && new URL(document.referrer).origin === shop;
+    } catch {
+      return false;
+    }
+  })();
+
+  const productStoreUrl = (qtyToAdd: number) => {
+    const base = product.link || `${psBase}/index.php?controller=product&id_product=${encodeURIComponent(product.id)}`;
+    return `${base.split("#")[0]}#esgas-add=${encodeURIComponent(product.id)}-${encodeURIComponent(product.idProductAttribute ?? 0)}-${qtyToAdd}`;
   };
 
-  // Mecanismo confirmado funcionando embebido en b2b.esgas.es (tag
-  // carrito-funciona-2026-07-01): abrir addchat.php como navegación de
-  // pestaña nueva de verdad (no un fetch dentro del iframe) hace que el
-  // navegador SÍ envíe las cookies de sesión reales de Prestashop
-  // (SameSite=Lax las permite en navegaciones de nivel superior). Esto
-  // SOLO puede funcionar si el navegador ya tiene esa sesión real, es
-  // decir, embebido de verdad en la tienda — por eso se usa solo dentro
-  // de un iframe; fuera (pruebas standalone) no hay ninguna sesión que
-  // enviar y se usa addViaApi() directamente.
-  //
-  // Para saber cuándo Prestashop ya procesó el Cart::updateQty() del popup
-  // (y así navegarlo al carrito sin que se vea el JSON), lanzamos en
-  // paralelo un fetch de solo-señal (mode:no-cors) al mismo endpoint: no
-  // necesita leer la respuesta, solo que el servidor haya contestado ya.
+  const showStoreError = (error: string | null, needsLogin: boolean) => {
+    if (needsLogin) {
+      setAddError({ text: "Inicia sesión en la tienda para añadir productos a tu carrito." });
+      return;
+    }
+    if (error && /stock|cantidad|disponible|quantity/i.test(error)) {
+      setAddError({
+        text: "No hay unidades suficientes en la página para esa cantidad ahora mismo. Para pedir más unidades, contacta por ",
+        contact: true,
+      });
+      return;
+    }
+    setAddError({ text: "No se pudo añadir al carrito. Inténtalo de nuevo o contacta por ", contact: true });
+  };
+
   const handleAdd = () => {
     if (adding || outOfStockForB2B) return;
-    setAdding(true);
     setAddError(null);
+    setAdded(null);
+    setStoreLink(null);
 
     // Nunca se debería llegar aquí con qty > stock (el selector ya lo acota),
-    // pero se vuelve a acotar aquí por si product.stock cambió tras el
-    // primer render — safeQty es lo único que se usa a partir de este punto,
-    // nunca el estado qty directamente (evita usar un valor stale).
+    // pero se vuelve a acotar por si product.stock cambió tras el primer
+    // render: safeQty es lo único que se usa a partir de aquí.
     const safeQty = maxQty !== undefined ? Math.min(qty, maxQty) : qty;
     if (safeQty !== qty) setQty(safeQty);
 
-    if (!detectIframe()) {
-      addViaApi(safeQty);
+    if (!inStore) {
+      // Fuera de la tienda no hay sesión del cliente a la que añadir: se abre
+      // la ficha del producto en la tienda y widget.js (instalado allí) lo
+      // añade y lleva al carrito. Sin widget, el cliente queda en la ficha,
+      // con su botón de añadir, nunca en un carrito vacío.
+      const url = productStoreUrl(safeQty);
+      const tab = window.open(url, "_blank");
+      if (!tab) setStoreLink(url);
       return;
     }
 
-    const addchatUrl =
-      `${psBase}/addchat.php` +
-      `?id_product=${encodeURIComponent(product.id)}` +
-      `&id_product_attribute=${encodeURIComponent(product.idProductAttribute ?? 0)}` +
-      `&qty=${encodeURIComponent(safeQty)}`;
+    setAdding(true);
+    const requestId = `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    let done = false;
 
-    const popup = window.open(addchatUrl, "_blank");
-
-    if (!popup) {
-      // Popup bloqueado por el navegador: mejor esfuerzo vía Webservice API.
-      addViaApi(safeQty);
-      return;
-    }
-
-    const goToCart = () => {
-      try {
-        if (!popup.closed) popup.location.href = cartPage;
-        else window.open(cartPage, "_blank");
-      } catch {
-        window.open(cartPage, "_blank");
-      }
+    const finish = () => {
+      done = true;
+      window.removeEventListener("message", onResult);
+      clearTimeout(timer);
       setAdding(false);
     };
 
-    fetch(addchatUrl, { mode: "no-cors", cache: "no-store" })
-      .then(goToCart)
-      .catch(() => setTimeout(goToCart, 600));
+    function onResult(ev: MessageEvent) {
+      const d = ev.data || {};
+      if (d.type !== "esgas-cart-result" || d.requestId !== requestId || done) return;
+      finish();
+      if (d.ok) setAdded({ qty: Number(d.qty) || safeQty, cartUrl: d.cartUrl || cartPage });
+      else showStoreError(typeof d.error === "string" ? d.error : null, !!d.needsLogin);
+    }
+
+    const timer = setTimeout(() => {
+      if (done) return;
+      finish();
+      // La tienda no contestó (página sin el widget actualizado): se deja el
+      // enlace a la ficha para terminar allí, sin prometer nada.
+      setStoreLink(productStoreUrl(safeQty));
+    }, 15000);
+
+    window.addEventListener("message", onResult);
+    window.parent.postMessage(
+      {
+        type: "esgas-add-to-cart",
+        requestId,
+        items: [{
+          id_product: Number(product.id),
+          id_product_attribute: product.idProductAttribute ?? 0,
+          qty: safeQty,
+          name: product.name,
+        }],
+      },
+      new URL(psBase).origin
+    );
   };
 
   return (
@@ -328,6 +333,34 @@ export default function ProductCard({
           Ver ficha →
         </a>
       </div>
+
+      {added && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs font-semibold text-green-700">
+          ✓ {added.qty === 1 ? "Añadida 1 ud." : `Añadidas ${added.qty} uds.`} a tu carrito
+          <a
+            href={added.cartUrl}
+            target="_top"
+            className="font-bold underline underline-offset-2"
+            style={{ color: primaryColor }}
+          >
+            Ir al carrito →
+          </a>
+        </p>
+      )}
+
+      {storeLink && (
+        <p className="mt-1.5 text-xs text-gray-600">
+          <a
+            href={storeLink}
+            target="_blank"
+            rel="noopener"
+            className="font-bold underline underline-offset-2"
+            style={{ color: primaryColor }}
+          >
+            Abrir en la tienda para añadirlo al carrito →
+          </a>
+        </p>
+      )}
 
       {addError && (
         <p className="mt-1.5 text-xs text-red-600">

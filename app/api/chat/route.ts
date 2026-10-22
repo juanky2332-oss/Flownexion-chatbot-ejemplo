@@ -4,7 +4,7 @@ import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
 import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
 import { isPromptExtractionAttempt, IDENTITY_DEFLECTION } from "@/lib/guardrails";
-import { extraerFichas } from "@/lib/ficha";
+import { fichasParaPdf } from "@/lib/ficha";
 import type { ChatRequest, Message, CartItem } from "@/lib/types";
 
 const MAX_MESSAGE_LENGTH = 1500;
@@ -136,16 +136,17 @@ export async function POST(req: NextRequest) {
       );
     });
 
-    const { output, products, needsHuman, humanContext } = await Promise.race([
+    const { output, products, needsHuman, humanContext, tecnicas } = await Promise.race([
       runAgent(message, history, cart, customerGroupId, customerId),
       porTiempo,
     ]).finally(() => {
       if (temporizador) clearTimeout(temporizador);
     });
 
-    // Ficha técnica descargable en PDF: solo si la respuesta trae de verdad
-    // la información técnica completa de algún producto (ver lib/ficha.ts).
-    const fichas = extraerFichas(output);
+    // Ficha técnica descargable en PDF: la que trae la respuesta y, si el bot
+    // no respetó el formato, la ficha verificada del KB de cada referencia que
+    // consultó y nombra (ver fichasParaPdf en lib/ficha.ts).
+    const fichas = fichasParaPdf(output, tecnicas ?? []);
 
     return NextResponse.json(
       { output, products, needsHuman, humanContext, ...(fichas.length ? { fichas } : {}) },

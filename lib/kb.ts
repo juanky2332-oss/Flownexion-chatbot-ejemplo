@@ -437,12 +437,80 @@ export interface TechInfo {
   aviso?: string;
 }
 
+// ── Saneado de la ficha (auditoría del 22-10-2026, npm run audit:fichas) ────
+// El Excel del cliente trae errores que el bot repetía con total seguridad y
+// que acababan también en el PDF. No se tocan los datos de origen (son del
+// cliente y se regeneran con build:kb): se corrigen al leerlos.
+//  - 665 soportes con el eje y el diámetro exterior INTERCAMBIADOS (ESC201:
+//    "dØ40 × DØ12", cuando es un cartucho para eje de 12 con rodamiento de
+//    40). En un soporte el diámetro pequeño es siempre el del eje.
+//  - Rodamientos con dØ ≥ DØ (copas cónicas en pulgadas, jaulas de agujas,
+//    arandelas axiales, alguna Topline): imposible; no se dan esos diámetros.
+//  - Pesos a 0 y pesos físicamente imposibles (más que un anillo macizo de
+//    acero de esas medidas, p.ej. 6001FT150ZZ: 210 g para 12×28×8).
+// Lo que se quita va en "aviso" para el modelo (no en la ficha ni en el PDF):
+// así no lo inventa ni lo da por bueno, y puede confirmarlo por fuente oficial.
+const CAMPOS_FISICOS = ["di", "de", "an", "peso", "cest", "cdin", "vref", "vlim"];
+
+function sanearCampos(row: TechEntry): { campos: Record<string, string | number>; avisos: string[] } {
+  const c: Record<string, string | number> = { ...row.campos };
+  const avisos: string[] = [];
+  const n = (k: string): number | null => {
+    const v = c[k];
+    if (v === undefined || v === null || v === "") return null;
+    const x = typeof v === "number" ? v : Number(String(v).replace(",", "."));
+    return Number.isFinite(x) ? x : null;
+  };
+
+  for (const k of CAMPOS_FISICOS) {
+    const v = n(k);
+    if (v !== null && v <= 0) delete c[k];
+  }
+
+  const esSoporte = /soporte/i.test(`${c.clase ?? ""} ${c.clase2 ?? ""}`) || c.aloj !== undefined;
+  let di = n("di"), de = n("de");
+  if (di !== null && de !== null && di >= de) {
+    if (esSoporte) {
+      c.di = de;
+      c.de = di;
+      [di, de] = [de, di];
+    } else {
+      delete c.di;
+      delete c.de;
+      di = de = null;
+      avisos.push(
+        "Los diámetros interior/exterior de esta referencia en la base de datos son incoherentes y se han omitido: " +
+        "no los des de memoria; confírmalos con search_official_source o las TABLAS DIMENSIONALES, o indica que se confirman por contacto."
+      );
+    }
+  }
+
+  const an = n("an"), peso = n("peso");
+  if (!esSoporte && di !== null && de !== null && an !== null && peso !== null) {
+    // Cota superior física: un anillo MACIZO de acero (7,85 g/cm³) de esas
+    // medidas, con un 15 % de margen. Un rodamiento real pesa bastante menos.
+    const maxG = ((Math.PI / 4) * (de ** 2 - di ** 2) * an / 1000) * 7.85 * 1.15;
+    if (peso > maxG && peso > 5) {
+      delete c.peso;
+      avisos.push("El peso de esta referencia en la base de datos es incoherente con sus medidas y se ha omitido: no lo des.");
+    }
+  }
+  return { campos: c, avisos };
+}
+
 function labelTech(row: TechEntry): TechInfo {
+  const { campos, avisos } = sanearCampos(row);
   const datos: Record<string, string | number> = {};
-  for (const [k, v] of Object.entries(row.campos)) {
+  for (const [k, v] of Object.entries(campos)) {
     datos[TECH_LABELS[k] ?? k] = v;
   }
-  return { marca: row.marca, referencia: row.ref, ean: row.ean, datos };
+  return {
+    marca: row.marca,
+    referencia: row.ref,
+    ean: row.ean,
+    datos,
+    ...(avisos.length ? { aviso: avisos.join(" ") } : {}),
+  };
 }
 
 /**
@@ -744,7 +812,7 @@ function loadBelts(): BeltEntry[] {
         perfilTokens: perfil.split(/[/\s]+/).map((t) => norm(t)).filter(Boolean),
         gama,
         estado,
-        li,
+        li: liSaneada(li, ld, codigo),
         ld,
       });
     }
@@ -752,12 +820,29 @@ function loadBelts(): BeltEntry[] {
   return _belts;
 }
 
+/**
+ * La Li parseada de la descripción del fabricante, salvo errata evidente.
+ * Auditoría 22-10-2026: "C 91.5 222x 324Li 2383Ld" (le sobra un 2 al ancho y
+ * le falta a la Li) daba Li 324 mm para una correa de 2383 de Ld. La Ld supera
+ * a la Li en unas decenas de mm; si no, se recupera del código ("22.0X2324")
+ * o se omite: mejor no dar el dato que darlo mal.
+ */
+function liSaneada(li: number | null, ld: number | null, codigo: string | undefined): number | null {
+  if (li === null || ld === null) return li;
+  const plausible = (x: number) => ld > x && ld - x <= 150;
+  if (plausible(li)) return li;
+  const m = /X(\d{3,5})$/i.exec(String(codigo ?? "").trim());
+  const delCodigo = m ? Number(m[1]) : NaN;
+  return Number.isFinite(delCodigo) && plausible(delCodigo) ? delCodigo : null;
+}
+
 export interface BeltInfo {
   nombre: string;
   tipo: string;
   perfil: string;
   descripcion: string;
-  peso_g: number;
+  /** Se omite si el fabricante no lo da (1.606 correas vienen con peso 0). */
+  peso_g?: number;
   disponibilidad_fabricante: string;
   longitud_interior_Li_mm?: number;
   longitud_primitiva_Ld_mm?: number;
@@ -769,9 +854,9 @@ function labelBelt(b: BeltEntry): BeltInfo {
     tipo: b.gama,
     perfil: b.perfil,
     descripcion: b.descripcion,
-    peso_g: Math.round(b.pesoKg * 1000),
     disponibilidad_fabricante: b.estado,
   };
+  if (b.pesoKg > 0) out.peso_g = Math.round(b.pesoKg * 1000);
   if (b.li !== null) out.longitud_interior_Li_mm = b.li;
   if (b.ld !== null) out.longitud_primitiva_Ld_mm = b.ld;
   return out;
@@ -1301,7 +1386,7 @@ export function asegurarDatosCorrea(texto: string, conti: BeltInfo[], tl: TlBelt
       b.longitud_interior_Li_mm !== undefined ? `Li ${b.longitud_interior_Li_mm} mm` : "",
       b.longitud_primitiva_Ld_mm !== undefined ? `Ld ${b.longitud_primitiva_Ld_mm} mm` : "",
     ].filter(Boolean).join(" · ");
-    lineas.push(`- **${b.nombre}** (Continental, ${b.tipo}, perfil ${b.perfil})${lon ? `: ${lon}` : ""}, ${b.peso_g} g`);
+    lineas.push(`- **${b.nombre}** (Continental, ${b.tipo}, perfil ${b.perfil})${lon ? `: ${lon}` : ""}${b.peso_g ? `, ${b.peso_g} g` : ""}`);
   }
   for (const b of tl.slice(0, 3)) {
     const d = Object.entries(b.datos).map(([k, v]) => `${k.replace(/\s*\((mm|pulgadas)\)/, "")}: ${v}${/\(mm\)/.test(k) ? " mm" : ""}`).join(" · ");

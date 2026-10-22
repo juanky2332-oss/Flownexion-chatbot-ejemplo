@@ -5,6 +5,7 @@ import type {
   ChatCompletionTool,
 } from "openai/resources/chat/completions";
 import type { Message, Product, CartItem } from "./types";
+import type { TechInfo } from "./kb";
 import { searchProducts, searchByBore, getStock } from "./prestashop";
 import {
   findEquivalence,
@@ -914,7 +915,8 @@ async function runTool(
   collected: Product[],
   escalation: EscalationState,
   groupId?: number,
-  idCustomer?: number
+  idCustomer?: number,
+  tecnicas: TechInfo[] = []
 ): Promise<string> {
   if (name === "find_equivalence") {
     const results = findEquivalence(String(args?.query ?? ""));
@@ -926,6 +928,7 @@ async function runTool(
   }
   if (name === "get_technical_info") {
     const results = findTechnicalInfo(String(args?.query ?? ""));
+    tecnicas.push(...results);
     return JSON.stringify(results);
   }
   if (name === "explain_technical_term") {
@@ -940,6 +943,10 @@ async function runTool(
     const refs = Array.isArray(args?.refs)
       ? (args.refs as unknown[]).map((r) => String(r ?? ""))
       : [String(args?.refs ?? "")];
+    for (const r of refs.slice(0, 4)) {
+      const hit = findTechnicalInfo(r)[0];
+      if (hit) tecnicas.push(hit);
+    }
     return JSON.stringify(compararTecnico(refs));
   }
   if (name === "search_official_source") {
@@ -1018,6 +1025,8 @@ type AgentResult = {
   products: Product[];
   needsHuman?: boolean;
   humanContext?: string;
+  /** Fichas verificadas del KB consultadas en esta respuesta (red de seguridad del PDF, ver lib/ficha.ts). */
+  tecnicas?: TechInfo[];
 };
 
 /**
@@ -1047,6 +1056,7 @@ export async function runAgent(
   const openai = new OpenAI({ apiKey });
   const collected: Product[] = [];
   const escalation: EscalationState = { needsHuman: false };
+  const tecnicas: TechInfo[] = [];
   const groupId = customerGroupId;
 
   const messages: ChatCompletionMessageParam[] = [
@@ -1295,7 +1305,9 @@ export async function runAgent(
   // Pregunta de seguimiento sin referencia ("¿y cuánto pesa?"): la ficha del
   // producto de la conversación, resuelta en código (ver fichasDeConversacion).
   if (!pideOtraMedida(message) && esPreguntaTecnicaSinRef(message)) {
-    const bloque = bloqueFichaConversacion(fichasDeConversacion(history));
+    const deLaConversacion = fichasDeConversacion(history);
+    tecnicas.push(...deLaConversacion);
+    const bloque = bloqueFichaConversacion(deLaConversacion);
     if (bloque) messages.push({ role: "system", content: bloque });
   }
 
@@ -1354,6 +1366,7 @@ export async function runAgent(
         products: productos,
         needsHuman: escalation.needsHuman,
         humanContext: escalation.context,
+        tecnicas,
       };
     }
 
@@ -1367,7 +1380,7 @@ export async function runAgent(
       }
       let result: string;
       try {
-        result = await runTool(call.function.name, parsedArgs, collected, escalation, groupId, customerId);
+        result = await runTool(call.function.name, parsedArgs, collected, escalation, groupId, customerId, tecnicas);
       } catch (err) {
         result = JSON.stringify({
           error: err instanceof Error ? err.message : "Error en la herramienta",
@@ -1428,5 +1441,6 @@ export async function runAgent(
     products: ajustado.productos,
     needsHuman: escalation.needsHuman,
     humanContext: escalation.context,
+    tecnicas,
   };
 }
