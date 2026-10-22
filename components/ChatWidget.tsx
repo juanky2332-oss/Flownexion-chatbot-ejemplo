@@ -227,7 +227,7 @@ export default function ChatWidget({
                 <span className={`inline-block h-2 w-2 rounded-full ${
                   isLocked      ? "bg-red-400"
                   : isIdentified  ? "bg-green-400"
-                  : tokenChecked  ? "bg-yellow-300"
+                  : tokenChecked  ? "bg-green-400"
                   : "animate-pulse bg-yellow-400"
                 }`} />
                 {isLocked
@@ -237,7 +237,7 @@ export default function ChatWidget({
                     : customerId
                       ? <span>Cliente B2B</span>
                       : tokenChecked
-                        ? <span>Demo</span>
+                        ? <span>En línea</span>
                         : <span>Identificando…</span>
                 }
               </div>

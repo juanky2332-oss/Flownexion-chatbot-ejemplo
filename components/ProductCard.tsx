@@ -103,10 +103,12 @@ export default function ProductCard({
     }
   })();
 
-  const productStoreUrl = (qtyToAdd: number) => {
-    const base = product.link || `${psBase}/index.php?controller=product&id_product=${encodeURIComponent(product.id)}`;
-    return `${base.split("#")[0]}#esgas-add=${encodeURIComponent(product.id)}-${encodeURIComponent(product.idProductAttribute ?? 0)}-${qtyToAdd}`;
-  };
+  // addchat.php ya instalado en la tienda: añade al carrito de la sesión.
+  const addchatUrl = (qtyToAdd: number) =>
+    `${psBase}/addchat.php` +
+    `?id_product=${encodeURIComponent(product.id)}` +
+    `&id_product_attribute=${encodeURIComponent(product.idProductAttribute ?? 0)}` +
+    `&qty=${encodeURIComponent(qtyToAdd)}`;
 
   const showStoreError = (error: string | null, needsLogin: boolean) => {
     if (needsLogin) {
@@ -136,13 +138,33 @@ export default function ProductCard({
     if (safeQty !== qty) setQty(safeQty);
 
     if (!inStore) {
-      // Fuera de la tienda no hay sesión del cliente a la que añadir: se abre
-      // la ficha del producto en la tienda y widget.js (instalado allí) lo
-      // añade y lleva al carrito. Sin widget, el cliente queda en la ficha,
-      // con su botón de añadir, nunca en un carrito vacío.
-      const url = productStoreUrl(safeQty);
+      // Fuera de la tienda (web del chat): se abre el addchat.php que ESGAS ya
+      // tiene instalado como PESTAÑA de la tienda. Al ser una navegación de
+      // primer nivel, el navegador manda la sesión del cliente en b2b.esgas.es
+      // y las unidades entran en SU carrito. Comprobado con sesión real el
+      // 22-10-2026: {"ok":true} y el carrito con las unidades. (Funciona
+      // porque al iniciar sesión PrestaShop ya deja guardado un carrito, que
+      // es lo único que ese addchat.php necesita.)
+      // addchat.php responde con un JSON; la pestaña se lleva al carrito en
+      // cuanto ha tenido tiempo de procesarlo. Aunque la navegación llegara a
+      // cortar la espera, el producto ya está añadido: PHP lo guarda antes de
+      // escribir la respuesta.
+      const url = addchatUrl(safeQty);
       const tab = window.open(url, "_blank");
-      if (!tab) setStoreLink(url);
+      if (!tab) {
+        setStoreLink(url);
+        return;
+      }
+      setAdding(true);
+      setTimeout(() => {
+        try {
+          if (!tab.closed) tab.location.href = cartPage;
+        } catch {
+          /* pestaña cerrada */
+        }
+        setAdding(false);
+        setAdded({ qty: safeQty, cartUrl: cartPage });
+      }, 2500);
       return;
     }
 
@@ -170,7 +192,7 @@ export default function ProductCard({
       finish();
       // La tienda no contestó (página sin el widget actualizado): se deja el
       // enlace a la ficha para terminar allí, sin prometer nada.
-      setStoreLink(productStoreUrl(safeQty));
+      setStoreLink(addchatUrl(safeQty));
     }, 15000);
 
     window.addEventListener("message", onResult);
@@ -357,7 +379,7 @@ export default function ProductCard({
             className="font-bold underline underline-offset-2"
             style={{ color: primaryColor }}
           >
-            Abrir en la tienda para añadirlo al carrito →
+            Pulsa aquí para añadirlo al carrito →
           </a>
         </p>
       )}
