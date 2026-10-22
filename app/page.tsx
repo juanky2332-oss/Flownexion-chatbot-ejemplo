@@ -16,7 +16,7 @@ export default function Home() {
           </span>
         </div>
         <a
-          href="https://esgas.nodoflow.com"
+          href="https://b2b.esgas.es"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-full px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"

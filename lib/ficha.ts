@@ -215,15 +215,38 @@ const MAX_FICHAS_KB = 4;
 
 const normRef = (s: string) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-/** ¿Nombra el texto esta referencia, como pieza entera (no dentro de otra más larga)? */
-export function textoNombraRef(texto: string, referencia: string): boolean {
+/**
+ * ¿Nombra el texto esta referencia, como pieza entera (no dentro de otra más
+ * larga)? Con marca, además exige que la marca vaya justo delante: visto en
+ * producción, "TL 6205 2RS" colaba la ficha del "SNR 6205" (el 6205 suelto
+ * está en el texto, pero es otra pieza).
+ */
+export function textoNombraRef(texto: string, referencia: string, marca?: string): boolean {
   const ref = normRef(referencia);
   if (ref.length < 3) return false;
   // ref ya solo tiene [A-Z0-9]: no hay nada que escapar. Entre carácter y
   // carácter se admite el separador con que lo escribe el bot ("6205 ZZ C3").
   const patron = ref.split("").join("[\\s\\-/.]*");
-  return new RegExp(`(^|[^A-Z0-9])${patron}($|[^A-Z0-9])`, "i").test(String(texto ?? "").toUpperCase());
+  const t = String(texto ?? "").toUpperCase();
+  // "SNR 6205", "**SNR 6205**", "el SNR 6305": con marca, tiene que ir justo
+  // delante de la referencia.
+  const m = marca ? normRef(marca.replace(/\(.*\)/, "")) : "";
+  if (marca && !m) return false;
+  const delante = m ? `${m}[\\s*]{1,4}` : "";
+  const re = new RegExp(`(^|[^A-Z0-9])${delante}${patron}(?=$|[^A-Z0-9])`, "gi");
+  for (let hit = re.exec(t); hit; hit = re.exec(t)) {
+    // Y que detrás no siga un sufijo: "6205 2RS" o "6205 ZZ" son otra pieza.
+    const siguiente = /^[\s*]*([A-Z0-9]+)/.exec(t.slice(hit.index + hit[0].length))?.[1] ?? "";
+    if (!SUFIJO_SUELTO.test(siguiente)) return true;
+  }
+  return false;
 }
+
+// Sufijos de rodamiento que el bot escribe separados de la base ("6205 2RS",
+// "6205 ZZ C3", "6305 LLU"). Lista cerrada a propósito: una palabra cualquiera
+// detrás ("6205 ES", "6205 TIENE") no debe tomarse por sufijo.
+const SUFIJO_SUELTO =
+  /^(2RS\w*|2RZ|2Z\w*|ZZ\w*|Z|LL[UBHJ]\w*|L[UBH]|C[2-5]|CM|EE|E|RS\w*|RZ|NR|N|K|TVH|TN9|J|M|P[0-6]|DDU|VV|AGR|W33|G15|SH|ZNR|L3|L4)$/;
 
 function valorPlano(v: string | number): string {
   return typeof v === "number" ? String(v).replace(".", ",") : String(v).trim();
@@ -275,7 +298,7 @@ export function fichasParaPdf(texto: string, consultadas: FichaKb[]): FichaTecni
     vistas.add(clave);
     const ref = normRef(kb.referencia);
     if (cubiertas.has(ref) || yaTitulos.some((t) => t.endsWith(ref))) continue;
-    if (!textoNombraRef(texto, kb.referencia)) continue;
+    if (!textoNombraRef(texto, kb.referencia, kb.marca)) continue;
     const f = fichaDesdeKb(kb);
     if (f.datos.length < MIN_DATOS) continue;
     extra.push(f);

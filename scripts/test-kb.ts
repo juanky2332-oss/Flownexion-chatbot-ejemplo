@@ -767,6 +767,15 @@ section("FICHA TECNICA EN PDF — se extrae de respuestas REALES del bot");
   const comp = fichasParaPdf("Diferencias entre el SNR 6205 y el SNR 6305: el 6305 es más grande.", [...findTechnicalInfo("6205").slice(0, 1), ...findTechnicalInfo("6305").slice(0, 1)]);
   ok(comp.length === 2, "comparativa en prosa -> dos fichas -> boton de comparativa PDF", comp.map((f) => f.titulo).join(" | "));
 
+  // Visto en produccion: la respuesta del TL 6205 2RS colaba el PDF del SNR 6205.
+  const tl2rs = "**RODAMIENTO TL 6205 2RS**\n\n**Ref: 3362052RSTL**\n- 62 → serie\n\n**Información técnica completa:**\n- **Peso:** 125 g\n- **Tolerancia:** CN\n- **Junta:** 2RS\n";
+  const pdfTl = fichasParaPdf(tl2rs, kb6205);
+  ok(pdfTl.length === 1 && /TL 6205 2RS/.test(pdfTl[0].titulo), "TL 6205 2RS no arrastra la ficha del SNR 6205", pdfTl.map((f) => f.titulo).join(" | "));
+  ok(!textoNombraRef("el TL 6205 2RS", "6205", "SNR"), "sin la marca delante no cuenta");
+  ok(textoNombraRef("el **SNR 6205** es", "6205", "SNR"), "SNR 6205 en negrita cuenta");
+  ok(!textoNombraRef("el SNR 6205 ZZ", "6205", "SNR"), "SNR 6205 ZZ no es el SNR 6205");
+  ok(textoNombraRef("el SNR 6205 tiene 25 mm", "6205", "SNR"), "una palabra normal detras no es sufijo");
+
   // Saneado de datos del Excel del cliente (auditoria 22-10-2026).
   const esc = findTechnicalInfo("ESC201")[0];
   ok(esc?.datos["Diámetro interior dØ (mm)"] === 12 && esc?.datos["Diámetro exterior DØ (mm)"] === 40,
