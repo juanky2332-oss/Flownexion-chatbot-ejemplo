@@ -228,19 +228,24 @@ export function textoNombraRef(texto: string, referencia: string, marca?: string
   // carácter se admite el separador con que lo escribe el bot ("6205 ZZ C3").
   const patron = ref.split("").join("[\\s\\-/.]*");
   const t = String(texto ?? "").toUpperCase();
-  // "SNR 6205", "**SNR 6205**", "el SNR 6305": con marca, tiene que ir justo
-  // delante de la referencia.
+  // Con marca: "SNR 6205" o "el 6205" a secas valen; "TL 6205" no es la
+  // ficha del SNR 6205 (otra marca justo delante).
   const m = marca ? normRef(marca.replace(/\(.*\)/, "")) : "";
-  if (marca && !m) return false;
-  const delante = m ? `${m}[\\s*]{1,4}` : "";
-  const re = new RegExp(`(^|[^A-Z0-9])${delante}${patron}(?=$|[^A-Z0-9])`, "gi");
+  const re = new RegExp(`(^|[^A-Z0-9])${patron}(?=$|[^A-Z0-9])`, "gi");
   for (let hit = re.exec(t); hit; hit = re.exec(t)) {
-    // Y que detrás no siga un sufijo: "6205 2RS" o "6205 ZZ" son otra pieza.
+    // Detrás no puede seguir un sufijo: "6205 2RS" o "6205 ZZ" son otra pieza.
     const siguiente = /^[\s*]*([A-Z0-9]+)/.exec(t.slice(hit.index + hit[0].length))?.[1] ?? "";
-    if (!SUFIJO_SUELTO.test(siguiente)) return true;
+    if (SUFIJO_SUELTO.test(siguiente)) continue;
+    if (m) {
+      const anterior = /([A-Z0-9]+)[\s*]*$/.exec(t.slice(0, hit.index + hit[1].length))?.[1] ?? "";
+      if (MARCAS.test(anterior) && anterior !== m) continue;
+    }
+    return true;
   }
   return false;
 }
+
+const MARCAS = /^(NTN|SNR|TL|SKF|FAG|INA|NSK|KOYO|TIMKEN|NACHI|ZKL|FBJ|CONTINENTAL)$/;
 
 // Sufijos de rodamiento que el bot escribe separados de la base ("6205 2RS",
 // "6205 ZZ C3", "6305 LLU"). Lista cerrada a propósito: una palabra cualquiera
