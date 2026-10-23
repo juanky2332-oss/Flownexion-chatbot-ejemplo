@@ -435,6 +435,14 @@ export interface TechInfo {
   datos: Record<string, string | number>;
   /** Advertencia para el modelo (no es un dato de la ficha ni va al PDF). */
   aviso?: string;
+  /**
+   * Cómo casa con lo pedido: "exacta" (misma referencia), "equivalente"
+   * (misma pieza con la nomenclatura de NTN/SNR: 2RS → EE/LLU, 2Z → ZZ) o
+   * "base" (solo la referencia base, sin los sufijos pedidos: NO es la pieza).
+   */
+  coincidencia?: "exacta" | "equivalente" | "variante" | "base";
+  /** Lo que se pidió, cuando la ficha es de una equivalente o de la base. */
+  pedida?: string;
 }
 
 // ── Saneado de la ficha (auditoría del 22-10-2026, npm run audit:fichas) ────
@@ -521,25 +529,92 @@ function labelTech(row: TechEntry): TechInfo {
  * Exacta primero; si no hay, por prefijo (el cliente suele omitir sufijos:
  * "6205" debe encontrar 6205ZZ, 6205LLU...) acotada para no inundar.
  */
+// Mismo sellado con otra nomenclatura. NTN/SNR llaman EE (SNR) o LLU (NTN) a
+// la junta de goma con contacto que otras marcas llaman 2RS/2RS1/DDU, y ZZ a
+// los deflectores 2Z/2ZR. Sin esto, "6201 2RS" no encontraba su ficha y caía a
+// la del 6201 ABIERTO, con su velocidad límite (38.000 rpm) y su peso, que no
+// son los de un rodamiento sellado (visto en producción el 23-10-2026).
+const SINONIMOS_SELLADO: [RegExp, string[]][] = [
+  [/(2RS1|2RSR|2RSH|2RS|DDU|LLU|EE)(?=(C\d|CM|NR)?$)/, ["EE", "LLU"]],
+  [/(2ZR|2Z|ZZ)(?=(C\d|CM|NR)?$)/, ["ZZ"]],
+];
+function variantesSellado(c: string): string[] {
+  const out: string[] = [];
+  for (const [re, alts] of SINONIMOS_SELLADO) {
+    if (!re.test(c)) continue;
+    for (const a of alts) {
+      const v = c.replace(re, a);
+      if (v !== c && !out.includes(v)) out.push(v);
+    }
+  }
+  return out;
+}
+
+// Campos que dependen del sufijo (sellado, juego): con la ficha de la
+// referencia BASE no se pueden dar como si fueran de la pedida.
+const CAMPOS_DEL_SUFIJO = ["vlim", "vref", "peso", "junta", "juntadesc", "tol", "toldesc"];
+
 export function findTechnicalInfo(query: string): TechInfo[] {
-  const candidates = extractQueryCandidates(query);
+  // Códigos internos de TL en la página ("3362012RSTL" = TL 6201 2RS).
+  const q = String(query ?? "").replace(/\b33(\d{3,5}[A-Z0-9]*?)TL\b/gi, "$1");
+  const candidates = extractQueryCandidates(q);
   if (!candidates.length) return [];
   // Soportes TL (catálogo Translink): van detrás de los NTN/SNR, que son la
   // marca principal; en "UCP205" salen las dos fichas.
   const tl = findTlSoporte(candidates);
   const data = loadTech();
+  const pedida = candidates[0];
 
-  for (const c of candidates) {
+  // 1) La referencia tal cual, y la misma pieza con la nomenclatura NTN/SNR.
+  for (const [c, coincidencia] of [[pedida, "exacta"], ...variantesSellado(pedida).map((v) => [v, "equivalente"])] as [string, "exacta" | "equivalente"][]) {
     const exact = data.filter((r) => r.refNorm === c);
-    if (exact.length) return [...exact.slice(0, 4).map(labelTech), ...tl];
+    if (exact.length) {
+      return [
+        ...exact.slice(0, 4).map((r) => ({ ...labelTech(r), coincidencia, ...(coincidencia === "equivalente" ? { pedida } : {}) })),
+        ...tl,
+      ];
+    }
+  }
+  // 2) Candidatos menos específicos (frases con varias referencias, o la
+  //    referencia base sin sufijos).
+  for (const c of candidates.slice(1)) {
+    for (const v of [c, ...variantesSellado(c)]) {
+      const exact = data.filter((r) => r.refNorm === v);
+      if (!exact.length) continue;
+      // Es la BASE de lo pedido (le faltan sufijos): no es la misma pieza.
+      if (pedida.startsWith(c) && pedida.length > c.length && /^\d/.test(pedida.slice(c.length)) === false) {
+        const faltan = pedida.slice(c.length);
+        return [...exact.slice(0, 2).map((r) => fichaBase(r, pedida, faltan)), ...tl];
+      }
+      return [...exact.slice(0, 4).map((r) => ({ ...labelTech(r), coincidencia: "exacta" as const })), ...tl];
+    }
   }
   if (tl.length) return tl;
   for (const c of candidates) {
     if (c.length < 4) continue;
     const pref = data.filter((r) => r.refNorm.startsWith(c));
-    if (pref.length) return pref.slice(0, 5).map(labelTech);
+    // La referencia del KB lleva MÁS sufijos que lo pedido ("3309" → 3309A):
+    // es una variante concreta de lo que se pidió, con sus datos completos.
+    if (pref.length) return pref.slice(0, 5).map((r) => ({ ...labelTech(r), coincidencia: r.refNorm === c ? ("exacta" as const) : ("variante" as const), pedida }));
   }
   return [];
+}
+
+/** Ficha de una referencia que NO es exactamente la pedida: sin los datos que dependen del sufijo. */
+function fichaBase(row: TechEntry, pedida: string, faltan: string): TechInfo {
+  const campos = { ...row.campos };
+  for (const k of CAMPOS_DEL_SUFIJO) delete campos[k];
+  const info = labelTech({ ...row, campos });
+  return {
+    ...info,
+    coincidencia: "base",
+    pedida,
+    aviso:
+      `${info.aviso ? info.aviso + " " : ""}ATENCIÓN: esta ficha es la del ${row.marca} ${row.ref}, NO la de ${pedida}` +
+      `${faltan ? ` (le falta${faltan.length > 2 ? "n" : ""} ${faltan})` : ""}. Solo valen sus medidas y capacidades de carga, ` +
+      `que fija la referencia base; la velocidad, el peso, la junta y el juego se han quitado porque cambian con el sufijo. ` +
+      `No presentes esta ficha como la de ${pedida}.`,
+  };
 }
 
 // ── Soportes TRANSLINK (TL) ─────────────────────────────────────────────────

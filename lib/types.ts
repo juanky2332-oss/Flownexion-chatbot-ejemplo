@@ -106,4 +106,6 @@ export interface ChatResponse {
   humanContext?: string;
   /** Fichas técnicas que contiene la respuesta, para el botón "Descargar en formato PDF". */
   fichas?: FichaTecnica[];
+  /** El cliente pidió comparar: además de cada ficha, el PDF comparativo. */
+  comparar?: boolean;
 }

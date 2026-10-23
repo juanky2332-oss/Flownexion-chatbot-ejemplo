@@ -209,6 +209,23 @@ export interface FichaKb {
   marca: string;
   referencia: string;
   datos: Record<string, string | number>;
+  /** Ver TechInfo.coincidencia: "base" NO es la pieza pedida y no va al PDF. */
+  coincidencia?: "exacta" | "equivalente" | "variante" | "base";
+  /** Referencia que se pidió cuando la ficha es de su equivalente NTN/SNR. */
+  pedida?: string;
+}
+
+/**
+ * ¿Ha pedido el cliente una comparación? Solo entonces sale el PDF
+ * comparativo: si pide UN rodamiento, se le da la ficha de ese y punto.
+ * Cuenta pedirlo con palabras ("compáralo", "diferencias", "cuál es mejor",
+ * "frente a", "vs") o nombrar dos referencias distintas en el mismo mensaje.
+ */
+export function pideComparar(mensaje: string, referenciasEnMensaje: string[] = []): boolean {
+  const m = String(mensaje ?? "");
+  if (/\b(compar\w*|diferencia\w*|diferencian|frente\s+a|vs\.?|versus|cu[aá]l\s+(es\s+)?mejor|en\s+qu[eé]\s+se\s+diferencian)\b/i.test(m)) return true;
+  const bases = new Set(referenciasEnMensaje.map((r) => String(r).toUpperCase().replace(/[^A-Z0-9]/g, "")).filter((r) => r.length >= 3));
+  return bases.size >= 2;
 }
 
 const MAX_FICHAS_KB = 4;
@@ -290,7 +307,7 @@ export function fichaDesdeKb(kb: FichaKb): FichaTecnica {
  * cada referencia con ficha verificada que el texto nombra y que no salió ya
  * del texto, la ficha del KB.
  */
-export function fichasParaPdf(texto: string, consultadas: FichaKb[]): FichaTecnica[] {
+export function fichasParaPdf(texto: string, consultadas: FichaKb[], comparando = false): FichaTecnica[] {
   const delTexto = extraerFichas(texto);
   const cubiertas = new Set(delTexto.map((f) => normRef(f.referencia || f.titulo)));
   const yaTitulos = delTexto.map((f) => normRef(f.titulo));
@@ -298,13 +315,28 @@ export function fichasParaPdf(texto: string, consultadas: FichaKb[]): FichaTecni
   const vistas = new Set<string>();
   for (const kb of consultadas ?? []) {
     if (!kb || !kb.referencia || !kb.datos) continue;
+    // La ficha de la referencia BASE no es la de la pieza pedida (le faltan
+    // sufijos): nunca va a un PDF con el nombre de lo que se pidió.
+    if (kb.coincidencia === "base") continue;
     const clave = normRef(`${kb.marca}${kb.referencia}`);
     if (vistas.has(clave)) continue;
     vistas.add(clave);
     const ref = normRef(kb.referencia);
+    const pedida = kb.pedida ? normRef(kb.pedida) : "";
     if (cubiertas.has(ref) || yaTitulos.some((t) => t.endsWith(ref))) continue;
-    if (!textoNombraRef(texto, kb.referencia, kb.marca)) continue;
+    // La referencia BASE de una pieza cuya ficha ya trae el texto (6201 frente
+    // a "TL 6201 2RS"): es otra pieza (sin el sellado) y no se cuela en el PDF.
+    if (!comparando && yaTitulos.some((t) => {
+      const i = t.lastIndexOf(ref);
+      return i >= 0 && i + ref.length < t.length;
+    })) continue;
+    // Equivalente NTN/SNR de lo pedido (6201 2RS → SNR 6201 EE): si el texto ya
+    // trae la ficha de lo pedido, no se duplica; si no, entra con su nombre real.
+    if (pedida && (cubiertas.has(pedida) || yaTitulos.some((t) => t.endsWith(pedida)))) continue;
+    const nombrada = textoNombraRef(texto, kb.referencia, kb.marca) || (!!pedida && textoNombraRef(texto, kb.pedida as string));
+    if (!nombrada) continue;
     const f = fichaDesdeKb(kb);
+    if (kb.coincidencia === "equivalente") f.titulo = `${f.titulo} (equivalente)`;
     if (f.datos.length < MIN_DATOS) continue;
     extra.push(f);
     if (delTexto.length + extra.length >= MAX_FICHAS_KB) break;

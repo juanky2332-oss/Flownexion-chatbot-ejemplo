@@ -180,7 +180,7 @@ export default function ChatWidget({
     const actualizar = (cambio: (m: ChatMessage) => ChatMessage) =>
       setMessages((prev) => prev.map((m) => (m.id === botId ? cambio(m) : m)));
 
-    type Final = { output?: string; products?: Product[]; needsHuman?: boolean; humanContext?: string; fichas?: FichaTecnica[] };
+    type Final = { output?: string; products?: Product[]; needsHuman?: boolean; humanContext?: string; fichas?: FichaTecnica[]; comparar?: boolean };
     const cerrar = (data: Final) =>
       actualizar(() => ({
         id: botId,
@@ -193,6 +193,7 @@ export default function ChatWidget({
           "No he podido completar la consulta en este momento. Vuelve a intentarlo en unos segundos y, si te corre prisa, escríbenos por teléfono o e-mail y te lo resolvemos al momento.",
         products: data.products,
         fichas: data.fichas,
+        comparar: data.comparar,
         needsHuman: data.needsHuman ?? !data.output,
         humanContext: data.humanContext ?? (data.output ? undefined : text.slice(0, 150)),
       }));

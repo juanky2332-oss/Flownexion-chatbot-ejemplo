@@ -19,6 +19,8 @@ export interface ChatMessage {
   humanContext?: string;
   /** Fichas técnicas de la respuesta: si hay, se ofrece descargarlas en PDF. */
   fichas?: FichaTecnica[];
+  /** El cliente pidió comparar: se ofrece también el PDF comparativo. */
+  comparar?: boolean;
   /** La respuesta aún se está escribiendo (streaming). */
   enCurso?: boolean;
   /** Qué está haciendo el bot mientras prepara la respuesta. */
@@ -181,7 +183,7 @@ export default function ChatBubble({
         )}
 
         {!isUser && !message.enCurso && message.fichas && message.fichas.length > 0 && (
-          <DescargaFicha fichas={message.fichas} primaryColor={primaryColor} />
+          <DescargaFicha fichas={message.fichas} primaryColor={primaryColor} comparar={!!message.comparar} />
         )}
 
         {!isUser && message.needsHuman && (supportPhone || supportEmail) && (
@@ -234,7 +236,7 @@ export default function ChatBubble({
  * del cliente). El PDF se genera en el propio navegador con la información
  * técnica que acaba de mostrar el chat.
  */
-function DescargaFicha({ fichas, primaryColor }: { fichas: FichaTecnica[]; primaryColor: string }) {
+function DescargaFicha({ fichas, primaryColor, comparar }: { fichas: FichaTecnica[]; primaryColor: string; comparar: boolean }) {
   // Qué botón está generando ("comparativa" o el índice de la ficha).
   const [generando, setGenerando] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -278,20 +280,24 @@ function DescargaFicha({ fichas, primaryColor }: { fichas: FichaTecnica[]; prima
   );
 
   const varias = fichas.length > 1;
+  // El PDF comparativo solo cuando el cliente ha pedido comparar.
+  const conComparativa = varias && comparar;
 
   return (
     <div className="mt-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
       <p className="text-xs text-gray-700">
-        {varias
+        {conComparativa
           ? "Puede descargar la comparativa de todos los productos, o la información técnica de cada uno, pulsando en los siguientes botones"
-          : "Puede descargar la información técnica pulsando en el siguiente botón"}
+          : varias
+            ? "Puede descargar la información técnica de cada producto pulsando en los siguientes botones"
+            : "Puede descargar la información técnica pulsando en el siguiente botón"}
       </p>
       <div className="mt-2 flex flex-col items-start gap-1.5">
         {varias
           ? [
-              boton("comparativa", "Descargar comparativa en PDF", (m) => m.descargarComparativaPdf(fichas)),
+              ...(conComparativa ? [boton("comparativa", "Descargar comparativa en PDF", (m) => m.descargarComparativaPdf(fichas))] : []),
               ...fichas.map((f, i) =>
-                boton(String(i), `PDF · ${f.titulo || f.referencia}`, (m) => m.descargarFichaPdf([f]), true)
+                boton(String(i), `PDF · ${f.titulo || f.referencia}`, (m) => m.descargarFichaPdf([f]), conComparativa)
               ),
             ]
           : boton("0", "Descargar en formato PDF", (m) => m.descargarFichaPdf(fichas))}

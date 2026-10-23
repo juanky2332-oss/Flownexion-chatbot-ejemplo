@@ -803,5 +803,28 @@ section("FICHA TECNICA EN PDF — se extrae de respuestas REALES del bot");
   ok(c915?.longitud_interior_Li_mm === 2324, "correa C91.5: Li recuperada del codigo (2324, no 324)", String(c915?.longitud_interior_Li_mm));
 }
 
+// ── Ficha de SU pieza (23-10-2026) ─────────────────────────────────────────
+// "6201 2RS" caía a la ficha del 6201 ABIERTO (38.000 rpm): ahora su
+// equivalente sellado SNR 6201 EE; y una variante que no existe (C2) solo da
+// la base, sin los datos que dependen del sufijo.
+{
+  const kb2 = require("../lib/kb") as typeof import("../lib/kb");
+  const { fichasParaPdf: fpp, pideComparar: pc } = require("../lib/ficha") as typeof import("../lib/ficha");
+  const a = kb2.findTechnicalInfo("6201 2RS")[0];
+  ok(a?.referencia === "6201EE" && a?.coincidencia === "equivalente", "6201 2RS → SNR 6201 EE (equivalente), no el 6201 abierto", `${a?.referencia} ${a?.coincidencia}`);
+  const b = kb2.findTechnicalInfo("3362012RSTL")[0];
+  ok(b?.referencia === "6201EE", "código interno TL 3362012RSTL → 6201 EE", b?.referencia);
+  const c = kb2.findTechnicalInfo("6205 ZZ C2")[0];
+  ok(c?.coincidencia === "base" && !Object.keys(c.datos).some((k) => /Velocidad l[ií]mite|Peso|Junta/i.test(k)), "6205 ZZ C2 (no existe) → base sin velocidad/peso/junta", c?.coincidencia);
+  ok(kb2.findTechnicalInfo("6205 ZZ C3")[0]?.coincidencia === "exacta", "6205 ZZ C3 → exacta");
+  const t1 = "**RODAMIENTO TL 6201 2RS**\n\n**Ref: 3362012RSTL**\n- **6201** → Serie ligera\n\n**Información técnica completa:**\n- **Clase de producto:** Rodamiento\n- **Peso:** 38 g\n- **Capacidad de carga estática:** 3.1 kN";
+  const f1 = fpp(t1, [...kb2.findTechnicalInfo("RODAMIENTO TL 6201 2RS"), ...kb2.findTechnicalInfo("6201")]);
+  ok(f1.length === 1, "pide UN rodamiento → UN PDF (sin la ficha del 6201 abierto)", f1.map((x) => x.titulo).join(" | "));
+  ok(!pc("quiero 10 rodamientos 6201 2rs", ["62012RS"]), "pedir un rodamiento no es comparar");
+  ok(pc("comparalo con el rodamiento 6205 zz c2"), "«compáralo» sí es comparar");
+  ok(pc("quiero el 6201 2rs y el 6205 zz c3", ["62012RS", "6205ZZC3"]), "nombrar dos referencias es comparar");
+  ok(!pc("dime las características del 6205 zz c3", ["6205ZZC3"]), "una sola referencia no es comparar");
+}
+
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);

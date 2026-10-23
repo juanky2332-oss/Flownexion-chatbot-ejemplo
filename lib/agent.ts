@@ -41,6 +41,7 @@ import {
   corregirFichasConKB,
   tarjetasParaRespuesta,
   normalizarRef,
+  partirReferencia,
 } from "./variantes";
 import { searchOfficialSource } from "./websearch";
 import { limpiarCierreVacio } from "./guardrails";
@@ -177,6 +178,17 @@ Procede así, en la MISMA respuesta:
 2. **Llama SIEMPRE a get_technical_info con esa referencia** e incluye su ficha completa con el formato de INFORMACIÓN TÉCNICA COMPLETA (medidas, capacidad de carga estática y dinámica, tolerancia/juego, sellado, velocidad límite, peso, material de anillos y jaula, ángulo de contacto...). Es local, instantánea y 100% verificada — llamarla en cada presentación no tiene ningún coste y es OBLIGATORIO.
 
 3. **Cierra SIEMPRE ofreciendo la compra de la marca que tienes en la página** (ver CIERRE — OFRECER SIEMPRE LA COMPRA EN LA PÁGINA).
+
+**Cada dato, de SU pieza.** get_technical_info indica en "coincidencia" de dónde sale la ficha:
+- "exacta": es la ficha de esa referencia.
+- "equivalente": es la MISMA pieza con la nomenclatura NTN/SNR (2RS = EE en SNR = LLU en NTN; 2Z = ZZ). Úsala diciendo de dónde sale: "según su equivalente **SNR 6201 EE**". Vale para dar la ficha de un TL o de otra marca, que no tienen ficha propia en la base de datos.
+- "variante": la ficha es de una variante concreta de lo pedido (pidió "3309" y la ficha es del 3309A): nómbrala tal cual.
+- "base": NO es la pieza pedida (le faltan sufijos): sigue su aviso. Da solo medidas y capacidades de carga; nunca su velocidad, peso, junta ni juego como si fueran de lo pedido.
+PROHIBIDO poner en la ficha de un producto datos de otra referencia distinta sin decirlo.
+
+**UN producto pedido = UNA ficha.** Si el cliente pide un rodamiento, presenta ESE (o, si no está, la variante disponible que lo sustituye). No añadas otros productos ni comparativas que no ha pedido. La comparativa va solo cuando el cliente pide comparar, pregunta por diferencias o nombra dos referencias.
+
+**Si lo pedido no existe en la página** (una variante que no está, como un "6205 ZZ C2" cuando solo hay C3, que muchas veces es una errata del cliente): dilo en una frase y ofrece la que SÍ hay, con toda su información, preguntando si es esa la que necesita. Nunca des datos de la que no existe como si existiera, ni la compares como si la tuviéramos.
 
 # INFORMACIÓN TÉCNICA COMPLETA — DE UNA SOLA VEZ, NUNCA A PLAZOS
 Esta lista completa es OBLIGATORIA en dos situaciones: (a) siempre que PRESENTES un producto, aunque el cliente no haya pedido "características" y solo quiera comprarlo o verlo (ver FICHA TÉCNICA COMPLETA); y (b) cuando el cliente pregunte de forma amplia por las características de una referencia — "¿qué características tiene?", "dame toda la información técnica", "ficha técnica completa", "especificaciones", "datos técnicos" y equivalentes. En ambos casos tienes PROHIBIDO responder solo con el diámetro interior/exterior y esperar a que el cliente repregunte por cada dato adicional (capacidad de carga, tolerancia, sellado, velocidad límite, peso, material de jaula...) uno a uno. La única excepción es una pregunta acotada a UN dato ("¿y qué capacidad de carga tiene?"): ahí sí basta con ese dato.
@@ -1356,13 +1368,23 @@ export async function runAgent(
       // y, justo detrás, las variantes que SÍ tienen unidades. Con una familia
       // numerosa (6205, 6205 ZZ, 6205 LLU, 6205 C3...) la única variante
       // comprable se quedaba fuera de las 3 tarjetas.
-      const encontrados = ordenarParaTarjetas(
+      let encontrados = ordenarParaTarjetas(
         refDetectada,
         filtrarFueraDeFamilia(
           refDetectada,
           await searchProducts(refDetectada, groupId, customerId)
         )
       );
+      // La variante EXACTA no está (p.ej. "6205 ZZ C2", que puede ser una
+      // errata del cliente): se buscan las de su misma base para poder decir
+      // "esa no la tenemos; tenemos la C3", en vez de dar datos de una pieza
+      // que no existe en la página.
+      const base = partirReferencia(refDetectada).base;
+      if (base && base !== normalizarRef(refDetectada) && !analizarVariantes(refDetectada, encontrados).exactas.length) {
+        const familia = filtrarFueraDeFamilia(base, await searchProducts(base, groupId, customerId).catch(() => [] as Product[]));
+        const nuevos = familia.filter((p) => !encontrados.some((e) => e.id === p.id));
+        if (nuevos.length) encontrados = ordenarParaTarjetas(refDetectada, [...encontrados, ...nuevos]);
+      }
       for (const p of encontrados.slice(0, 3)) {
         if (!collected.some((c) => c.id === p.id)) collected.push(p);
       }
@@ -1493,10 +1515,19 @@ export async function runAgent(
       tarjetasParaRespuesta(borrador, collected, message).slice(0, 4),
       message
     );
-    for (const ref of [...titulos, ...productos.map((p) => p.reference || p.name)]) {
+    // Al comparar con el producto del turno anterior ("compáralo con..."), su
+    // ficha también hace falta para el PDF comparativo.
+    if (/\bcompar\w*/i.test(message)) {
+      for (const f of fichasDeConversacion(history)) if (!tecnicas.some((t) => t.marca === f.marca && t.referencia === f.referencia)) tecnicas.push(f);
+    }
+    for (const ref of [...titulos, ...productos.map((p) => p.name || p.reference)]) {
       const sinParentesis = ref.replace(/\([^)]*\)/g, "").trim();
-      const marca = /^(NTN|SNR|TL)\b/i.exec(sinParentesis)?.[1]?.toUpperCase();
-      const hit = findTechnicalInfo(sinParentesis).find((t) => !marca || t.marca.toUpperCase().startsWith(marca));
+      const marca = /\b(NTN|SNR|TL)\b/i.exec(sinParentesis)?.[1]?.toUpperCase();
+      const hits = findTechnicalInfo(sinParentesis).filter((t) => t.coincidencia !== "base");
+      // Misma marca; o, para una pieza TL sin ficha propia, la de su
+      // equivalente NTN/SNR (misma pieza: 6201 2RS = SNR 6201 EE).
+      const hit = hits.find((t) => !marca || t.marca.toUpperCase().startsWith(marca)) ??
+        (marca === "TL" ? hits.find((t) => t.coincidencia === "equivalente") : undefined);
       if (hit && !tecnicas.some((t) => t.marca === hit.marca && t.referencia === hit.referencia)) tecnicas.push(hit);
     }
     if (!escalation.needsHuman && /\b(tel[eé]fono|e-?mail|correo electr[oó]nico|con el equipo de ESGAS|un t[eé]cnico de ESGAS)\b/i.test(texto)) {

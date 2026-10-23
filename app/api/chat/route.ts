@@ -4,7 +4,8 @@ import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
 import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
 import { isPromptExtractionAttempt, IDENTITY_DEFLECTION } from "@/lib/guardrails";
-import { fichasParaPdf } from "@/lib/ficha";
+import { fichasParaPdf, pideComparar } from "@/lib/ficha";
+import { extractQueryCandidates } from "@/lib/kb";
 import { MODEL } from "@/lib/llm";
 import { registrarMensaje, registrarError } from "@/lib/registro";
 import type { ChatRequest, Message, CartItem, PSCustomer } from "@/lib/types";
@@ -155,7 +156,12 @@ export async function POST(req: NextRequest) {
     // Ficha técnica descargable en PDF: la que trae la respuesta y, si el bot
     // no respetó el formato, la ficha verificada del KB de cada referencia que
     // consultó y nombra (ver fichasParaPdf en lib/ficha.ts).
-    const fichas = fichasParaPdf(r.output, r.tecnicas ?? []);
+    // Comparativa en PDF solo si el cliente ha pedido comparar (o ha nombrado
+    // dos referencias); si no, cada ficha por separado.
+    const refsMensaje = extractQueryCandidates(message).filter((c) => (c.match(/\d/g) ?? []).length >= 3 && c.length <= 20 && !/[A-Z]{4,}/.test(c));
+    const pideCompararMsg = pideComparar(message, refsMensaje.filter((c, i, a) => !a.some((o, j) => j !== i && o.length > c.length && o.startsWith(c))));
+    const fichas = fichasParaPdf(r.output, r.tecnicas ?? [], pideCompararMsg);
+    const comparar = fichas.length >= 2 && pideCompararMsg;
     const sinRespuesta =
       cortado ||
       (!!r.needsHuman && !ESCALADOS_NORMALES.test(r.motivo ?? "")) ||
@@ -183,6 +189,7 @@ export async function POST(req: NextRequest) {
       needsHuman: r.needsHuman,
       humanContext: r.humanContext,
       ...(fichas.length ? { fichas } : {}),
+      ...(comparar ? { comparar: true } : {}),
     };
   };
 

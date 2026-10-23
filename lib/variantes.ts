@@ -543,7 +543,13 @@ export function bloqueVariantes(analisis: AnalisisVariantes): string | null {
     `Tienes PROHIBIDO presentarlas como dos productos sueltos sin relacionarlas, PROHIBIDO invitar a comprar ` +
     `o a añadir al carrito la referencia sin stock, y PROHIBIDO decir "puedes añadirlo al carrito cuando haya ` +
     `stock" o cualquier variante de esa frase. ` +
-    `Llama además a compare_products con las dos referencias para dar las diferencias técnicas exactas.`
+    `Llama además a compare_products con las dos referencias para dar las diferencias técnicas exactas.` +
+    (analisis.exactas.length
+      ? ""
+      : ` La referencia pedida NO existe en la página (puede ser una errata del cliente): dilo en una frase y ` +
+        `pregunta si la que necesita es la DISPONIBLE. Toda la información (ficha, precio, stock y, si te ha pedido ` +
+        `comparar, la comparativa) va de la DISPONIBLE, nunca de la que no existe: PROHIBIDO dar datos técnicos de ` +
+        `la referencia pedida como si existiera.`)
   );
 }
 
