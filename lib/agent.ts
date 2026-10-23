@@ -1158,6 +1158,46 @@ export function fichasDeCorreas(continental: BeltInfo[], translink: TlBeltInfo[]
   return out;
 }
 
+/**
+ * Designación "núcleo" de una correa para buscarla en la tienda: A48, SPZ1600,
+ * 800-8M-30... (sin el prefijo TL- ni sufijos de gama "-A").
+ */
+function nucleoCorrea(ref: string): string {
+  return String(ref ?? "")
+    .toUpperCase()
+    .replace(/^TL-?/, "")
+    .replace(/\/.*$/, "")
+    .replace(/-[A-Z]$/, "")
+    .trim();
+}
+
+/**
+ * Las correas encontradas en los catálogos de fabricante, buscadas en la
+ * PÁGINA: si están a la venta, salen con su tarjeta (precio, stock, añadir al
+ * carrito, ver ficha). Antes esto dependía de que el modelo llamase a
+ * search_products y no lo hacía: con la A48 y la A49 a la venta (Continental
+ * y TL Pro Series) mandó al cliente al teléfono.
+ */
+export async function correasEnPagina(
+  designaciones: string[],
+  groupId?: number,
+  customerId?: number
+): Promise<Product[]> {
+  const nucleos = Array.from(new Set(designaciones.map(nucleoCorrea).filter((n) => n.length >= 2 && /\d/.test(n)))).slice(0, 4);
+  const listas = await Promise.all(nucleos.map((n) => searchProducts(n, groupId, customerId).catch(() => [] as Product[])));
+  const out: Product[] = [];
+  nucleos.forEach((n, i) => {
+    const re = new RegExp(`(^|[^A-Z0-9])${n.replace(/[-/\\.]/g, "[\\s\\-/.]?")}($|[^A-Z0-9])`, "i");
+    for (const p of listas[i]) {
+      if (!/CORREA/i.test(p.name)) continue; // fuera rodamientos NA4903... que casan por "A49"
+      if (!re.test(p.name) && !re.test(p.reference.replace(/^33/, "").replace(/TL$/, ""))) continue;
+      if (!out.some((o) => o.id === p.id)) out.push(p);
+    }
+  });
+  // Con stock delante.
+  return out.sort((a, b) => Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0));
+}
+
 /** Qué se le enseña al cliente mientras corre cada herramienta. */
 const ESTADO_HERRAMIENTA: Record<string, string> = {
   search_products: "Consultando el catálogo y el stock…",
@@ -1356,6 +1396,11 @@ export async function runAgent(
   const beltHits = findBeltForMessage(message);
   const tlBeltHits = findTranslinkBeltForMessage(message);
   tecnicas.push(...fichasDeCorreas(beltHits, tlBeltHits));
+  const correasPagina =
+    beltHits.length || tlBeltHits.length
+      ? await correasEnPagina([...beltHits.map((b) => b.nombre), ...tlBeltHits.map((t) => t.referencia)], groupId, customerId)
+      : [];
+  for (const p of correasPagina.slice(0, 4)) if (!collected.some((c) => c.id === p.id)) collected.push(p);
   // Dos lecturas posibles de la longitud ("A 1250": A48 por Ld o A49 por Li).
   // Se avisa antes de redactar y se comprueba después (asegurarRespuesta).
   const ambLiLd = ambiguedadLiLd(message, beltHits, tlBeltHits);
@@ -1367,7 +1412,11 @@ export async function runAgent(
         `Son correas DISTINTAS: ${ambLiLd.porLd.join(" / ")} si ${ambLiLd.largo} es la primitiva o de paso (Ld), y ` +
         `${ambLiLd.porLi.join(" / ")} si es la interior (Li). OBLIGATORIO: presenta las DOS con sus medidas y pregunta UNA ` +
         `cosa: cuál de las dos medidas es la suya o qué pone grabado en el flanco. PROHIBIDO elegir una tú, recomendar ` +
-        `comprar una de ellas todavía, o decir que el cliente ha indicado la Li o la Ld: NO lo ha dicho.`,
+        `comprar una de ellas todavía, o decir que el cliente ha indicado la Li o la Ld: NO lo ha dicho. ` +
+        `Si el cliente no lo sabe o te pide que elijas tú ("la más común"), NO elijas ni digas cuál es la más común (no es un ` +
+        `dato que tengas): dile cómo saberlo en un momento —la correa lleva grabado en el flanco el perfil y la longitud, a ` +
+        `menudo con "Li" o "Ld"/"Lp"; o midiendo el perímetro INTERIOR con una cinta: si mide ${ambLiLd.largo} mm es la ` +
+        `${ambLiLd.porLi.join(" / ")}— y deja las dos con su tarjeta para que añada la suya.`,
     });
   }
   // ¿Hay ya un producto presentado en la conversación? (para no mandar al
@@ -1380,6 +1429,12 @@ export async function runAgent(
       role: "system",
       content:
         `🔒 CATÁLOGOS DE FABRICANTE — CORREAS ENCONTRADAS para la consulta actual:\n` +
+        (correasPagina.length
+          ? `EN NUESTRA PÁGINA (a la venta ahora mismo; sus tarjetas con precio, stock, carrito y ficha ya se muestran al cliente):\n` +
+            correasPagina.slice(0, 4).map((p) => `- ${p.name} (Ref: ${p.reference}) — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`).join("\n") +
+            `\nPreséntalas con su precio y stock EXACTOS y cierra ofreciendo añadirlas al carrito aquí mismo. PROHIBIDO mandar ` +
+            `al teléfono/e-mail para conseguir una correa que está aquí arriba.\n`
+          : `En nuestra página: ninguna de estas correas está a la venta ahora mismo.\n`) +
         (beltHits.length ? `Continental: ${JSON.stringify(beltHits)}\n` : "") +
         (tlBeltHits.length ? `TL (Translink): ${JSON.stringify(tlBeltHits)}\n` : "") +
         `Estas correas EXISTEN en el catálogo del fabricante: no hace falta que vuelvas a llamar a find_belt ` +
@@ -1657,6 +1712,19 @@ export async function runAgent(
   //    modelo no haya llamado a escalate_to_human.
   const cerrar = async (bruto: string): Promise<AgentResult> => {
     const borrador = corregirSufijosSellado(sinFalsoAviso(bruto));
+    // Correas que presenta la respuesta aunque el mensaje del cliente no las
+    // nombre ("dame la más común"): si están en la página, con su tarjeta.
+    if (/\b(correa|continental|TL PRO)\b/i.test(borrador)) {
+      const enTexto = findBeltForMessage(`correa ${borrador}`).slice(0, 4).map((b) => b.nombre);
+      const enTextoTl = findTranslinkBeltForMessage(`correa ${borrador}`).slice(0, 4).map((t) => t.referencia);
+      if (enTexto.length || enTextoTl.length) {
+        const extra = await Promise.race([
+          correasEnPagina([...enTexto, ...enTextoTl], groupId, customerId),
+          new Promise<Product[]>((r) => setTimeout(() => r([]), 6000)),
+        ]);
+        for (const p of extra) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+      }
+    }
     const titulos = productosPresentados(borrador);
     const faltan = titulos.filter((t) => !collected.some((c) => normalizarRef(c.reference || c.name) === normalizarRef(t)));
     if (faltan.length) {
