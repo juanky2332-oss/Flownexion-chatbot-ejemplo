@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
     // Comparativa en PDF solo si el cliente ha pedido comparar (o ha nombrado
     // dos referencias); si no, cada ficha por separado.
     const refsMensaje = extractQueryCandidates(message).filter((c) => (c.match(/\d/g) ?? []).length >= 3 && c.length <= 20 && !/[A-Z]{4,}/.test(c));
-    const pideCompararMsg = pideComparar(message, refsMensaje.filter((c, i, a) => !a.some((o, j) => j !== i && o.length > c.length && o.startsWith(c))));
+    const pideCompararMsg = pideComparar(message, refsMensaje.filter((c, i, a) => !a.some((o, j) => j !== i && o.length > c.length && o.includes(c))));
     const fichas = fichasParaPdf(r.output, r.tecnicas ?? [], pideCompararMsg);
     const comparar = fichas.length >= 2 && pideCompararMsg;
     const sinRespuesta =

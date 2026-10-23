@@ -224,8 +224,12 @@ export interface FichaKb {
 export function pideComparar(mensaje: string, referenciasEnMensaje: string[] = []): boolean {
   const m = String(mensaje ?? "");
   if (/\b(compar\w*|diferencia\w*|diferencian|frente\s+a|vs\.?|versus|cu[aá]l\s+(es\s+)?mejor|en\s+qu[eé]\s+se\s+diferencian)\b/i.test(m)) return true;
-  const bases = new Set(referenciasEnMensaje.map((r) => String(r).toUpperCase().replace(/[^A-Z0-9]/g, "")).filter((r) => r.length >= 3));
-  return bases.size >= 2;
+  // Dos lecturas de la misma referencia ("62012RS" y "1062012RS", con la
+  // cantidad pegada) no son dos referencias: solo cuentan las que no están una
+  // dentro de otra.
+  const norm = Array.from(new Set(referenciasEnMensaje.map((r) => String(r).toUpperCase().replace(/[^A-Z0-9]/g, "")).filter((r) => r.length >= 3)));
+  const maximas = norm.filter((r) => !norm.some((o) => o !== r && o.includes(r)));
+  return maximas.length >= 2;
 }
 
 const MAX_FICHAS_KB = 4;
@@ -318,6 +322,10 @@ export function fichasParaPdf(texto: string, consultadas: FichaKb[], comparando 
     // La ficha de la referencia BASE no es la de la pieza pedida (le faltan
     // sufijos): nunca va a un PDF con el nombre de lo que se pidió.
     if (kb.coincidencia === "base") continue;
+    // La ficha de la equivalente NTN/SNR es la MISMA pieza que una que ya trae
+    // el texto ("TL 6201 2RS ... equivalente SNR 6201 EE"): sin comparación de
+    // por medio, no es un segundo producto ni un segundo PDF.
+    if (!comparando && kb.coincidencia === "equivalente" && delTexto.length) continue;
     const clave = normRef(`${kb.marca}${kb.referencia}`);
     if (vistas.has(clave)) continue;
     vistas.add(clave);
