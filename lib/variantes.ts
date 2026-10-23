@@ -178,7 +178,7 @@ export function analizarVariantes(
   for (const p of productos) {
     // La referencia del catálogo es lo fiable; el nombre solo como respaldo
     // cuando el producto no trae reference (pasa en algunas altas).
-    const partida = partirReferencia(p.reference || p.name);
+    const partida = partidaDelProducto(p, pedida.base);
     if (partida.base !== pedida.base) continue;
 
     const exacta = partida.completa === pedida.completa;
@@ -244,11 +244,22 @@ export function ordenarParaTarjetas(refPedida: string, productos: Product[]): Pr
  * NINGÚN resultado es de la familia, se devuelve la lista intacta (puede ser
  * un acierto legítimo por nombre o descripción y no queremos perderlo).
  */
+/**
+ * La referencia de un producto partida, probando primero su referencia de la
+ * tienda y, si esa no es de la familia buscada, su nombre. Los códigos
+ * internos de TL ("3362052RSTL" = TL 6205 2RS) no se parecen a la designación,
+ * pero el nombre sí ("RODAMIENTO TL 6205 2RS").
+ */
+function partidaDelProducto(p: Product, baseBuscada: string): ReferenciaPartida {
+  const porRef = partirReferencia(p.reference || p.name);
+  if (porRef.base === baseBuscada || !p.name) return porRef;
+  const porNombre = partirReferencia(p.name);
+  return porNombre.base === baseBuscada ? porNombre : porRef;
+}
+
 export function filtrarFueraDeFamilia(refPedida: string, productos: Product[]): Product[] {
   const pedida = partirReferencia(refPedida);
-  const familia = productos.filter(
-    (p) => partirReferencia(p.reference || p.name).base === pedida.base
-  );
+  const familia = productos.filter((p) => partidaDelProducto(p, pedida.base).base === pedida.base);
   return familia.length > 0 ? familia : productos;
 }
 
@@ -284,6 +295,9 @@ export function tarjetasParaRespuesta(respuesta: string, productos: Product[], m
     // ("SNR 5309 EE G15 (3309 2RS TVH)"): vale la parte de fuera.
     const sinParentesis = normalizarRef(String(p.reference || p.name).replace(/\([^)]*\)/g, ""));
     if (sinParentesis !== ref && sinParentesis.length >= 4 && /\d/.test(sinParentesis) && texto.includes(sinParentesis)) return true;
+    // Códigos internos de TL ("3362052RSTL"): vale el nombre ("RODAMIENTO TL 6205 2RS" → 62052RS).
+    const porNombre = normalizarRef(String(p.name ?? "").replace(/\([^)]*\)/g, ""));
+    if (porNombre !== ref && porNombre.length >= 4 && /\d/.test(porNombre) && /[A-Z]/.test(porNombre) && texto.includes(porNombre)) return true;
     // Referencias de la página con prefijo/sufijo de familia ("33A48TL") o
     // nombres largos ("CORREA CONTINENTAL A48"): vale la designación núcleo
     // (A48) si aparece como palabra suelta en el texto y lleva algún dígito.

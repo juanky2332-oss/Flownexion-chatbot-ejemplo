@@ -1170,29 +1170,39 @@ export async function runAgent(
       preDetectedEquivalence.slice(0, 4).map(async (r) => {
         try {
           const ps = filtrarFueraDeFamilia(r.ref_ntn_snr, await searchProducts(r.ref_ntn_snr, groupId, customerId));
-          if (!ps.length) return [];
+          if (!ps.length) return { exactos: [] as Product[], proximos: [] as Product[] };
           const marca = r.marca.toUpperCase();
-          const deLaMarca = ps.filter((p) => `${p.name} ${p.reference}`.toUpperCase().includes(marca));
-          // Hay productos pero ninguno lleva la marca en el nombre: no se
-          // afirma que no esté (sería el peor error), se deja que lo busque.
-          return deLaMarca.length ? deLaMarca.slice(0, 2) : null;
+          const refN = normalizarRef(r.ref_ntn_snr);
+          // De la marca Y con esa referencia: "SNR 5309 EE G15 (3309 2RS TVH)"
+          // sale al buscar 3309A pero NO es el 3309A (lleva junta).
+          const deLaMarca = ps.filter(
+            (p) =>
+              `${p.name} ${p.reference}`.toUpperCase().includes(marca) &&
+              normalizarRef(p.name.replace(/\([^)]*\)/g, "")).startsWith(refN)
+          );
+          // Hay productos de la familia pero ninguno es esa referencia exacta:
+          // se dice que esa exacta no está y cuál es lo más próximo que sí hay.
+          return deLaMarca.length ? { exactos: deLaMarca.slice(0, 2), proximos: [] } : { exactos: [], proximos: ps.slice(0, 1) };
         } catch {
           return null;
         }
       })
     );
-    enPagina.forEach((ps) => {
-      for (const p of ps ?? []) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+    enPagina.forEach((e) => {
+      for (const p of [...(e?.exactos ?? []), ...(e?.proximos ?? [])]) if (!collected.some((c) => c.id === p.id)) collected.push(p);
     });
+    const fichaLinea = (p: Product) => `${p.name} (Ref: ${p.reference}) — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`;
     const lines = preDetectedEquivalence
       .map((r, k) => {
-        const ps = k < enPagina.length ? enPagina[k] : null;
+        const e = k < enPagina.length ? enPagina[k] : null;
         const pagina =
-          ps === null
+          e === null
             ? "sin comprobar en la página (búscala con search_products)"
-            : ps.length
-              ? `EN NUESTRA PÁGINA: ${ps.map((p) => `${p.name} (Ref: ${p.reference}) — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`).join("; ")}`
-              : "no está en el catálogo de la página ahora mismo";
+            : e.exactos.length
+              ? `EN NUESTRA PÁGINA: ${e.exactos.map(fichaLinea).join("; ")}`
+              : e.proximos.length
+                ? `esta referencia exacta NO está en la página; lo más próximo que sí hay es ${e.proximos.map(fichaLinea).join("; ")} (no es la misma pieza: di en qué difiere)`
+                : "no está en el catálogo de la página ahora mismo";
         return `- ${r.marca}: ${r.ref_ntn_snr} → ${pagina}`;
       })
       .join("\n");
@@ -1386,6 +1396,20 @@ export async function runAgent(
         // probarlo con el código real en npm run test:kb.
         const bloqueVar = bloqueVariantes(analizarVariantes(refDetectada, encontrados));
         if (bloqueVar) messages.push({ role: "system", content: bloqueVar });
+
+        // VENTA CRUZADA — solo cuando el cliente ya está comprando (pide
+        // unidades o dice que lo va a cambiar). En el prompt sola no se
+        // aplicaba de forma fiable.
+        if (/\b(\d+\s*(uds?|unidades|piezas)?\s*(del?|de los?)\b|cambiar|sustituir|reponer|recambio)/i.test(message)) {
+          messages.push({
+            role: "system",
+            content:
+              "VENTA CRUZADA: el cliente está comprando para montar. Después del producto y su cierre de compra, añade " +
+              "UNA línea final con el consejo de montaje que corresponda según VENTA CRUZADA (retén nuevo con sus medidas " +
+              "si es abierto o ZZ; engrasarlo si es abierto; el UC suelto si es una unidad con soporte). Una sola línea, " +
+              "sin inventar referencias ni disponibilidad.",
+          });
+        }
       }
     } catch {
       // Si la tienda falla, el modelo siempre puede llamar a search_products
@@ -1475,7 +1499,7 @@ export async function runAgent(
       const hit = findTechnicalInfo(sinParentesis).find((t) => !marca || t.marca.toUpperCase().startsWith(marca));
       if (hit && !tecnicas.some((t) => t.marca === hit.marca && t.referencia === hit.referencia)) tecnicas.push(hit);
     }
-    if (!escalation.needsHuman && /\b(tel[eé]fono|e-?mail|correo electr[oó]nico)\b/i.test(texto)) {
+    if (!escalation.needsHuman && /\b(tel[eé]fono|e-?mail|correo electr[oó]nico|con el equipo de ESGAS|un t[eé]cnico de ESGAS)\b/i.test(texto)) {
       escalation.needsHuman = true;
       escalation.reason ??= "contacto_en_texto";
       escalation.context ??= message.slice(0, 150);
