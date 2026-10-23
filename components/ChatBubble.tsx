@@ -361,17 +361,6 @@ function AnadirVarios({
   const cambiar = (p: Product, d: number) =>
     setSel((prev) => ({ ...prev, [p.id]: Math.min(max(p), Math.max(1, (prev[p.id] ?? 1) + d)) }));
 
-  const presupuesto = async () => {
-    // Lo marcado, o todos si no se ha marcado nada (1 ud de cada uno).
-    const lista = marcados.length ? marcados : comprables;
-    const { descargarPresupuestoPdf } = await import("@/lib/fichaPdf");
-    await descargarPresupuestoPdf(
-      lista.map((p) => ({ referencia: p.reference, descripcion: p.name, uds: sel[p.id] ?? Math.max(1, p.qty ?? 1), precio: p.price, stock: p.stock })),
-      cliente
-    );
-    enviarEvento("pdf", { tipo: "presupuesto", refs: lista.map((p) => p.reference) });
-  };
-
   const anadir = async () => {
     if (!marcados.length || enviando) return;
     const lineas: LineaCarrito[] = marcados.map((p) => ({
@@ -450,7 +439,7 @@ function AnadirVarios({
         style={{ color: primaryColor }}
         aria-expanded={abierto}
       >
-        <span>🛒 Añadir varios a la vez · presupuesto</span>
+        <span>🛒 Añadir varios a la vez</span>
         <span className="text-gray-400">{abierto ? "▲" : "▼"}</span>
       </button>
       {abierto && (
@@ -487,14 +476,6 @@ function AnadirVarios({
                   : "Marca los que quieras añadir"}
             </button>
           )}
-          <button
-            type="button"
-            onClick={presupuesto}
-            className="w-full rounded-lg border py-1.5 font-semibold transition hover:bg-gray-50"
-            style={{ borderColor: primaryColor, color: primaryColor }}
-          >
-            📄 {marcados.length ? `Presupuesto PDF de lo marcado (${totalUds} uds)` : "Presupuesto PDF de todos (1 ud de cada)"}
-          </button>
         </div>
       )}
       {aviso && <p className={`mt-1.5 font-medium ${aviso.ok ? "text-green-700" : "text-red-600"}`}>{aviso.texto}</p>}

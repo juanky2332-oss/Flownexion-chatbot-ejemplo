@@ -159,21 +159,6 @@ export function MiniCarrito({ primaryColor, enLaTienda, cliente }: { primaryColo
             <span>Subtotal ({uds} uds.)</span>
             <strong className="text-gray-900">{eur(subtotal)}</strong>
           </p>
-          <button
-            type="button"
-            onClick={async () => {
-              const { descargarPresupuestoPdf } = await import("@/lib/fichaPdf");
-              await descargarPresupuestoPdf(
-                lista.map((l) => ({ referencia: l.reference, descripcion: l.name, uds: l.qty, precio: l.price })),
-                cliente
-              );
-              enviarEvento("pdf", { tipo: "presupuesto", refs: lista.map((l) => l.reference) });
-            }}
-            className="mt-1.5 text-[11px] font-semibold underline underline-offset-2"
-            style={{ color: primaryColor }}
-          >
-            📄 Descargar presupuesto en PDF
-          </button>
           <div className="mt-2 flex gap-2">
             <button
               type="button"

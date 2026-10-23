@@ -1,16 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // El panel (/panel y su exportación) lleva usuario y contraseña: el navegador
-// los pide una vez y los recuerda. Se configuran en Vercel con PANEL_USUARIO y
-// PANEL_CLAVE; sin PANEL_CLAVE el panel queda cerrado para todo el mundo.
+// los pide una vez y los recuerda, y todo viaja cifrado (HTTPS).
+// Cada uno con su acceso: PANEL_ACCESOS = "esgas:clave1;flownexion:clave2".
+// (PANEL_USUARIO + PANEL_CLAVE siguen valiendo como un acceso más.)
+// Sin ningún acceso configurado el panel queda cerrado para todo el mundo.
+function accesos(): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const par of (process.env.PANEL_ACCESOS || "").split(";")) {
+    const i = par.indexOf(":");
+    if (i > 0) m.set(par.slice(0, i).trim(), par.slice(i + 1).trim());
+  }
+  if (process.env.PANEL_CLAVE) m.set(process.env.PANEL_USUARIO || "esgas", process.env.PANEL_CLAVE);
+  return m;
+}
+
 export function middleware(req: NextRequest) {
-  const usuario = process.env.PANEL_USUARIO || "esgas";
-  const clave = process.env.PANEL_CLAVE || "";
+  const permitidos = accesos();
   const auth = req.headers.get("authorization") ?? "";
-  if (clave && auth.startsWith("Basic ")) {
+  if (permitidos.size && auth.startsWith("Basic ")) {
     try {
       const [u, ...resto] = atob(auth.slice(6)).split(":");
-      if (u === usuario && resto.join(":") === clave) return NextResponse.next();
+      const clave = permitidos.get(u);
+      if (clave && resto.join(":") === clave) return NextResponse.next();
     } catch {
       /* cabecera mal formada */
     }

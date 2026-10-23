@@ -613,6 +613,7 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 **"Añádemelo tú al carrito" / "mételas en el carrito" / "añade las 25 uds":** las unidades se añaden con el botón de la tarjeta, que ya trae la cantidad puesta. Vuelve a buscar el producto con search_products (para que su tarjeta aparezca otra vez justo debajo de tu respuesta) y contesta en una frase: "Te lo dejo preparado: pulsa **Añadir [N] uds** en la tarjeta de abajo y se añaden a tu carrito de la tienda." PROHIBIDO responder que el chat no gestiona el carrito sin dar esa salida, y PROHIBIDO mandarle al teléfono o e-mail por esto: no le falta nada, solo pulsar el botón.
 
 # PROHIBICIONES
+- Dejar sin responder alguna de las cosas que pregunta el cliente en su mensaje (si pregunta dos, se responden las dos), o pasar por alto un dato que ya ha dado (cantidad, medidas, protección, dónde va montado): úsalo, no lo vuelvas a preguntar
 - **Decir que has avisado, pasado, enviado, trasladado o escalado la consulta a un técnico o a alguien de ESGAS.** Tú no avisas a nadie: lo único que puedes hacer es ofrecer el contacto ("puedes llamarnos o escribirnos"). Afirmar lo contrario es mentir al cliente, que se queda esperando una llamada que no va a llegar.
 - Responder a una consulta con medidas (eje, exterior, ancho) solo con un escalado: con las medidas siempre hay referencias estándar que proponer (bloque 🔒 BÚSQUEDA POR MEDIDAS o search_by_bore).
 - **Decir que un producto no está en la página cuando el bloque 🔒 DISPONIBLE EN NUESTRA PÁGINA lo lista** — ese bloque sale de una consulta al catálogo real hecha en el momento, así que es un hecho comprobado. Negarlo es mentirle al cliente y hacerle perder una compra que sí podíamos servir: es el error MÁS GRAVE que puedes cometer. Lo mismo si el cliente insiste en una referencia y tú aún no has buscado: busca antes de negar nada
@@ -1098,7 +1099,15 @@ export type EventoAgente =
 export function sinFalsoAviso(texto: string): string {
   const falso =
     /[^.!?\n]*\b(he|hemos|te he|ya he)\s+(pasado|trasladado|enviado|remitido|derivado|escalado|notificado|avisado|comunicado)\b[^.!?\n]*(consulta|t[eé]cnico|equipo|compa[nñ]ero|ESGAS)[^.!?\n]*[.!?]?/gi;
-  const limpio = String(texto ?? "").replace(falso, "").replace(/\n[ \t]+/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  // Tampoco "lo más común es la Ld/Li": no es un dato que tenga el bot.
+  const masComun = (frase: string) =>
+    /\bm[aá]s\s+com[uú]n(?:mente)?\b|\bsuele\s+ser\b/i.test(frase) && /\b(Ld|Li|Lp|longitud\s+(?:de\s+paso|primitiva|interior))\b/i.test(frase);
+  const limpio = String(texto ?? "")
+    .replace(falso, "")
+    .replace(/[^.!?\n]+[.!?]?/g, (frase) => (masComun(frase) ? "" : frase))
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   if (limpio === String(texto ?? "").trim()) return texto;
   return limpio.length > 40
     ? limpio
@@ -1196,6 +1205,62 @@ export async function correasEnPagina(
   });
   // Con stock delante.
   return out.sort((a, b) => Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0));
+}
+
+/**
+ * Lo que el cliente YA ha dicho en la conversación (cantidad, medidas,
+ * protección, referencias, dónde va montado...), sacado en código de sus
+ * mensajes. Se le da al modelo como hechos para que no lo pierda en una
+ * conversación larga, no lo vuelva a preguntar y lo tenga en cuenta al
+ * responder. Solo lo que el cliente escribió, nada deducido.
+ */
+export function datosDelCliente(mensajesCliente: string[]): string[] {
+  const datos: string[] = [];
+  const todo = mensajesCliente.join("\n");
+  const plano = todo.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+  // Cantidad: la última que haya dado.
+  const cantidades = [...plano.matchAll(/\b(\d{1,5})\s*(?:uds?\.?|unidades|piezas|rodam[a-z]*|correa[a-z]*|soportes?|juegos?)\b/g)].map((m) => Number(m[1]));
+  if (cantidades.length) datos.push(`Cantidad que necesita: ${cantidades[cantidades.length - 1]} uds.`);
+
+  // Medidas: las del último mensaje que las da.
+  for (const m of [...mensajesCliente].reverse()) {
+    const med = medidasDelMensaje(m);
+    if (!med) continue;
+    datos.push(
+      `Medidas que ha dado: dØ${med.di} mm` + (med.de ? `, DØ${med.de} mm` : "") + (med.an ? `, ancho ${med.an} mm` : "") +
+        (med.proteccion === "ambas" ? ", con protección (tapa) en ambos lados" : med.proteccion === "junta" ? ", con junta de goma" : med.proteccion === "deflector" ? ", con tapa metálica" : med.proteccion === "abierto" ? ", abierto" : "")
+    );
+    break;
+  }
+
+  // Referencias que ha escrito él (no las del bot).
+  const refs = Array.from(
+    new Set(
+      mensajesCliente
+        .flatMap((m) => extractQueryCandidates(m))
+        .filter((c) => (c.match(/\d/g) ?? []).length >= 3 && c.length >= 4 && c.length <= 20 && !/[A-Z]{4,}/.test(c))
+    )
+  );
+  const sinPrefijos = refs.filter((r) => !refs.some((o) => o !== r && o.length > r.length && o.startsWith(r)));
+  // Correa: perfil + longitud tal como la pidió ("A 1250", "SPZ 1600").
+  const correa = [...plano.matchAll(/correa[^\n.]{0,40}?\b(spz|spa|spb|spc|xp[zabc]|[zabcde]x?|\d{1,3}m|[hlx]{1,2}|\d*p[jklm])\s*-?\s*(\d{2,5})\b/g)].pop();
+  if (correa) datos.push(`Correa que busca: ${correa[1].toUpperCase()} ${correa[2]}.`);
+  const refsSinCorrea = correa ? sinPrefijos.filter((r) => r !== correa[2]) : sinPrefijos;
+  if (refsSinCorrea.length) datos.push(`Referencias que ha mencionado: ${refsSinCorrea.slice(-4).join(", ")}.`);
+
+  // Dónde va y en qué condiciones.
+  const entorno: string[] = [];
+  if (/\b(agua|humed|mojad|lluvia|lavad)/.test(plano)) entorno.push("humedad/agua");
+  if (/\b(polvo|suciedad|arena|harina|serrin)/.test(plano)) entorno.push("polvo/suciedad");
+  if (/\b(temperatura|calor|caliente|horno)/.test(plano)) entorno.push("temperatura alta");
+  if (/\b(alta velocidad|muchas revoluciones|rpm)/.test(plano)) entorno.push("velocidad alta");
+  if (entorno.length) datos.push(`Condiciones de trabajo que ha indicado: ${entorno.join(", ")}.`);
+  const maquina = /\b(?:para|en)\s+(?:una?|el|la)\s+(bomba|motor|ventilador|rueda|reductor|compresor|cinta|transportador|tractor|maquina[^\s,.]*|polea|eje|carro|puerta|lavadora|bicicleta|moto)\b/.exec(plano)?.[1];
+  if (maquina) datos.push(`Dónde va montado: ${maquina}.`);
+  if (/\b(li|longitud interior|interior)\b/.test(plano) && /correa/.test(plano)) datos.push("Sobre la correa ha hablado de la longitud interior (Li).");
+  if (/\b(ld|lp|primitiva|de paso)\b/.test(plano) && /correa/.test(plano)) datos.push("Sobre la correa ha hablado de la longitud primitiva (Ld).");
+  return datos;
 }
 
 /** Qué se le enseña al cliente mientras corre cada herramienta. */
@@ -1403,7 +1468,19 @@ export async function runAgent(
   for (const p of correasPagina.slice(0, 4)) if (!collected.some((c) => c.id === p.id)) collected.push(p);
   // Dos lecturas posibles de la longitud ("A 1250": A48 por Ld o A49 por Li).
   // Se avisa antes de redactar y se comprueba después (asegurarRespuesta).
-  const ambLiLd = ambiguedadLiLd(message, beltHits, tlBeltHits);
+  // La duda Li/Ld sigue abierta si el turno anterior la planteó y el cliente
+  // contesta sin aclararla ("dame la más común"): se arrastra, o el modelo
+  // acababa eligiendo él e inventando que "lo más común es la Ld".
+  const ultimoCliente = [...history].reverse().find((m) => m.role === "user");
+  const ambLiLd =
+    ambiguedadLiLd(message, beltHits, tlBeltHits) ??
+    (!beltHits.length && !tlBeltHits.length && ultimoCliente
+      ? (() => {
+          const prev = String(ultimoCliente.content ?? "");
+          const amb = ambiguedadLiLd(prev, findBeltForMessage(prev), findTranslinkBeltForMessage(prev));
+          return amb && !/\b(interior|interna|primitiva|de\s+paso|li|ld|lp)\b/i.test(message) ? amb : null;
+        })()
+      : null);
   if (ambLiLd) {
     messages.push({
       role: "system",
@@ -1590,6 +1667,20 @@ export async function runAgent(
       // Si la tienda falla, el modelo siempre puede llamar a search_products
       // por su cuenta; esto es un refuerzo, no la única vía.
     }
+  }
+
+  // LO QUE EL CLIENTE YA HA DICHO — en conversaciones largas el modelo perdía
+  // datos dados turnos atrás (la cantidad, la medida, "con tapa", dónde va) y
+  // los volvía a preguntar o respondía sin ellos.
+  const yaDicho = datosDelCliente([...history.filter((m) => m.role === "user").map((m) => String(m.content ?? "")), message]);
+  if (history.some((m) => m.role === "user") && yaDicho.length) {
+    messages.push({
+      role: "system",
+      content:
+        "DATOS QUE EL CLIENTE YA HA DADO EN ESTA CONVERSACIÓN (son suyos, literales):\n- " + yaDicho.join("\n- ") +
+        "\nTenlos en cuenta en esta respuesta (cantidad, medidas, protección, condiciones) y NO vuelvas a preguntar ninguno. " +
+        "Si lo que ofreces no cumple alguno (p.ej. menos stock que la cantidad, otra protección), dilo claramente.",
+    });
   }
 
   // BÚSQUEDA POR MEDIDAS — el cliente da el eje (y quizá exterior, ancho o
