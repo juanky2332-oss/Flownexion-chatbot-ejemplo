@@ -6,7 +6,7 @@ import type {
   ChatCompletionTool,
 } from "openai/resources/chat/completions";
 import type { Message, Product, CartItem } from "./types";
-import type { TechInfo } from "./kb";
+import type { TechInfo, BeltInfo, TlBeltInfo } from "./kb";
 import { searchProducts, searchByBore, getStock } from "./prestashop";
 import {
   findEquivalence,
@@ -187,6 +187,8 @@ Procede así, en la MISMA respuesta:
 - "variante": la ficha es de una variante concreta de lo pedido (pidió "3309" y la ficha es del 3309A): nómbrala tal cual.
 - "base": NO es la pieza pedida (le faltan sufijos): sigue su aviso. Da solo medidas y capacidades de carga; nunca su velocidad, peso, junta ni juego como si fueran de lo pedido.
 PROHIBIDO poner en la ficha de un producto datos de otra referencia distinta sin decirlo.
+
+**Comparar vale para TODO lo que vendemos** (rodamientos, correas, soportes, cadenas...): cuando el cliente pida comparar, pon los datos de ambos lado a lado con sus diferencias (en correas: perfil, paso, longitudes, ancho, dientes, sección, peso), sin dejarte ninguno de los que tengas.
 
 **UN producto pedido = UNA ficha.** Si el cliente pide un rodamiento, presenta ESE (o, si no está, la variante disponible que lo sustituye). No añadas otros productos ni comparativas que no ha pedido. La comparativa va solo cuando el cliente pide comparar, pregunta por diferencias o nombra dos referencias.
 
@@ -395,7 +397,7 @@ Ejemplo trabajado con el caso real de "A 1250", donde find_belt devuelve dos: **
 - "es la primitiva" o "es la Ld" → la buena es la **A48**, porque su Ld es 1250.
 Antes de dar la referencia final, comprueba el número contra el campo correcto y dilo en la respuesta ("la A49, con Li 1250 mm, que es la medida que me has confirmado"). Confundir los dos campos es servirle una correa de otro tamaño: la del ejemplo se equivocaría en 30 mm y no montaría.
 
-**Disponibilidad en Continental frente a stock de la página.** find_belt indica si en el fabricante la correa es de stock, bajo pedido o descatalogada. Es información de fabricación, NO es el stock de ESGAS: el stock y el precio salen siempre de search_products. No presentes lo que diga find_belt como disponibilidad de ESGAS, y si una correa consta como descatalogada en Continental, dilo y ofrece buscar la equivalente vigente.
+**Disponibilidad y plazos: SOLO lo de la página.** El único stock que existe para el cliente es el de la página (search_products). De lo que NO está en la página no digas nada de disponibilidad, "bajo pedido", "en stock en fábrica", baja disponibilidad ni plazos de entrega: no los sabes. Da la información técnica completa y, para conseguirla, ofrece el contacto por teléfono/e-mail.
 
 **Perfiles y gamas reales del catálogo Continental** (usa explain_technical_term para el detalle de cada familia):
 - Trapeciales clásicas Conti V: Z/10, A/13, B/17, C/22, D/32, E/40 — perfil = ancho × alto en mm: Z(10×6) A(13×8) B(17×11) C(22×14) D(32×19).
@@ -624,7 +626,7 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 - Proponer otra medida, otra variante o un equivalente sin dar la comparativa de diferencias frente a la referencia del cliente (compare_products): sin esos números el cliente no puede comprobar si le encaja (ver COMPARATIVA OBLIGATORIA)
 - Responder una consulta de correa sin haber llamado a find_belt, o dar por inexistente una correa sin haberla buscado ahí — tienes el catálogo Continental íntegro
 - Elegir en silencio entre dos correas que encajan por vías distintas (una por longitud interior Li y otra por primitiva Ld) cuando el cliente ha dado un número a secas: enséñale las dos y pregunta cuál lleva grabada (ver CORREAS CONTINENTAL)
-- Presentar la disponibilidad que devuelve find_belt (stock / bajo pedido / descatalogada en Continental) como si fuera el stock de ESGAS — es información del fabricante; el stock y el precio salen siempre de search_products
+- Mencionar disponibilidad del fabricante, "bajo pedido", "en stock en fábrica", baja disponibilidad o plazos de un producto que no está en la página: solo existe el stock de la página; de lo demás, ficha técnica y contacto
 - Responder "no tengo opciones/disponibilidad con ese diámetro" a una pregunta de "otras opciones con este mismo diámetro" o "el siguiente diámetro arriba/abajo" SIN haber llamado antes a search_by_bore para ese bore concreto (ver CUANDO PREGUNTAN POR OTRAS OPCIONES CON EL MISMO DIÁMETRO) — es el fallo más grave posible: dar una negativa sin haber consultado el catálogo real
 - Preguntar "¿quieres que lo busque?", "¿te interesa que mire una alternativa?" o similar en vez de buscarla y mostrarla ya: si sabes qué alternativa probar (medida próxima, serie próxima, equivalente de marca), búscala con search_by_bore/search_products y preséntala con su ficha completa en la misma respuesta — la pregunta al cliente le hace perder un turno sin necesidad
 - Inventar precios, stock, equivalencias, medidas, referencias/SKU, datos técnicos o aplicaciones que no estén verificados por el KB, search_products, search_official_source o las tablas de este prompt — nunca modifiques, alargues ni "adivines" una referencia de producto añadiendo sufijos o códigos que no te ha dado literalmente el cliente ni ninguna herramienta
@@ -768,7 +770,7 @@ const tools: ChatCompletionTool[] = [
     function: {
       name: "find_belt",
       description:
-        "Busca una correa en el catálogo COMPLETO del fabricante Continental (más de 18.000 referencias: trapeciales clásicas y estrechas, dentadas de flanco abierto, multicostilla Poly-V, dentadas síncronas HTD/STD/CTD, Torque Team, Varispeed, planas) y, a la vez, en los catálogos técnicos de TL (Translink): dentadas con nº de dientes y desarrollo, y trapeciales con longitud interior Li y de paso Ld. Responde {continental: [...], translink: [...]}. Para Continental devuelve el nombre real de fabricante, el perfil, la gama, el peso, las longitudes Li y Ld cuando constan, y si en Continental es de stock, bajo pedido o descatalogada. Entiende la designación en lenguaje natural, con cualquier separador y tanto en milímetros como en pulgadas. Úsala SIEMPRE ante una consulta de correa, antes de search_products y antes de dar cualquier negativa. OJO: la disponibilidad que devuelve es del FABRICANTE, no el stock de ESGAS — el stock y el precio salen de search_products.",
+        "Busca una correa en el catálogo COMPLETO del fabricante Continental (más de 18.000 referencias: trapeciales clásicas y estrechas, dentadas de flanco abierto, multicostilla Poly-V, dentadas síncronas HTD/STD/CTD, Torque Team, Varispeed, planas) y, a la vez, en los catálogos técnicos de TL (Translink): dentadas con nº de dientes y desarrollo, y trapeciales con longitud interior Li y de paso Ld. Responde {continental: [...], translink: [...]}. Para Continental devuelve el nombre real de fabricante, el perfil, la gama, el peso, las longitudes Li y Ld cuando constan, y si en Continental es de stock, bajo pedido o descatalogada. Entiende la designación en lenguaje natural, con cualquier separador y tanto en milímetros como en pulgadas. Úsala SIEMPRE ante una consulta de correa, antes de search_products y antes de dar cualquier negativa. El stock y el precio salen SOLO de search_products: no hables de disponibilidad del fabricante ni de plazos.",
       parameters: {
         type: "object",
         properties: {
@@ -964,7 +966,10 @@ async function runTool(
   }
   if (name === "find_belt") {
     const q = String(args?.query ?? "");
-    return JSON.stringify({ continental: findBelt(q), translink: findTranslinkBelt(q) });
+    const continental = findBelt(q);
+    const translink = findTranslinkBelt(q);
+    tecnicas.push(...fichasDeCorreas(continental, translink));
+    return JSON.stringify({ continental, translink });
   }
   if (name === "compare_products") {
     const refs = Array.isArray(args?.refs)
@@ -1100,6 +1105,27 @@ export function sinFalsoAviso(texto: string): string {
     : "Para resolver esta consulta lo mejor es que lo veas directamente con un técnico de ESGAS: puedes llamarnos o escribirnos desde los botones de abajo y te atendemos al momento.";
 }
 
+/**
+ * Corrige la decodificación de sufijos de protección cuando el modelo la
+ * confunde (visto en producción: "EE → Deflectores en ambos lados", cuando EE
+ * es junta de goma CON contacto). Mismo criterio que el glosario de ESGAS.
+ */
+export function corregirSufijosSellado(texto: string): string {
+  const CONTACTO = "Juntas de goma con contacto en ambos lados (estancas al agua y al polvo)";
+  const SIN_CONTACTO = "Juntas de goma sin contacto en ambos lados";
+  const DEFLECTOR = "Deflectores metálicos en ambos lados (sin contacto; no estancos al agua ni al polvo fino)";
+  return String(texto ?? "").replace(
+    /^(\s*[-•*]\s*\*\*)(EE|LLU|2RS1?|2RSR|DDU|LLB|2RZ|VV|ZZ|2Z|2ZR)(\*\*\s*→\s*)(.+)$/gim,
+    (linea, a: string, suf: string, b: string, desc: string) => {
+      const s = suf.toUpperCase();
+      if (/^(EE|LLU|2RS1?|2RSR|DDU)$/.test(s) && /deflector|met[aá]lic|sin contacto/i.test(desc)) return `${a}${suf}${b}${CONTACTO}`;
+      if (/^(LLB|2RZ|VV)$/.test(s) && /deflector|met[aá]lic|con contacto/i.test(desc)) return `${a}${suf}${b}${SIN_CONTACTO}`;
+      if (/^(ZZ|2Z|2ZR)$/.test(s) && /goma|caucho|estanc|con contacto/i.test(desc) && !/no estanc/i.test(desc)) return `${a}${suf}${b}${DEFLECTOR}`;
+      return linea;
+    }
+  );
+}
+
 export function productosPresentados(texto: string): string[] {
   const out: string[] = [];
   const re = /\*\*(?:Ref:\s*)?(?:[A-Za-zÁÉÍÓÚáéíóúñ]+\s+){0,4}?((?:NTN|SNR|TL)\s+[A-Z0-9][A-Z0-9 .\-/]{1,28}?)\s*(?:\([^)]*\))?\*\*/g;
@@ -1109,6 +1135,27 @@ export function productosPresentados(texto: string): string[] {
     if (!out.some((r) => normalizarRef(r) === normalizarRef(ref))) out.push(ref);
   }
   return out.slice(0, 4);
+}
+
+/**
+ * Ficha de cada correa encontrada, en el mismo formato que las de rodamiento,
+ * para que también salgan su PDF y el PDF comparativo. Solo datos del
+ * catálogo del fabricante y de su designación normalizada.
+ */
+export function fichasDeCorreas(continental: BeltInfo[], translink: TlBeltInfo[]): TechInfo[] {
+  const out: TechInfo[] = [];
+  for (const b of continental.slice(0, 4)) {
+    const datos: Record<string, string | number> = { "Fabricante": "Continental", "Gama": b.tipo, "Perfil": b.perfil };
+    Object.assign(datos, b.datos_tecnicos ?? {});
+    if (b.longitud_interior_Li_mm !== undefined) datos["Longitud interior Li (mm)"] = b.longitud_interior_Li_mm;
+    if (b.longitud_primitiva_Ld_mm !== undefined) datos["Longitud primitiva Ld (mm)"] = b.longitud_primitiva_Ld_mm;
+    if (b.peso_g !== undefined) datos["Peso (g)"] = b.peso_g;
+    out.push({ marca: "Continental", referencia: b.nombre, ean: "", datos, coincidencia: "exacta" });
+  }
+  for (const t of translink.slice(0, 4)) {
+    out.push({ marca: "TL", referencia: t.referencia, ean: "", datos: { "Fabricante": "TL (Translink)", "Tipo": t.tipo, "Perfil": t.perfil, ...t.datos }, coincidencia: "exacta" });
+  }
+  return out;
 }
 
 /** Qué se le enseña al cliente mientras corre cada herramienta. */
@@ -1308,6 +1355,7 @@ export async function runAgent(
   // sin haber buscado, teniéndola en el KB. Aquí se resuelve en código.
   const beltHits = findBeltForMessage(message);
   const tlBeltHits = findTranslinkBeltForMessage(message);
+  tecnicas.push(...fichasDeCorreas(beltHits, tlBeltHits));
   // Dos lecturas posibles de la longitud ("A 1250": A48 por Ld o A49 por Li).
   // Se avisa antes de redactar y se comprueba después (asegurarRespuesta).
   const ambLiLd = ambiguedadLiLd(message, beltHits, tlBeltHits);
@@ -1342,8 +1390,9 @@ export async function runAgent(
         `Si hay dos que encajan por vías distintas (una por longitud interior Li y otra por ` +
         `primitiva Ld), muestra las DOS y pregunta al cliente UNA sola cosa: si su número es la Li o la Ld, ` +
         `o qué pone grabado en el flanco de la correa — nunca elijas tú en silencio. ` +
-        `Recuerda que "disponibilidad_fabricante" es de Continental, NO el stock de ESGAS: el stock y el ` +
-        `precio salen de search_products. ` +
+        `Da TODOS sus datos técnicos, incluidos los de "datos_tecnicos" (paso, ancho, nº de dientes, sección, ` +
+        `nervios...), que salen de la designación normalizada. El stock y el precio salen SOLO de search_products: ` +
+        `de una correa que no está en la página no digas nada de disponibilidad, "bajo pedido" ni plazos. ` +
         `AUNQUE search_products no encuentre esa correa en el catálogo de la página, DEBES dar igualmente ` +
         `esta información completa: el dato del fabricante es válido y útil aunque no esté a la venta aquí ` +
         `ahora mismo. Tu respuesta tiene PROHIBIDO consistir solo en un escalado ("he pasado tu consulta a ` +
@@ -1607,7 +1656,7 @@ export async function runAgent(
   //  - BOTÓN DE CONTACTO si el texto manda al teléfono o al e-mail aunque el
   //    modelo no haya llamado a escalate_to_human.
   const cerrar = async (bruto: string): Promise<AgentResult> => {
-    const borrador = sinFalsoAviso(bruto);
+    const borrador = corregirSufijosSellado(sinFalsoAviso(bruto));
     const titulos = productosPresentados(borrador);
     const faltan = titulos.filter((t) => !collected.some((c) => normalizarRef(c.reference || c.name) === normalizarRef(t)));
     if (faltan.length) {
@@ -1632,6 +1681,11 @@ export async function runAgent(
     // ficha también hace falta para el PDF comparativo.
     if (/\bcompar\w*/i.test(message)) {
       for (const f of fichasDeConversacion(history)) if (!tecnicas.some((t) => t.marca === f.marca && t.referencia === f.referencia)) tecnicas.push(f);
+      // Y si lo anterior era una correa ("compárame esta correa con esta otra").
+      const previo = String([...history].reverse().find((m) => m.role === "assistant")?.content ?? "");
+      for (const f of fichasDeCorreas(findBeltForMessage(previo).slice(0, 2), findTranslinkBeltForMessage(previo).slice(0, 2))) {
+        if (!tecnicas.some((t) => t.marca === f.marca && t.referencia === f.referencia)) tecnicas.push(f);
+      }
     }
     for (const ref of [...titulos, ...productos.map((p) => p.name || p.reference)]) {
       const sinParentesis = ref.replace(/\([^)]*\)/g, "").trim();

@@ -848,5 +848,25 @@ section("FICHA TECNICA EN PDF — se extrae de respuestas REALES del bot");
   ok(sinFalsoAviso("Tenemos el SNR 625 ZZ con 40 uds.") === "Tenemos el SNR 625 ZZ con 40 uds.", "no toca una respuesta normal");
 }
 
+// ── Correas: datos de la designación, comparativa en PDF y sin "bajo pedido" (23-10-2026)
+{
+  const kb4 = require("../lib/kb") as typeof import("../lib/kb");
+  const ag = require("../lib/agent") as typeof import("../lib/agent");
+  const fi = require("../lib/ficha") as typeof import("../lib/ficha");
+  const g = kb4.findBelt("GTR880012", 1)[0];
+  ok(g?.datos_tecnicos?.["Paso (mm)"] === 8 && g?.datos_tecnicos?.["Número de dientes"] === 100 && g?.datos_tecnicos?.["Ancho (mm)"] === 12, "800-G8M-12 → paso 8, ancho 12, 100 dientes", JSON.stringify(g?.datos_tecnicos));
+  ok(!("disponibilidad_fabricante" in (g ?? {})), "la correa ya no lleva la disponibilidad del fabricante");
+  const spz = kb4.findBelt("SPZ1600", 1)[0];
+  ok(spz?.datos_tecnicos?.["Longitud de referencia Ld (mm)"] === 1600 && spz?.datos_tecnicos?.["Ancho superior (mm)"] === 9.7, "SPZ1600 → Ld 1600, sección 9,7 × 8", JSON.stringify(spz?.datos_tecnicos));
+  const prev = "**800-G8M-12**\n- Perfil: GTR 8M";
+  const tec = [...ag.fichasDeCorreas(kb4.findBeltForMessage("correa " + prev), []), ...ag.fichasDeCorreas(kb4.findBelt("GTR141190"), [])];
+  const f = fi.fichasParaPdf("Comparación entre la **800-G8M-12** y la **1190-G14M-562**", tec, true);
+  ok(f.length === 2, "comparar dos correas → dos fichas en PDF (y comparativa)", f.map((x) => x.titulo).join(" | "));
+  ok(
+    ag.corregirSufijosSellado("- **EE** → Deflectores en ambos lados").includes("goma con contacto"),
+    "«EE → Deflectores» se corrige a junta de goma con contacto"
+  );
+}
+
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);

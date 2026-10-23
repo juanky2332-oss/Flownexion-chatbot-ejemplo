@@ -918,9 +918,80 @@ export interface BeltInfo {
   descripcion: string;
   /** Se omite si el fabricante no lo da (1.606 correas vienen con peso 0). */
   peso_g?: number;
-  disponibilidad_fabricante: string;
   longitud_interior_Li_mm?: number;
   longitud_primitiva_Ld_mm?: number;
+  /**
+   * Datos que da la PROPIA designación normalizada del fabricante o la norma
+   * del perfil (nada calculado a ojo): paso, ancho, nº de dientes, sección...
+   * Ver datosDeDesignacion. Ya NO se da la disponibilidad en fábrica (stock,
+   * bajo pedido): el cliente solo debe oír el stock de la página.
+   */
+  datos_tecnicos?: Record<string, string | number>;
+}
+
+// Sección nominal (ancho superior × altura, mm) de las correas trapeciales
+// según ISO 4184 / DIN 2215 (clásicas) e ISO 4184 (estrechas). Las dentadas
+// X (XPZ, AX...) tienen la misma sección que su perfil liso.
+const SECCION_TRAPECIAL: Record<string, [number, number]> = {
+  Z: [10, 6], A: [13, 8], B: [17, 11], C: [22, 14], D: [32, 19],
+  SPZ: [9.7, 8], SPA: [12.7, 10], SPB: [16.3, 13], SPC: [22, 18],
+};
+// Paso entre nervios de las correas Poly-V (ISO 9982 / DIN 7867).
+const PASO_POLYV: Record<string, number> = { PH: 1.6, PJ: 2.34, PK: 3.56, PL: 4.7, PM: 9.4 };
+const TIPO_DENTADA: Record<string, string> = { G: "GT (Conti Falcon Pd)", H: "HTD", S: "STD", R: "RPP" };
+
+/**
+ * Datos técnicos que se leen de la designación normalizada (no se inventa
+ * nada: si el patrón no encaja exactamente, no se añade el dato).
+ *  - Dentadas métricas "800-G8M-12": desarrollo 800 mm, paso 8 mm, ancho 12
+ *    mm, 100 dientes (solo si el desarrollo entre el paso da un entero).
+ *  - Trapeciales: sección nominal de su perfil.
+ *  - Poly-V "8PJ1210": 8 nervios, paso entre nervios 2,34 mm.
+ */
+export function datosDeDesignacion(nombre: string, perfil: string): Record<string, string | number> {
+  const d: Record<string, string | number> = {};
+  const n = String(nombre ?? "").toUpperCase().replace(/\s+/g, "");
+  const dent = /^(\d+(?:\.\d+)?)-([GHSR]?)(\d+)M-(\d+(?:\.\d+)?)/.exec(n);
+  if (dent) {
+    const largo = Number(dent[1]);
+    const paso = Number(dent[3]);
+    d["Desarrollo / longitud primitiva (mm)"] = largo;
+    d["Paso (mm)"] = paso;
+    d["Ancho (mm)"] = Number(dent[4]);
+    if (dent[2] && TIPO_DENTADA[dent[2]]) d["Tipo de diente"] = TIPO_DENTADA[dent[2]];
+    if (/SLEEVE/.test(n)) d["Formato"] = "Manguito (sleeve)";
+    const z = largo / paso;
+    if (Number.isInteger(z)) d["Número de dientes"] = z;
+    return d;
+  }
+  const polyv = /^(\d+)(PH|PJ|PK|PL|PM)\d+/.exec(n);
+  if (polyv) {
+    d["Número de nervios"] = Number(polyv[1]);
+    d["Paso entre nervios (mm)"] = PASO_POLYV[polyv[2]];
+    return d;
+  }
+  // Poly-V en la forma de Continental "PJ356/140J-8": longitud efectiva 356 mm
+  // (ISO 9982), 140J = la misma en décimas de pulgada, y 8 nervios.
+  const polyv2 = /^(PH|PJ|PK|PL|PM)(\d+)\/\d+[HJKLM]-(\d+)$/.exec(n);
+  if (polyv2) {
+    d["Longitud efectiva (mm)"] = Number(polyv2[2]);
+    d["Número de nervios"] = Number(polyv2[3]);
+    d["Paso entre nervios (mm)"] = PASO_POLYV[polyv2[1]];
+    return d;
+  }
+  // Trapecial: el perfil sale del grupo del catálogo ("13/A", "SPZ / 3V / 9N", "AX/13").
+  const p = String(perfil ?? "").toUpperCase();
+  const clave = /\bSP[ZABC]\b/.exec(p)?.[0] ?? /\bXP([ZABC])\b/.exec(p)?.[0]?.replace("X", "S") ?? /(?:^|\/|\s)([ZABCD])X?(?:\/|\s|$)/.exec(p)?.[1];
+  const sec = clave ? SECCION_TRAPECIAL[clave] : undefined;
+  if (sec) {
+    d["Ancho superior (mm)"] = sec[0];
+    d["Altura (mm)"] = sec[1];
+  }
+  // Estrechas (SPZ/SPA/SPB/SPC y dentadas XP..): el número de la designación
+  // es la longitud de referencia Ld (ISO 4184): SPZ1600 = Ld 1600 mm.
+  const estrecha = /^(SP[ZABC]|XP[ZABC])(\d{3,5})\b/.exec(n);
+  if (estrecha) d["Longitud de referencia Ld (mm)"] = Number(estrecha[2]);
+  return d;
 }
 
 function labelBelt(b: BeltEntry): BeltInfo {
@@ -929,8 +1000,9 @@ function labelBelt(b: BeltEntry): BeltInfo {
     tipo: b.gama,
     perfil: b.perfil,
     descripcion: b.descripcion,
-    disponibilidad_fabricante: b.estado,
   };
+  const tecnicos = datosDeDesignacion(`${b.nombre} ${/SLEEVE/i.test(b.descripcion) ? "SLEEVE" : ""}`.trim(), b.perfil);
+  if (Object.keys(tecnicos).length) out.datos_tecnicos = tecnicos;
   if (b.pesoKg > 0) out.peso_g = Math.round(b.pesoKg * 1000);
   if (b.li !== null) out.longitud_interior_Li_mm = b.li;
   if (b.ld !== null) out.longitud_primitiva_Ld_mm = b.ld;
@@ -1200,7 +1272,7 @@ function loadTlBelts(): TlBeltEntry[] {
     datos["Paso (mm)"] = fmtNum(r.paso_mm);
     if (r.anchos?.length) datos["Anchos estándar"] = r.anchos.join(", ");
     if (r.doble_cara) datos["Doble cara"] = "Sí";
-    else if (r.doble_cara_disponible) datos["Versión doble cara"] = "Disponible";
+    else if (r.doble_cara_disponible) datos["Versión doble cara"] = "Existe en el catálogo TL";
 
     const base = sinPrefijoTL(r.ref);
     const perfil = beltNorm(r.perfil.replace(/^D-/, ""));
