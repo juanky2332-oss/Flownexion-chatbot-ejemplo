@@ -1379,11 +1379,28 @@ export async function runAgent(
       // errata del cliente): se buscan las de su misma base para poder decir
       // "esa no la tenemos; tenemos la C3", en vez de dar datos de una pieza
       // que no existe en la página.
-      const base = partirReferencia(refDetectada).base;
-      if (base && base !== normalizarRef(refDetectada) && !analizarVariantes(refDetectada, encontrados).exactas.length) {
-        const familia = filtrarFueraDeFamilia(base, await searchProducts(base, groupId, customerId).catch(() => [] as Product[]));
-        const nuevos = familia.filter((p) => !encontrados.some((e) => e.id === p.id));
-        if (nuevos.length) encontrados = ordenarParaTarjetas(refDetectada, [...encontrados, ...nuevos]);
+      // Se quitan sufijos de uno en uno empezando por el último ("6205ZZC2" →
+      // "6205ZZ" → "6205"): así sale primero la variante MÁS parecida (el
+      // 6205 ZZ C3, solo cambia el juego), no cualquiera de la familia.
+      const partida = partirReferencia(refDetectada);
+      if (partida.base && partida.base !== normalizarRef(refDetectada) && !analizarVariantes(refDetectada, encontrados).exactas.length) {
+        for (let k = partida.sufijos.length - 1; k >= 0; k--) {
+          const prefijo = partida.base + partida.sufijos.slice(0, k).join("");
+          const familia = filtrarFueraDeFamilia(partida.base, await searchProducts(prefijo, groupId, customerId).catch(() => [] as Product[]));
+          const nuevos = familia.filter((p) => !encontrados.some((e) => e.id === p.id));
+          if (nuevos.length) encontrados = ordenarParaTarjetas(refDetectada, [...encontrados, ...nuevos]);
+          if (analizarVariantes(refDetectada, encontrados).alternativasConStock.length) break;
+        }
+      }
+      // Si lo que pidió el cliente está y tiene unidades, se le enseña ESO y
+      // nada más: pidió un 6201 2RS, no también el 6201 2RS INOX.
+      const analisisPedida = analizarVariantes(refDetectada, encontrados);
+      const exactasConStock = analisisPedida.exactas.filter((v) => (v.stock ?? 0) > 0).map((v) => v.producto);
+      if (exactasConStock.length) {
+        encontrados = exactasConStock;
+      } else if (!analisisPedida.exactas.length && analisisPedida.alternativasConStock.length) {
+        // No existe la pedida: solo la variante que la sustituye (la más parecida).
+        encontrados = [analisisPedida.alternativasConStock[0].producto, ...encontrados.filter((p) => p.id !== analisisPedida.alternativasConStock[0].producto.id && (p.stock ?? 0) <= 0 && analisisPedida.familia.some((v) => v.producto.id === p.id && v.exacta))];
       }
       for (const p of encontrados.slice(0, 3)) {
         if (!collected.some((c) => c.id === p.id)) collected.push(p);
@@ -1416,8 +1433,23 @@ export async function runAgent(
         // el sufijo que cambia son deterministas, no hace falta que el modelo
         // los deduzca. El texto del bloque vive junto a esa lógica para poder
         // probarlo con el código real en npm run test:kb.
-        const bloqueVar = bloqueVariantes(analizarVariantes(refDetectada, encontrados));
+        const bloqueVar = bloqueVariantes(analisisPedida);
         if (bloqueVar) messages.push({ role: "system", content: bloqueVar });
+
+        // "Compáralo con X" con X que no existe en la página: la comparativa
+        // es entre el producto del que se venía hablando y la variante que SÍ
+        // hay, no contra una pieza que no tenemos.
+        const previa = refDeConversacion(history);
+        if (/\bcompar\w*/i.test(message) && previa && bloqueVar && !analisisPedida.exactas.length) {
+          messages.push({
+            role: "system",
+            content:
+              `COMPARATIVA PEDIDA: el cliente quiere comparar el producto del turno anterior (Ref: ${previa.referencia}) con la referencia ` +
+              `que acaba de escribir, que NO está en la página. Haz la comparativa entre el producto anterior y la variante DISPONIBLE ` +
+              `de arriba (llama a compare_products con esas dos, la anterior primero), después de decir en una frase que la ` +
+              `pedida no está y que esa es la que hay. Nada de comparar con la que no existe.`,
+          });
+        }
 
         // VENTA CRUZADA — solo cuando el cliente ya está comprando (pide
         // unidades o dice que lo va a cambiar). En el prompt sola no se
