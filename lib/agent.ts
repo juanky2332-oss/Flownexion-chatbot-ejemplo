@@ -1701,7 +1701,7 @@ export async function runAgent(
         tecnicas.push(hit.coincidencia === "equivalente" ? { ...hit, pedida: sinParentesis.replace(/^RODAMIENTOS?\s+/i, "") } : hit);
       }
     }
-    if (!escalation.needsHuman && /\b(tel[eé]fono|e-?mail|correo electr[oó]nico|con el equipo de ESGAS|un t[eé]cnico de ESGAS)\b/i.test(texto)) {
+    if (!escalation.needsHuman && /\b(tel[eé]fono|e-?mail|correo electr[oó]nico|equipo de ESGAS|un t[eé]cnico de ESGAS|ll[aá]manos|llamarnos|escr[ií]benos|escribirnos|cont[aá]ctanos|contactarnos)\b/i.test(texto)) {
       escalation.needsHuman = true;
       escalation.reason ??= "contacto_en_texto";
       escalation.context ??= message.slice(0, 150);
