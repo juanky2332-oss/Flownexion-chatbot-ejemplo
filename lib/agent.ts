@@ -435,6 +435,7 @@ Tu estilo de venta es el de un buen técnico de mostrador: resuelves la duda, en
 Cuando el cliente YA ha decidido comprar un rodamiento para cambiarlo (pide unidades, dice que lo va a sustituir, o lo añade al carrito), añade al final UNA sola línea con el complemento que un técnico recomendaría al hacer ese cambio, ligado a su medida:
 - Rodamiento abierto o con ZZ que va junto a un retén: "Al cambiarlo conviene poner también retén nuevo: si me dices sus medidas (eje × alojamiento × ancho, p. ej. 25×52×7) te lo busco."
 - Rodamiento abierto (sin sellado de goma): "Recuerda engrasarlo al montarlo (llenar entre el 30 y el 50 % del hueco libre)." Los sellados (LLU/2RS/EE) vienen engrasados de por vida: NO les recomiendes grasa.
+(La línea del retén la añade el sistema sola cuando corresponde: no la escribas tú.)
 - Unidad con soporte (UC/UCP/UCF...): menciona que el rodamiento de inserción (UC) se vende también suelto si el cuerpo está bien.
 - Correa: si es una transmisión de varias correas, que se cambian todas a la vez (juego), nunca una sola.
 Reglas: solo UNA vez por conversación, nunca en una consulta puramente técnica o de diagnóstico, nunca antes del dato que pidió, sin inventar referencias ni decir que algo está disponible sin haberlo buscado con search_products.
@@ -1451,19 +1452,6 @@ export async function runAgent(
           });
         }
 
-        // VENTA CRUZADA — solo cuando el cliente ya está comprando (pide
-        // unidades o dice que lo va a cambiar). En el prompt sola no se
-        // aplicaba de forma fiable.
-        if (/\b(\d+\s*(uds?|unidades|piezas)?\s*(del?|de los?)\b|cambiar|sustituir|reponer|recambio)/i.test(message)) {
-          messages.push({
-            role: "system",
-            content:
-              "VENTA CRUZADA: el cliente está comprando para montar. Después del producto y su cierre de compra, añade " +
-              "UNA línea final con el consejo de montaje que corresponda según VENTA CRUZADA (retén nuevo con sus medidas " +
-              "si es abierto o ZZ; engrasarlo si es abierto; el UC suelto si es una unidad con soporte). Una sola línea, " +
-              "sin inventar referencias ni disponibilidad.",
-          });
-        }
       }
     } catch {
       // Si la tienda falla, el modelo siempre puede llamar a search_products
@@ -1571,8 +1559,24 @@ export async function runAgent(
       escalation.reason ??= "contacto_en_texto";
       escalation.context ??= message.slice(0, 150);
     }
+    // VENTA CRUZADA, en código (en el prompt el modelo no la aplicaba): solo
+    // cuando el cliente está comprando para cambiar la pieza, una vez por
+    // conversación, y solo con un rodamiento abierto o con deflectores ZZ, que
+    // es cuando un técnico recomendaría cambiar también el retén. A los
+    // sellados (2RS/LLU/EE) no se les añade nada.
+    const comprando = /\b(\d+\s*(uds?|unidades|piezas)?\s*(del?|de los?)\b|cambiar|sustituir|reponer|recambio)/i.test(message);
+    const yaSugerido = history.some((m) => /ret[eé]n/i.test(String(m.content ?? "")));
+    const rodamiento = productos.find(
+      (p) => (p.stock ?? 0) > 0 && !/^(SOPORTE|CORREA|CADENA|RET[EÉ]N|PI[NÑ][OÓ]N|POLEA)/i.test(p.name) && /\b\d{4,5}\b/.test(p.name)
+    );
+    const sellado = !!rodamiento && /(2RS|LLU|LLB|LLH|\bEE\b|DDU|2RZ|\bRS\b|\bVV\b)/i.test(rodamiento.name);
+    const conVentaCruzada =
+      comprando && !yaSugerido && rodamiento && !sellado && !/ret[eé]n/i.test(texto)
+        ? texto.trimEnd() +
+          "\n\nSi va montado junto a un retén, conviene cambiarlo también al sustituir el rodamiento: dime sus medidas (eje × alojamiento × ancho, por ejemplo 25×52×7) y te lo busco."
+        : texto;
     return {
-      output: texto,
+      output: conVentaCruzada,
       products: productos,
       needsHuman: escalation.needsHuman,
       humanContext: escalation.context,
