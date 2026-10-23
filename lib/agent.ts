@@ -40,6 +40,7 @@ import {
   ajustarCantidad,
   corregirFichasConKB,
   tarjetasParaRespuesta,
+  normalizarRef,
 } from "./variantes";
 import { searchOfficialSource } from "./websearch";
 import { limpiarCierreVacio } from "./guardrails";
@@ -1052,6 +1053,22 @@ export type EventoAgente =
   | { tipo: "texto"; texto: string }
   | { tipo: "reinicio" };
 
+/**
+ * Productos que la respuesta PRESENTA, por sus títulos en negrita con marca:
+ * "**SNR 6005 EE C3**", "**Rodamiento de bolas SNR 6205 ZZ C3**",
+ * "**Ref: SNR 6205 ZZ C3**". Devuelve "MARCA REF" sin repetir.
+ */
+export function productosPresentados(texto: string): string[] {
+  const out: string[] = [];
+  const re = /\*\*(?:Ref:\s*)?(?:[A-Za-zÁÉÍÓÚáéíóúñ]+\s+){0,4}?((?:NTN|SNR|TL)\s+[A-Z0-9][A-Z0-9 .\-/]{1,28}?)\s*(?:\([^)]*\))?\*\*/g;
+  for (const m of String(texto ?? "").matchAll(re)) {
+    const ref = m[1].trim().replace(/\s+/g, " ");
+    if (!/\d/.test(ref)) continue;
+    if (!out.some((r) => normalizarRef(r) === normalizarRef(ref))) out.push(ref);
+  }
+  return out.slice(0, 4);
+}
+
 /** Qué se le enseña al cliente mientras corre cada herramienta. */
 const ESTADO_HERRAMIENTA: Record<string, string> = {
   search_products: "Consultando el catálogo y el stock…",
@@ -1420,6 +1437,60 @@ export async function runAgent(
   // porque antes se esperaban 10-35 s en silencio. El texto definitivo es
   // siempre el que devuelve runAgent al final (pasa por las correcciones de
   // asegurarRespuesta), así que lo que se ve en vivo es un adelanto.
+  // Cierre común de la respuesta, pase por donde pase. Lo que aquí se
+  // garantiza no depende de que el modelo haya llamado a tal o cual tool:
+  //  - TARJETAS de todos los productos que el texto presenta (máx. 4): si
+  //    alguno no se buscó en este turno (p.ej. el que viene de la pregunta
+  //    anterior en una comparativa), se busca ahora.
+  //  - FICHAS del KB de cada producto presentado, para que salga su PDF
+  //    individual y, si son varios, el PDF comparativo. Pasó de verdad: en
+  //    "compáralo con los que tengas del mismo diámetro" el bot escribió las
+  //    fichas en formato corto y no salió ningún PDF.
+  //  - BOTÓN DE CONTACTO si el texto manda al teléfono o al e-mail aunque el
+  //    modelo no haya llamado a escalate_to_human.
+  const cerrar = async (borrador: string): Promise<AgentResult> => {
+    const titulos = productosPresentados(borrador);
+    const faltan = titulos.filter((t) => !collected.some((c) => normalizarRef(c.reference || c.name) === normalizarRef(t)));
+    if (faltan.length) {
+      const encontrados = await Promise.race([
+        Promise.all(
+          faltan.slice(0, 3).map((t) =>
+            searchProducts(t, groupId, customerId)
+              .then((ps) => ordenarParaTarjetas(t, filtrarFueraDeFamilia(t, ps))[0])
+              .catch(() => undefined)
+          )
+        ),
+        new Promise<undefined[]>((r) => setTimeout(() => r([]), 5000)),
+      ]);
+      for (const p of encontrados) if (p && !collected.some((c) => c.id === p.id)) collected.push(p);
+    }
+    const { texto, productos } = ajustarCantidad(
+      borrador,
+      tarjetasParaRespuesta(borrador, collected, message).slice(0, 4),
+      message
+    );
+    for (const ref of [...titulos, ...productos.map((p) => p.reference || p.name)]) {
+      const sinParentesis = ref.replace(/\([^)]*\)/g, "").trim();
+      const marca = /^(NTN|SNR|TL)\b/i.exec(sinParentesis)?.[1]?.toUpperCase();
+      const hit = findTechnicalInfo(sinParentesis).find((t) => !marca || t.marca.toUpperCase().startsWith(marca));
+      if (hit && !tecnicas.some((t) => t.marca === hit.marca && t.referencia === hit.referencia)) tecnicas.push(hit);
+    }
+    if (!escalation.needsHuman && /\b(tel[eé]fono|e-?mail|correo electr[oó]nico)\b/i.test(texto)) {
+      escalation.needsHuman = true;
+      escalation.reason ??= "contacto_en_texto";
+      escalation.context ??= message.slice(0, 150);
+    }
+    return {
+      output: texto,
+      products: productos,
+      needsHuman: escalation.needsHuman,
+      humanContext: escalation.context,
+      motivo: escalation.reason,
+      uso,
+      tecnicas,
+    };
+  };
+
   const uso: UsoTokens = { entrada: 0, cache: 0, salida: 0 };
   const sumarUso = (u?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } | null } | null) => {
     if (!u) return;
@@ -1486,23 +1557,7 @@ export async function runAgent(
     const toolCalls = choice.tool_calls ?? [];
     if (toolCalls.length === 0) {
       const borrador = asegurarRespuesta(limpiarCierreVacio(choice.content ?? "", collected.some((p) => (p.stock ?? 0) > 0), productoEnConversacion));
-      // Las tarjetas son las del producto que el texto nombra de verdad, no
-      // las primeras que se buscaron (ver tarjetasParaRespuesta); con la
-      // cantidad pedida ya preseleccionada (ver ajustarCantidad).
-      const { texto, productos } = ajustarCantidad(
-        borrador,
-        tarjetasParaRespuesta(borrador, collected, message).slice(0, 3),
-        message
-      );
-      return {
-        output: texto,
-        products: productos,
-        needsHuman: escalation.needsHuman,
-        humanContext: escalation.context,
-        motivo: escalation.reason,
-        uso,
-        tecnicas,
-      };
+      return cerrar(borrador);
     }
 
     // Las herramientas de una misma ronda van EN PARALELO: antes iban una
@@ -1568,21 +1623,5 @@ export async function runAgent(
     "Ahora mismo no he podido completar la consulta. Cuéntame la referencia o la medida que necesitas y lo miro de nuevo, o si lo prefieres puedes escribirnos por teléfono o e-mail y te lo resolvemos al momento."
   );
 
-  const ajustado = ajustarCantidad(
-    textoFinal,
-    tarjetasParaRespuesta(textoFinal, collected, message).slice(0, 3),
-    message
-  );
-
-  return {
-    output: ajustado.texto,
-    // Las tarjetas son las del producto que el texto nombra de verdad, no las
-    // primeras que se buscaron (ver tarjetasParaRespuesta).
-    products: ajustado.productos,
-    needsHuman: escalation.needsHuman,
-    humanContext: escalation.context,
-    motivo: escalation.reason,
-    uso,
-    tecnicas,
-  };
+  return cerrar(textoFinal);
 }

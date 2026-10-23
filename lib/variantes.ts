@@ -30,8 +30,12 @@ import { boreCodeFor, nextStandardBore } from "./bearingSizes";
  */
 
 /** Marcas que preceden a la referencia en el catálogo ("SNR 6205 C3"). */
+// También la palabra genérica con la que empiezan algunos nombres de la
+// página ("RODAMIENTO TL 6205 2RS"): sin quitarla, ese producto no se
+// reconocía como variante del 6205 y el bot mandaba al teléfono teniendo
+// 1.660 uds a la venta (visto en producción el 23-10-2026).
 const MARCA_INICIAL =
-  /^(NTN|SNR|TL|INA|FAG|SKF|NSK|TIMKEN|KOYO|NACHI|CONTINENTAL|CONTI|SEDIS|BONDIOLI|CORTECO)[\s\-/]*/;
+  /^(RODAMIENTOS?(?:\s+DE\s+(?:BOLAS|RODILLOS))?|NTN|SNR|TL|INA|FAG|SKF|NSK|TIMKEN|KOYO|NACHI|CONTINENTAL|CONTI|SEDIS|BONDIOLI|CORTECO)[\s\-/]*/;
 
 /**
  * Sufijos estructurales reconocidos, de más largo a más corto: la
