@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Product } from "@/lib/types";
-import { anadirEnTienda, enTienda, enviarEvento } from "@/lib/carritoTienda";
+import { abrirVentanaCarrito, anadirConVentana, anadirEnTienda, enTienda, enviarEvento } from "@/lib/carritoTienda";
 import { useCarritoChat } from "./CarritoChat";
 
 interface ProductCardProps {
@@ -24,6 +24,7 @@ export default function ProductCard({
   psBase = "https://b2b.esgas.es",
   supportPhone = "968 676 983",
   supportEmail = "esgas@esgas.es",
+  identityToken,
 }: ProductCardProps) {
   // Enlaces de contacto pulsables para los avisos de "sin stock en la página":
   // el cliente llama o escribe con un solo toque.
@@ -99,8 +100,8 @@ export default function ProductCard({
     `${psBase}/addchat.php` +
     `?id_product=${encodeURIComponent(product.id)}` +
     `&id_product_attribute=${encodeURIComponent(product.idProductAttribute ?? 0)}` +
-    `&qty=${encodeURIComponent(qtyToAdd)}` +
-    `&redirect=1`;
+    `&qty=${encodeURIComponent(qtyToAdd)}`;
+
 
   const showStoreError = (error: string | null, needsLogin: boolean) => {
     if (needsLogin) {
@@ -130,19 +131,45 @@ export default function ProductCard({
     if (safeQty !== qty) setQty(safeQty);
 
     if (!inStore) {
-      // Fuera de la tienda (web del chat, distinto origen): no se puede leer el
-      // carrito de b2b.esgas.es por seguridad del navegador, así que se abre
-      // addchat.php como PESTAÑA de la tienda (navegación de primer nivel: el
-      // navegador manda la sesión real del cliente). Con redirect=1, addchat.php
-      // añade y lleva esa misma pestaña al carrito, de modo que el cliente ve el
-      // carrito con las unidades YA puestas; no hace falta que el chat adivine
-      // cuándo terminó ni dé un "añadido" que no puede comprobar.
-      const url = addchatUrl(safeQty);
-      const tab = window.open(url, "_blank");
-      // Fuera de la tienda no se puede confirmar si se añadió: se anota como
-      // intento para el panel.
-      enviarEvento("anadir_carrito", { ref: product.reference, id: product.id, uds: safeQty, precio: product.price, confirmado: false });
-      if (!tab) setStoreLink(url);
+      // Fuera de la tienda (web del chat): ventanita de la tienda que añade y
+      // se cierra sola, y "✓ Añadido" solo si la tienda confirma que las
+      // unidades han subido (ver anadirConVentana en lib/carritoTienda.ts).
+      // La ventana se abre YA, dentro del clic, o el navegador la bloquea.
+      const w = abrirVentanaCarrito();
+      if (!w) {
+        setStoreLink(addchatUrl(safeQty));
+        return;
+      }
+      setAdding(true);
+      const lineaFuera = {
+        id_product: Number(product.id),
+        id_product_attribute: product.idProductAttribute ?? 0,
+        qty: safeQty,
+        name: product.name,
+        reference: product.reference,
+        price: product.price,
+      };
+      anadirConVentana(w, [lineaFuera], identityToken, psBase).then((r) => {
+        setAdding(false);
+        if (!r.comprobado) {
+          // Sin forma de comprobarlo (cliente sin identificar en esta web): no
+          // se afirma lo que no se sabe; el carrito queda a un clic.
+          setStoreLink(`${cartPage}#comprobar`);
+          enviarEvento("anadir_carrito", { ref: product.reference, id: product.id, uds: safeQty, precio: product.price, confirmado: false });
+          return;
+        }
+        if (r.anadidas.length) {
+          setAdded({ qty: safeQty, cartUrl: cartPage });
+          carrito?.registrar(r.anadidas, { cartUrl: cartPage });
+          enviarEvento("anadir_carrito", { ref: product.reference, id: product.id, uds: safeQty, precio: product.price });
+        } else {
+          setAddError({
+            text: "La tienda no ha confirmado el añadido. Comprueba que tienes la sesión iniciada en b2b.esgas.es y vuelve a pulsar, o contacta por ",
+            contact: true,
+          });
+          enviarEvento("anadir_error", { ref: product.reference, id: product.id, uds: safeQty, error: "no_confirmado" });
+        }
+      });
       return;
     }
 
@@ -325,7 +352,8 @@ export default function ProductCard({
           ✓ {added.qty === 1 ? "Añadida 1 ud." : `Añadidas ${added.qty} uds.`} a tu carrito
           <a
             href={added.cartUrl}
-            target="_top"
+            target={inStore ? "_top" : "_blank"}
+            rel="noopener"
             className="font-bold underline underline-offset-2"
             style={{ color: primaryColor }}
           >
@@ -343,7 +371,7 @@ export default function ProductCard({
             className="font-bold underline underline-offset-2"
             style={{ color: primaryColor }}
           >
-            Pulsa aquí para añadirlo al carrito →
+            {storeLink.endsWith("#comprobar") ? "Enviado a la tienda: comprueba tu carrito →" : "Pulsa aquí para añadirlo al carrito →"}
           </a>
         </p>
       )}

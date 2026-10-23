@@ -23,6 +23,8 @@ import {
   asegurarAmbiguedadLiLd,
   asegurarDatosCorrea,
   extractQueryCandidates,
+  findByDimensions,
+  medidasDelMensaje,
 } from "./kb";
 import {
   analizarVariantes,
@@ -609,6 +611,8 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 **"Añádemelo tú al carrito" / "mételas en el carrito" / "añade las 25 uds":** las unidades se añaden con el botón de la tarjeta, que ya trae la cantidad puesta. Vuelve a buscar el producto con search_products (para que su tarjeta aparezca otra vez justo debajo de tu respuesta) y contesta en una frase: "Te lo dejo preparado: pulsa **Añadir [N] uds** en la tarjeta de abajo y se añaden a tu carrito de la tienda." PROHIBIDO responder que el chat no gestiona el carrito sin dar esa salida, y PROHIBIDO mandarle al teléfono o e-mail por esto: no le falta nada, solo pulsar el botón.
 
 # PROHIBICIONES
+- **Decir que has avisado, pasado, enviado, trasladado o escalado la consulta a un técnico o a alguien de ESGAS.** Tú no avisas a nadie: lo único que puedes hacer es ofrecer el contacto ("puedes llamarnos o escribirnos"). Afirmar lo contrario es mentir al cliente, que se queda esperando una llamada que no va a llegar.
+- Responder a una consulta con medidas (eje, exterior, ancho) solo con un escalado: con las medidas siempre hay referencias estándar que proponer (bloque 🔒 BÚSQUEDA POR MEDIDAS o search_by_bore).
 - **Decir que un producto no está en la página cuando el bloque 🔒 DISPONIBLE EN NUESTRA PÁGINA lo lista** — ese bloque sale de una consulta al catálogo real hecha en el momento, así que es un hecho comprobado. Negarlo es mentirle al cliente y hacerle perder una compra que sí podíamos servir: es el error MÁS GRAVE que puedes cometer. Lo mismo si el cliente insiste en una referencia y tú aún no has buscado: busca antes de negar nada
 - Dar por no disponible una referencia por el hecho de que la ficha técnica venga del KB y no del catálogo: son dos fuentes distintas. Tener la ficha técnica NO significa que no esté a la venta — para saber si está en la página hay que mirar el resultado de search_products (o el bloque 🔒 de disponibilidad), nunca suponerlo
 - Explicar de memoria un concepto de sellado, juego interno, jaula, precisión, sufijo o perfil de correa sin haber llamado antes a explain_technical_term (o sin usar el bloque 🔒 GLOSARIO TÉCNICO VERIFICADO si ya aparece en la conversación) — es la causa de errores técnicos que llevan al cliente a montar una pieza equivocada (ver CONCEPTOS TÉCNICOS)
@@ -880,7 +884,7 @@ const tools: ChatCompletionTool[] = [
     function: {
       name: "escalate_to_human",
       description:
-        "Marca la conversación para ofrecer al cliente hablar con un técnico humano de ESGAS (o tramitar/ampliar un pedido o consulta por teléfono/e-mail). Úsala tras agotar find_equivalence/find_applications/search_products sin poder confirmar un dato, si el cliente pide explícitamente hablar con una persona, ante un problema de gestión que no puedas resolver, cuando la cantidad pedida supera el stock disponible en la página, o cuando el cliente busca una marca que no está en la página.",
+        "NO avisa a nadie ni envía la consulta a ningún técnico: solo muestra al cliente los botones de llamar y escribir a ESGAS (por eso PROHIBIDO decir 'he pasado tu consulta', 'he avisado a un técnico' o similar; di 'puedes llamarnos o escribirnos'). Marca la conversación para ofrecer al cliente hablar con un técnico humano de ESGAS (o tramitar/ampliar un pedido o consulta por teléfono/e-mail). Úsala tras agotar find_equivalence/find_applications/search_products sin poder confirmar un dato, si el cliente pide explícitamente hablar con una persona, ante un problema de gestión que no puedas resolver, cuando la cantidad pedida supera el stock disponible en la página, o cuando el cliente busca una marca que no está en la página.",
       parameters: {
         type: "object",
         properties: {
@@ -1021,7 +1025,15 @@ async function runTool(
   }
   if (name === "search_by_bore") {
     const boreMm = Number(args?.bore_mm ?? 0);
-    const products = await searchByBore(boreMm, groupId, idCustomer);
+    let products = await searchByBore(boreMm, groupId, idCustomer);
+    // Ejes fuera de la tabla de series (miniaturas de 3-9 mm, medidas no
+    // estándar): las referencias reales salen de la base técnica por medidas.
+    if (!products.length && boreMm > 0) {
+      const bases = Array.from(new Set(findByDimensions({ di: boreMm }, 8).map((o) => partirReferencia(o.referencia).base))).slice(0, 4);
+      products = (
+        await Promise.all(bases.map((b) => searchProducts(b, groupId, idCustomer).then((ps) => filtrarFueraDeFamilia(b, ps)).catch(() => [] as Product[])))
+      ).flat();
+    }
     for (const p of products.slice(0, 6)) {
       if (!collected.some((c) => c.id === p.id)) collected.push(p);
     }
@@ -1071,6 +1083,23 @@ export type EventoAgente =
  * "**SNR 6005 EE C3**", "**Rodamiento de bolas SNR 6205 ZZ C3**",
  * "**Ref: SNR 6205 ZZ C3**". Devuelve "MARCA REF" sin repetir.
  */
+/**
+ * Quita las frases en las que el bot dice que ha AVISADO a alguien ("he
+ * pasado tu consulta a un técnico de ESGAS..."). Es falso: nadie recibe nada,
+ * solo salen los botones de contacto, y el cliente se queda esperando una
+ * llamada que no llega. Si la respuesta se queda vacía, se sustituye por la
+ * invitación a contactar, que es lo verdadero.
+ */
+export function sinFalsoAviso(texto: string): string {
+  const falso =
+    /[^.!?\n]*\b(he|hemos|te he|ya he)\s+(pasado|trasladado|enviado|remitido|derivado|escalado|notificado|avisado|comunicado)\b[^.!?\n]*(consulta|t[eé]cnico|equipo|compa[nñ]ero|ESGAS)[^.!?\n]*[.!?]?/gi;
+  const limpio = String(texto ?? "").replace(falso, "").replace(/\n[ \t]+/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (limpio === String(texto ?? "").trim()) return texto;
+  return limpio.length > 40
+    ? limpio
+    : "Para resolver esta consulta lo mejor es que lo veas directamente con un técnico de ESGAS: puedes llamarnos o escribirnos desde los botones de abajo y te atendemos al momento.";
+}
+
 export function productosPresentados(texto: string): string[] {
   const out: string[] = [];
   const re = /\*\*(?:Ref:\s*)?(?:[A-Za-zÁÉÍÓÚáéíóúñ]+\s+){0,4}?((?:NTN|SNR|TL)\s+[A-Z0-9][A-Z0-9 .\-/]{1,28}?)\s*(?:\([^)]*\))?\*\*/g;
@@ -1459,6 +1488,69 @@ export async function runAgent(
     }
   }
 
+  // BÚSQUEDA POR MEDIDAS — el cliente da el eje (y quizá exterior, ancho o
+  // "con tapa") pero no una referencia. Caso real: "necesito 20 rodamientos de
+  // diámetro interior 5 mm con tapa en ambos lados" acabó en "he pasado tu
+  // consulta a un técnico" sin dar nada, teniendo el 625 ZZ / 625 2RS en la
+  // base de datos. Ahora se resuelve en código: referencias estándar que
+  // cumplen esas medidas (ficha técnica real) y cuáles están en la página.
+  const medidas = !refDetectada ? medidasDelMensaje(message) : null;
+  if (medidas) {
+    onEvento?.({ tipo: "estado", texto: "Buscando por medidas en el catálogo…" });
+    const opciones = findByDimensions(medidas, 8);
+    if (opciones.length) {
+      tecnicas.push(...opciones.slice(0, 4));
+      // Una búsqueda en la tienda por cada referencia base distinta (625, 635…).
+      const bases = Array.from(new Set(opciones.map((o) => partirReferencia(o.referencia).base))).slice(0, 4);
+      const enPagina = (
+        await Promise.all(
+          bases.map((b) => searchProducts(b, groupId, customerId).then((ps) => filtrarFueraDeFamilia(b, ps)).catch(() => [] as Product[]))
+        )
+      ).flat();
+      const proteccionDe = (nombre: string) =>
+        /(2RS|LLU|LLB|LLH|\bEE\b|DDU|2RZ|\bRS\b|\bVV\b)/i.test(nombre) ? "junta" : /(ZZ|2Z|\bZ\b)/i.test(nombre) ? "deflector" : "abierto";
+      const encaja = (p: Product) =>
+        !medidas.proteccion ||
+        (medidas.proteccion === "ambas" ? proteccionDe(p.name) !== "abierto" : proteccionDe(p.name) === medidas.proteccion);
+      const vistos = new Set<number>();
+      const candidatos = enPagina
+        .filter((p) => !vistos.has(p.id) && vistos.add(p.id) && encaja(p))
+        .sort((a, b) => Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0));
+      for (const p of candidatos.slice(0, 3)) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+
+      const medidasTxt =
+        `dØ${medidas.di} mm` + (medidas.de ? ` × DØ${medidas.de} mm` : "") + (medidas.an ? ` × B${medidas.an} mm` : "");
+      const lineasKb = opciones
+        .slice(0, 6)
+        .map((o) => {
+          const d = o.datos;
+          const val = (re: RegExp) => Object.entries(d).find(([k]) => re.test(k))?.[1];
+          return `- ${o.marca} ${o.referencia}: dØ${val(/^Diámetro interior/i)} × DØ${val(/^Diámetro exterior/i)} × B${val(/^Ancho/i)} mm · junta: ${val(/^Junta/i) ?? "abierto"}`;
+        })
+        .join("\n");
+      const lineasPagina = candidatos.length
+        ? candidatos.slice(0, 4).map((p) => `- ${p.name} (Ref: ${p.reference}) — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`).join("\n")
+        : "- Ninguna de estas referencias está a la venta en la página ahora mismo.";
+      messages.push({
+        role: "system",
+        content:
+          `🔒 BÚSQUEDA POR MEDIDAS — resuelta en la base de datos técnica y en el catálogo real (${medidasTxt}` +
+          `${medidas.proteccion === "ambas" ? ", protegido por ambos lados" : medidas.proteccion === "junta" ? ", con junta de goma" : medidas.proteccion === "deflector" ? ", con tapa metálica" : ""}):\n` +
+          `Referencias estándar que cumplen esas medidas:\n${lineasKb}\n\nEn nuestra página:\n${lineasPagina}\n\n` +
+          `OBLIGATORIO: responde con estas opciones reales. Si hay alguna en la página, preséntala (máx. 2-3, primero las que tienen stock) ` +
+          `con su ficha técnica completa, su precio y su stock, y cierra ofreciendo la compra de las unidades que pide si hay stock suficiente. ` +
+          (medidas.proteccion === "ambas"
+            ? `El cliente dice "tapa" sin precisar: explica en UNA frase que hay dos tipos (ZZ = tapa metálica, sin contacto; 2RS/EE = junta de goma, estanca al agua y al polvo) y, si las dos están, preséntalas y pregúntale UNA cosa: cuál necesita o qué pone grabado en el suyo. `
+            : "") +
+          (!medidas.de
+            ? `Como solo ha dado el eje y hay varias anchuras/exteriores posibles, enseña la más habitual y pídele UN dato para confirmarla: el diámetro exterior. `
+            : "") +
+          `Si ninguna está en la página, da igualmente las referencias estándar de arriba con sus medidas y ofrece el contacto al final para conseguirlas. ` +
+          `PROHIBIDO responder solo con un escalado, decir que no hay nada o derivar a un técnico sin dar estas opciones.`,
+      });
+    }
+  }
+
   // AUTODETECCIÓN DE "OTRA MEDIDA" — el segundo fallo que reportó el cliente:
   // al pedir "uno más grande" el bot proponía otra referencia pero no decía en
   // qué se diferenciaba de la que el cliente ya tenía delante, que es
@@ -1514,7 +1606,8 @@ export async function runAgent(
   //    fichas en formato corto y no salió ningún PDF.
   //  - BOTÓN DE CONTACTO si el texto manda al teléfono o al e-mail aunque el
   //    modelo no haya llamado a escalate_to_human.
-  const cerrar = async (borrador: string): Promise<AgentResult> => {
+  const cerrar = async (bruto: string): Promise<AgentResult> => {
+    const borrador = sinFalsoAviso(bruto);
     const titulos = productosPresentados(borrador);
     const faltan = titulos.filter((t) => !collected.some((c) => normalizarRef(c.reference || c.name) === normalizarRef(t)));
     if (faltan.length) {

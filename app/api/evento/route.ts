@@ -47,5 +47,7 @@ export async function POST(req: NextRequest) {
       console.error("[evento] aviso de contacto no enviado:", (err as Error).message);
     }
   }
-  return NextResponse.json({ ok: true }, { headers });
+  // "avisado": si los datos de contacto le llegan a alguien en el momento. Sin
+  // aviso configurado el chat no puede prometer que le van a llamar.
+  return NextResponse.json({ ok: true, avisado: tipo === "contacto_datos" && !!process.env.AVISO_CONTACTO_WEBHOOK }, { headers });
 }

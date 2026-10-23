@@ -1471,3 +1471,112 @@ export function asegurarDatosCorrea(texto: string, conti: BeltInfo[], tl: TlBelt
   }
   return `Estos son los datos del fabricante para esa correa:\n\n${lineas.join("\n")}\n\n${texto}`;
 }
+
+// ── Búsqueda por MEDIDAS sobre la base técnica ─────────────────────────────
+// "Necesito 20 rodamientos de 5 mm de diámetro interior con tapa en ambos
+// lados" acababa en "he pasado tu consulta a un técnico": search_by_bore solo
+// conocía ejes de 10 a 100 mm de las series 60/62/63/72/320/UC. Aquí se busca
+// en las 22.000 fichas NTN/SNR por medidas reales, para cualquier eje
+// (miniaturas 6xx incluidas: 625 = dØ5 × DØ16 × B5).
+
+export type Proteccion = "deflector" | "junta" | "ambas" | "abierto";
+
+export interface CriterioMedidas {
+  di: number;
+  de?: number;
+  an?: number;
+  /** "ambas" = el cliente dice "tapa/tapado/cerrado" sin precisar metálica o de goma. */
+  proteccion?: Proteccion;
+}
+
+const esRadialDeBolas = (c: Record<string, string | number>) =>
+  /contacto radial/i.test(String(c.clase ?? "")) && /1 hilera/i.test(String(c.clase2 ?? ""));
+const tipoJunta = (c: Record<string, string | number>): Proteccion => {
+  const j = `${c.junta ?? ""} ${c.juntadesc ?? ""}`;
+  if (/deflect|ZZ|\bZ\b/i.test(j)) return "deflector";
+  if (/estanq|EE|LLU|LLB|LLH|LL|2RS|junta/i.test(j)) return "junta";
+  return "abierto";
+};
+
+/**
+ * Rodamientos de la base técnica con esas medidas, de más a menos habitual:
+ * primero los rígidos de bolas de una hilera (los "de toda la vida"), y entre
+ * ellos de menor a mayor diámetro exterior. Sin las variantes de juego (C3...)
+ * repetidas: una por referencia base y protección.
+ */
+export function findByDimensions(cr: CriterioMedidas, limite = 8): TechInfo[] {
+  const cerca = (a: unknown, b?: number) => b === undefined || Math.abs(Number(a) - b) < 0.05;
+  const filas = loadTech().filter((r) => {
+    const c = r.campos;
+    if (!cerca(c.di, cr.di) || !cerca(c.de, cr.de) || !cerca(c.an, cr.an)) return false;
+    if (!cr.proteccion) return true;
+    const t = tipoJunta(c);
+    return cr.proteccion === "ambas" ? t !== "abierto" : t === cr.proteccion;
+  });
+  // Si hay rígidos de bolas de una hilera, solo esos: es lo que pide quien
+  // da un eje y "con tapa"; agujas, lineales o unidades no vienen a cuento.
+  if (filas.some((r) => esRadialDeBolas(r.campos))) {
+    for (let i = filas.length - 1; i >= 0; i--) if (!esRadialDeBolas(filas[i].campos)) filas.splice(i, 1);
+  }
+  // Series de más a menos habituales: 62 (ligera), 60 (estrecha), 63 (media),
+  // 69 y 68 (sección fina). Vale igual para miniaturas (625, 605, 635...).
+  const serie = (ref: string) => {
+    const r = ref.replace(/^[A-Z]+/, "");
+    return r.startsWith("62") ? 0 : r.startsWith("60") ? 1 : r.startsWith("63") ? 2 : r.startsWith("69") ? 3 : r.startsWith("68") ? 4 : 5;
+  };
+  filas.sort((a, b) => {
+    const ra = esRadialDeBolas(a.campos) ? 0 : 1;
+    const rb = esRadialDeBolas(b.campos) ? 0 : 1;
+    if (ra !== rb) return ra - rb;
+    const sa = serie(a.ref), sb = serie(b.ref);
+    if (sa !== sb) return sa - sb;
+    const de = Number(a.campos.de) - Number(b.campos.de);
+    if (de) return de;
+    return a.ref.length - b.ref.length; // la designación más corta = la estándar (625ZZ antes que 625ZZC3)
+  });
+  const vistas = new Set<string>();
+  const out: TechInfo[] = [];
+  for (const r of filas) {
+    // Una por base + protección (fuera las variantes de juego C2/C3/C4).
+    const clave = `${r.refNorm.replace(/C\d$|CM$/, "")}`;
+    if (vistas.has(clave)) continue;
+    vistas.add(clave);
+    out.push({ ...labelTech(r), coincidencia: "exacta" });
+    if (out.length >= limite) break;
+  }
+  return out;
+}
+
+/**
+ * Lee del mensaje del cliente las medidas que da en texto (sin referencia):
+ * "diámetro interior de 5 mm", "eje de 25", "5 mm de eje", "exterior 16 mm",
+ * "ancho 5", y si pide tapa/protección. null si no da diámetro interior.
+ */
+export function medidasDelMensaje(mensaje: string): CriterioMedidas | null {
+  const m = String(mensaje ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const num = String.raw`(\d+(?:[.,]\d+)?)`;
+  const mm = String.raw`\s*(?:mm|mms|milimetros)?`;
+  // Primero "25 mm de eje" (número delante) y después "eje de 25": al revés,
+  // "25 mm de eje y 52 de exterior" se leía como eje de 52.
+  const interior =
+    new RegExp(num + mm + String.raw`\s+(?:de\s+)?(?:eje|diametro\s+interior|interior)`).exec(m) ??
+    new RegExp(String.raw`(?:diametro\s+(?:interior|interno|del?\s+eje)|\beje\b|agujero|\binterior\b|\bd[øo0])\D{0,20}?` + num + mm).exec(m);
+  if (!interior) return null;
+  const di = Number(interior[1].replace(",", "."));
+  if (!Number.isFinite(di) || di <= 0 || di > 600) return null;
+  const ext =
+    new RegExp(num + mm + String.raw`\s+(?:de\s+)?(?:diametro\s+)?exterior`).exec(m) ??
+    new RegExp(String.raw`(?:diametro\s+exterior|\bexterior\b)\D{0,20}?` + num + mm).exec(m);
+  const anc = new RegExp(String.raw`(?:ancho|anchura|espesor|grosor)\D{0,15}?` + num + mm).exec(m);
+  let proteccion: Proteccion | undefined;
+  if (/(goma|caucho|2rs|estanc|sellad|junta)/.test(m)) proteccion = "junta";
+  else if (/(metalic|chapa|\bzz\b|deflector)/.test(m)) proteccion = "deflector";
+  else if (/(tapa|tapad|cerrad|blindad|protegid|proteccion)/.test(m)) proteccion = "ambas";
+  else if (/(abierto|sin tapa|sin proteccion)/.test(m)) proteccion = "abierto";
+  return {
+    di,
+    ...(ext ? { de: Number(ext[1].replace(",", ".")) } : {}),
+    ...(anc ? { an: Number(anc[1].replace(",", ".")) } : {}),
+    ...(proteccion ? { proteccion } : {}),
+  };
+}

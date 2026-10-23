@@ -135,6 +135,21 @@ export type TipoEventoChat =
   | "contacto_datos"
   | "valoracion";
 
+/** Como enviarEvento, pero diciendo si los datos le han llegado a alguien en el momento. */
+export async function enviarContacto(datos: Record<string, unknown>): Promise<{ ok: boolean; avisado: boolean }> {
+  try {
+    const r = await fetch(destino, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: sesion, tipo: "contacto_datos", datos }),
+    });
+    const d = await r.json().catch(() => ({}));
+    return { ok: r.ok, avisado: !!d?.avisado };
+  } catch {
+    return { ok: false, avisado: false };
+  }
+}
+
 export function enviarEvento(tipo: TipoEventoChat, datos: Record<string, unknown> = {}): Promise<boolean> {
   try {
     return fetch(destino, {
@@ -147,5 +162,101 @@ export function enviarEvento(tipo: TipoEventoChat, datos: Record<string, unknown
       .catch(() => false);
   } catch {
     return Promise.resolve(false);
+  }
+}
+
+// ── Fuera de la tienda (la web del chat) ──────────────────────────────────
+// El navegador no deja tocar el carrito de b2b.esgas.es desde otro dominio.
+// Se usa una ventanita de la tienda (primer nivel: lleva la sesión del
+// cliente) que pasa por addchat.php y se cierra sola, y se COMPRUEBA en la
+// tienda (antes y después) que las unidades han subido de verdad.
+
+/** Hay que llamarla DENTRO del clic, o el navegador bloquea la ventana. */
+export function abrirVentanaCarrito(): Window | null {
+  const w = window.open("", "esgas-carrito", "popup,width=380,height=180,left=80,top=80");
+  if (!w) return null;
+  try {
+    w.document.title = "Añadiendo al carrito…";
+    w.document.body.innerHTML =
+      '<p style="font:14px system-ui,sans-serif;color:#334;padding:24px;text-align:center">Añadiendo al carrito de ESGAS…<br><small>Esta ventana se cierra sola.</small></p>';
+  } catch {
+    /* sin importancia */
+  }
+  return w;
+}
+
+function addchatUrl(l: LineaCarrito, psBase: string): string {
+  return (
+    `${psBase}/addchat.php?id_product=${encodeURIComponent(l.id_product)}` +
+    `&id_product_attribute=${encodeURIComponent(l.id_product_attribute ?? 0)}&qty=${encodeURIComponent(l.qty)}`
+  );
+}
+
+async function unidadesEnCarrito(l: LineaCarrito, identityToken?: string | null): Promise<number | null> {
+  try {
+    const r = await fetch("/api/carrito-estado", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id_product: l.id_product, id_product_attribute: l.id_product_attribute ?? 0, ...(identityToken ? { identityToken } : {}) }),
+    });
+    const d = await r.json();
+    return typeof d?.qty === "number" ? d.qty : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface ResultadoFuera {
+  anadidas: LineaCarrito[];
+  fallidas: LineaCarrito[];
+  /** false = no se ha podido comprobar (cliente sin identificar en esta web). */
+  comprobado: boolean;
+}
+
+export async function anadirConVentana(
+  w: Window,
+  lineas: LineaCarrito[],
+  identityToken?: string | null,
+  psBase = PS_BASE
+): Promise<ResultadoFuera> {
+  const antes = await Promise.all(lineas.map((l) => unidadesEnCarrito(l, identityToken)));
+  for (const l of lineas) {
+    try {
+      w.location.href = addchatUrl(l, psBase);
+    } catch {
+      break; // el cliente cerró la ventana
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  try {
+    w.close();
+  } catch {
+    /* ya cerrada */
+  }
+  if (antes.some((a) => a === null)) return { anadidas: [], fallidas: [], comprobado: false };
+  const despues = await Promise.all(lineas.map((l) => unidadesEnCarrito(l, identityToken)));
+  const anadidas: LineaCarrito[] = [];
+  const fallidas: LineaCarrito[] = [];
+  lineas.forEach((l, i) => {
+    const a = antes[i] as number;
+    const d = despues[i];
+    if (d !== null && d >= a + l.qty) anadidas.push(l);
+    else fallidas.push(l);
+  });
+  return { anadidas, fallidas, comprobado: true };
+}
+
+/** Lo que hay ahora en el carrito de la tienda (null = no se puede leer desde aquí). */
+export async function leerCarritoTienda(identityToken?: string | null): Promise<LineaCarrito[] | null> {
+  try {
+    const r = await fetch("/api/carrito-estado", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accion: "resumen", ...(identityToken ? { identityToken } : {}) }),
+    });
+    const d = await r.json();
+    return Array.isArray(d?.lineas) ? (d.lineas as LineaCarrito[]) : null;
+  } catch {
+    return null;
   }
 }

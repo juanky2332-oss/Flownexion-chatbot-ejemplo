@@ -255,6 +255,26 @@ export default function ChatWidget({
     }
   }, [input, loading, isLocked, messages, sessionId, webhookUrl, identityToken, customerEmail, customerId, inStore]);
 
+  // Todo lo que ha salido en la conversación (sin repetir, lo último delante):
+  // el "añadir varios" del último mensaje con productos ofrece todo, no solo
+  // lo de esa respuesta.
+  const productosConversacion = (() => {
+    const vistos = new Set<number>();
+    const lista: Product[] = [];
+    for (const m of [...messages].reverse()) {
+      for (const p of m.products ?? []) {
+        if (vistos.has(p.id)) continue;
+        vistos.add(p.id);
+        lista.push(p);
+      }
+    }
+    return lista.slice(0, 8);
+  })();
+  const ultimoConProductos = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) if (!messages[i].enCurso && messages[i].products?.length) return i;
+    return -1;
+  })();
+
   const sendChip = useCallback((text: string) => { send(text); }, [send]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -266,7 +286,7 @@ export default function ChatWidget({
   };
 
   return (
-    <CarritoChatProvider psBase={PS_BASE}>
+    <CarritoChatProvider psBase={PS_BASE} identityToken={identityToken} activo={open}>
     <div className="fixed bottom-4 right-4 z-[2147483000] flex flex-col items-end font-sans">
       {open && (
         <div
@@ -351,6 +371,7 @@ export default function ChatWidget({
                   <ChatBubble
                     key={m.id}
                     message={m}
+                    productosConversacion={idx === ultimoConProductos ? productosConversacion : undefined}
                     pregunta={m.role === "assistant" && idx > 0 && messages[idx - 1].role === "user" ? messages[idx - 1].content : undefined}
                     clienteEmail={tokenEmail}
                     primaryColor={primaryColor}

@@ -1026,3 +1026,81 @@ export async function psCreateCart(
 }
 
 export { CART_PAGE_URL };
+
+/**
+ * Unidades de un producto en el carrito más reciente del cliente (Webservice).
+ * Sirve para COMPROBAR un añadido hecho fuera de la tienda (la ventanita de
+ * addchat.php): se mira antes y después, y solo si sube se confirma
+ * "✓ Añadido" en el chat. null = no se ha podido comprobar.
+ */
+export async function psCantidadEnCarrito(customerId: number, idProduct: number, idProductAttribute = 0): Promise<number | null> {
+  if (DEMO_MODE || !customerId || !idProduct) return null;
+  try {
+    const url = buildUrl("carts", {
+      display: "full",
+      limit: "1",
+      filters: { "filter[id_customer]": `[${customerId}]`, sort: "[id_DESC]" },
+    });
+    const res = await psFetch(url, 8000);
+    if (!res || !res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    const cart = data?.carts?.[0];
+    if (!cart) return 0;
+    const filas: Array<{ id_product?: string | number; id_product_attribute?: string | number; quantity?: string | number }> =
+      cart?.associations?.cart_rows ?? [];
+    return filas
+      .filter((r) => Number(r.id_product) === idProduct && Number(r.id_product_attribute ?? 0) === Number(idProductAttribute ?? 0))
+      .reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+  } catch {
+    return null;
+  }
+}
+
+export interface LineaCarritoTienda {
+  id_product: number;
+  id_product_attribute: number;
+  qty: number;
+  name: string;
+  reference: string;
+  price: number;
+}
+
+/**
+ * Lo que el cliente tiene AHORA en su carrito de la tienda (el más reciente),
+ * con nombre y precio de su cuenta: alimenta el resumen del carrito del chat
+ * cuando el chat no está dentro de la tienda. null = no se puede leer.
+ */
+export async function psResumenCarrito(customerId: number, groupId?: number): Promise<LineaCarritoTienda[] | null> {
+  if (DEMO_MODE || !customerId) return null;
+  try {
+    const url = buildUrl("carts", {
+      display: "full",
+      limit: "1",
+      filters: { "filter[id_customer]": `[${customerId}]`, sort: "[id_DESC]" },
+    });
+    const res = await psFetch(url, 8000);
+    if (!res || !res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    const filas: Array<{ id_product?: string | number; id_product_attribute?: string | number; quantity?: string | number }> =
+      data?.carts?.[0]?.associations?.cart_rows ?? [];
+    const lineas = filas
+      .map((r) => ({ id: Number(r.id_product), attr: Number(r.id_product_attribute ?? 0), qty: Number(r.quantity) || 0 }))
+      .filter((r) => r.id > 0 && r.qty > 0)
+      .slice(0, 20);
+    if (!lineas.length) return [];
+    const productos = await hydrateProducts(lineas.map((l) => ({ id: l.id, name: "" })), groupId, customerId, lineas.length);
+    return lineas.map((l) => {
+      const p = productos.find((x) => x.id === l.id);
+      return {
+        id_product: l.id,
+        id_product_attribute: l.attr,
+        qty: l.qty,
+        name: p?.name ?? `Producto ${l.id}`,
+        reference: p?.reference ?? "",
+        price: p?.price ?? 0,
+      };
+    });
+  } catch {
+    return null;
+  }
+}

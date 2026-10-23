@@ -826,5 +826,27 @@ section("FICHA TECNICA EN PDF — se extrae de respuestas REALES del bot");
   ok(!pc("dime las características del 6205 zz c3", ["6205ZZC3"]), "una sola referencia no es comparar");
 }
 
+// ── Búsqueda por medidas (23-10-2026) ─────────────────────────────────────
+// "diámetro interior de 5 mm con tapa en ambos lados" acababa en un escalado.
+{
+  const kb3 = require("../lib/kb") as typeof import("../lib/kb");
+  const m1 = kb3.medidasDelMensaje("necesito 20 rodamientos que tengo diametro interior de 5 mms y con tapa en ambos lados");
+  ok(m1?.di === 5 && m1?.proteccion === "ambas", "lee eje 5 mm y «tapa en ambos lados»", JSON.stringify(m1));
+  const r1 = kb3.findByDimensions(m1!, 6).map((t) => t.referencia);
+  ok(r1.includes("625ZZ") && r1.includes("625EE"), "eje 5 mm con tapa → 625 ZZ y 625 EE", r1.join(", "));
+  const m2 = kb3.medidasDelMensaje("rodamiento de 25 mm de eje y 52 de exterior");
+  ok(m2?.di === 25 && m2?.de === 52, "«25 mm de eje y 52 de exterior» → dØ25 DØ52", JSON.stringify(m2));
+  const r2 = kb3.findByDimensions(m2!, 3).map((t) => t.referencia);
+  ok(r2[0] === "6205", "dØ25 × DØ52 → 6205 primero", r2.join(", "));
+  ok(kb3.medidasDelMensaje("quiero el 6205") === null, "con referencia no es búsqueda por medidas");
+}
+// ── Nunca decir que se ha avisado a nadie (23-10-2026) ────────────────────
+{
+  const { sinFalsoAviso } = require("../lib/agent") as typeof import("../lib/agent");
+  const t = sinFalsoAviso("He pasado tu consulta a un técnico de ESGAS para que puedan ayudarte. Puedes llamarnos o escribirnos cuando quieras.");
+  ok(!/he pasado/i.test(t), "quita «he pasado tu consulta a un técnico»", t);
+  ok(sinFalsoAviso("Tenemos el SNR 625 ZZ con 40 uds.") === "Tenemos el SNR 625 ZZ con 40 uds.", "no toca una respuesta normal");
+}
+
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);

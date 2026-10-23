@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import type { Product } from "@/lib/types";
 import type { FichaTecnica } from "@/lib/ficha";
 import ProductCard from "./ProductCard";
-import { anadirEnTienda, enTienda, enviarEvento, type LineaCarrito } from "@/lib/carritoTienda";
+import { abrirVentanaCarrito, anadirConVentana, anadirEnTienda, enTienda, enviarContacto, enviarEvento, type LineaCarrito } from "@/lib/carritoTienda";
 import { useCarritoChat } from "./CarritoChat";
 
 export interface ChatMessage {
@@ -39,6 +39,11 @@ interface ChatBubbleProps {
   pregunta?: string;
   /** E-mail del cliente identificado, para no pedírselo al dejar sus datos. */
   clienteEmail?: string | null;
+  /**
+   * Todos los productos que han salido en la conversación, sin repetir. Solo
+   * se pasa al último mensaje con productos: ahí va el "añadir varios".
+   */
+  productosConversacion?: Product[];
 }
 
 /**
@@ -81,6 +86,7 @@ export default function ChatBubble({
   supportEmail,
   pregunta,
   clienteEmail,
+  productosConversacion,
 }: ChatBubbleProps) {
   const isUser = message.role === "user";
 
@@ -178,8 +184,8 @@ export default function ChatBubble({
           </div>
         )}
 
-        {!isUser && !message.enCurso && message.products && message.products.length > 1 && (
-          <AnadirVarios products={message.products} primaryColor={primaryColor} psBase={psBase} cliente={clienteEmail} />
+        {!isUser && !message.enCurso && productosConversacion && productosConversacion.length > 1 && (
+          <AnadirVarios products={productosConversacion} primaryColor={primaryColor} psBase={psBase} cliente={clienteEmail} identityToken={identityToken} />
         )}
 
         {!isUser && !message.enCurso && message.fichas && message.fichas.length > 0 && (
@@ -317,7 +323,19 @@ function DescargaFicha({ fichas, primaryColor, comparar }: { fichas: FichaTecnic
  * unidades de cada uno y añádelos todos de una vez. Solo con el chat dentro de
  * la tienda, que es donde el carrito se puede llenar con la sesión del cliente.
  */
-function AnadirVarios({ products, primaryColor, psBase = "https://b2b.esgas.es", cliente }: { products: Product[]; primaryColor: string; psBase?: string; cliente?: string | null }) {
+function AnadirVarios({
+  products,
+  primaryColor,
+  psBase = "https://b2b.esgas.es",
+  cliente,
+  identityToken,
+}: {
+  products: Product[];
+  primaryColor: string;
+  psBase?: string;
+  cliente?: string | null;
+  identityToken?: string | null;
+}) {
   const comprables = products.filter((p) => p.stock === undefined || p.stock > 0);
   const carrito = useCarritoChat();
   const [abierto, setAbierto] = useState(false);
@@ -326,7 +344,6 @@ function AnadirVarios({ products, primaryColor, psBase = "https://b2b.esgas.es",
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [dentro, setDentro] = useState(false);
   useEffect(() => setDentro(enTienda(psBase)), [psBase]);
-  // Fuera de la tienda no se puede llenar su carrito, pero el presupuesto sí.
   if (comprables.length < 2) return null;
 
   const max = (p: Product) => (p.stock !== undefined ? Math.max(1, p.stock) : 999);
@@ -357,8 +374,6 @@ function AnadirVarios({ products, primaryColor, psBase = "https://b2b.esgas.es",
 
   const anadir = async () => {
     if (!marcados.length || enviando) return;
-    setEnviando(true);
-    setAviso(null);
     const lineas: LineaCarrito[] = marcados.map((p) => ({
       id_product: Number(p.id),
       id_product_attribute: p.idProductAttribute ?? 0,
@@ -367,6 +382,38 @@ function AnadirVarios({ products, primaryColor, psBase = "https://b2b.esgas.es",
       reference: p.reference,
       price: p.price,
     }));
+    if (!dentro) {
+      // Fuera de la tienda: la ventanita que añade una a una y se cierra sola,
+      // con comprobación en la tienda (abrirla dentro del clic).
+      const w = abrirVentanaCarrito();
+      if (!w) {
+        setAviso({ ok: false, texto: "El navegador ha bloqueado la ventana de la tienda. Permite las ventanas emergentes de esta página y vuelve a pulsar." });
+        return;
+      }
+      setEnviando(true);
+      setAviso(null);
+      const r = await anadirConVentana(w, lineas, identityToken, psBase);
+      setEnviando(false);
+      if (!r.comprobado) {
+        setAviso({ ok: true, texto: "Enviado a la tienda. Revisa tu carrito para confirmarlo." });
+        return;
+      }
+      if (r.anadidas.length) {
+        carrito?.registrar(r.anadidas, {});
+        enviarEvento("anadir_carrito", { multiple: true, lineas: r.anadidas.map((l) => ({ ref: l.reference, id: l.id_product, uds: l.qty, precio: l.price })) });
+        setSel({});
+      }
+      const fallos = r.fallidas.map((l) => l.reference || l.name).join(", ");
+      setAviso({
+        ok: r.anadidas.length > 0 && !r.fallidas.length,
+        texto: r.anadidas.length
+          ? `✓ Añadidos ${r.anadidas.length} producto${r.anadidas.length === 1 ? "" : "s"} a tu carrito${fallos ? `. No se pudo confirmar: ${fallos}` : ""}.`
+          : "La tienda no ha confirmado el añadido. Comprueba que tienes la sesión iniciada en b2b.esgas.es y vuelve a intentarlo.",
+      });
+      return;
+    }
+    setEnviando(true);
+    setAviso(null);
     const r = await anadirEnTienda(lineas, psBase);
     setEnviando(false);
     if (r.sinRespuesta) {
@@ -403,7 +450,7 @@ function AnadirVarios({ products, primaryColor, psBase = "https://b2b.esgas.es",
         style={{ color: primaryColor }}
         aria-expanded={abierto}
       >
-        <span>{dentro ? "🛒 Añadir varios a la vez · presupuesto" : "📄 Presupuesto de varios productos"}</span>
+        <span>🛒 Añadir varios a la vez · presupuesto</span>
         <span className="text-gray-400">{abierto ? "▲" : "▼"}</span>
       </button>
       {abierto && (
@@ -425,7 +472,7 @@ function AnadirVarios({ products, primaryColor, psBase = "https://b2b.esgas.es",
               </div>
             );
           })}
-          {dentro && (
+          {(
             <button
               type="button"
               onClick={anadir}
@@ -458,12 +505,17 @@ function AnadirVarios({ products, primaryColor, psBase = "https://b2b.esgas.es",
 /** El cliente deja su teléfono o e-mail y ESGAS le contacta (queda en el panel). */
 function DejarContacto({ consulta, clienteEmail }: { consulta: string; clienteEmail?: string | null }) {
   const [valor, setValor] = useState(clienteEmail ?? "");
-  const [estado, setEstado] = useState<"idle" | "enviando" | "ok" | "error">("idle");
+  const [estado, setEstado] = useState<"idle" | "enviando" | "ok" | "guardado" | "error">("idle");
   const limpio = valor.trim();
   const valido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(limpio) || limpio.replace(/\D/g, "").length >= 9;
 
   if (estado === "ok") {
     return <p className="w-full text-xs font-semibold text-green-700">✓ Recibido. Un técnico de ESGAS te contactará lo antes posible.</p>;
+  }
+  if (estado === "guardado") {
+    // Sin aviso inmediato configurado no se promete una llamada: se dice lo
+    // que es verdad y se deja la vía rápida.
+    return <p className="w-full text-xs font-semibold text-green-700">✓ Datos guardados. Si te corre prisa, llámanos o escríbenos con los botones de arriba.</p>;
   }
   return (
     <form
@@ -472,8 +524,8 @@ function DejarContacto({ consulta, clienteEmail }: { consulta: string; clienteEm
         e.preventDefault();
         if (!valido || estado === "enviando") return;
         setEstado("enviando");
-        const ok = await enviarEvento("contacto_datos", { contacto: limpio, consulta: consulta.slice(0, 300) });
-        setEstado(ok ? "ok" : "error");
+        const r = await enviarContacto({ contacto: limpio, consulta: consulta.slice(0, 300) });
+        setEstado(!r.ok ? "error" : r.avisado ? "ok" : "guardado");
       }}
     >
       <input
