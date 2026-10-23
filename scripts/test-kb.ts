@@ -422,6 +422,13 @@ ok(tarjetasParaRespuesta("Sin referencias en el texto", recogidos).length === 0,
 const dosCitados = [P(30, "SNR 6305", "SNR 6305", 0), P(31, "SNR 6305 C3", "SNR 6305 C3", 9)];
 const conC3 = tarjetasParaRespuesta("El SNR 6305 C3 es una opcion mas grande que el 6205", dosCitados);
 ok(conC3[0].id === 31, "entre las citadas, primero la que tiene unidades", conC3.map((p: any) => p.reference).join(", "));
+// Visto en producción (23-10-2026): la referencia de la página lleva la
+// equivalencia entre paréntesis y el texto la escribe con otras palabras.
+const conParentesis = [P(40, "SNR 5309 EE G15 (3309 2RS TVH)", "SNR 5309 EE G15 (3309 2RS TVH)", 5)];
+ok(
+  tarjetasParaRespuesta("**SNR 5309 EE G15 (equivalente al 3309 2RS TVH)**", conParentesis).length === 1,
+  "tarjeta de una referencia con paréntesis cuando el texto la nombra sin él"
+);
 
 section("BLOQUE INYECTADO — variantes (el texto real que ve el modelo)");
 const bloque = bloqueVariantes(a1);

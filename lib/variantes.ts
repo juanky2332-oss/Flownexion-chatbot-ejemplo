@@ -276,6 +276,10 @@ export function tarjetasParaRespuesta(respuesta: string, productos: Product[], m
   const nombrado = (p: Product): boolean => {
     const ref = normalizarRef(p.reference || p.name);
     if (ref.length >= 3 && texto.includes(ref)) return true;
+    // Referencias de la página con la equivalencia entre paréntesis
+    // ("SNR 5309 EE G15 (3309 2RS TVH)"): vale la parte de fuera.
+    const sinParentesis = normalizarRef(String(p.reference || p.name).replace(/\([^)]*\)/g, ""));
+    if (sinParentesis !== ref && sinParentesis.length >= 4 && /\d/.test(sinParentesis) && texto.includes(sinParentesis)) return true;
     // Referencias de la página con prefijo/sufijo de familia ("33A48TL") o
     // nombres largos ("CORREA CONTINENTAL A48"): vale la designación núcleo
     // (A48) si aparece como palabra suelta en el texto y lleva algún dígito.
