@@ -21,7 +21,7 @@ export function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const headers = corsHeaders(req);
   if (isRateLimited(getClientIp(req), "carrito-estado", 40)) return NextResponse.json({ qty: null, lineas: null }, { status: 429, headers });
-  let body: { accion?: unknown; id_product?: unknown; id_product_attribute?: unknown; identityToken?: unknown };
+  let body: { accion?: unknown; id_product?: unknown; id_product_attribute?: unknown; identityToken?: unknown; origen?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -30,7 +30,9 @@ export async function POST(req: NextRequest) {
   const claims = verifyIdentityToken(typeof body?.identityToken === "string" ? body.identityToken : "");
   let customerId = claims?.id_customer;
   let groupId = claims?.id_group;
-  if (!customerId && process.env.TEST_CUSTOMER_EMAIL?.trim()) {
+  // La cuenta de pruebas solo en la web del chat: dentro de la tienda, un
+  // cliente sin token firmado vería el carrito de esa cuenta como si fuera suyo.
+  if (!customerId && body?.origen === "web" && process.env.TEST_CUSTOMER_EMAIL?.trim()) {
     const c = await psGetCustomer(process.env.TEST_CUSTOMER_EMAIL.trim());
     customerId = c?.id;
     groupId = c?.groupId;

@@ -160,6 +160,6 @@ export async function exportar(tipo: "mensajes" | "sin_respuesta" | "contactos",
     return sql`select ts, session_id, cliente, pregunta, respuesta, motivo from chat_mensajes
                where sin_respuesta and ts >= ${desde} order by ts desc`;
   }
-  return sql`select ts, session_id, origen, cliente, pregunta, respuesta, escalado, motivo, sin_respuesta, ms, modelo
+  return sql`select ts, session_id, origen, cliente, pregunta, respuesta, escalado, motivo, sin_respuesta, ms
              from chat_mensajes where ts >= ${desde} order by ts desc limit 5000`;
 }

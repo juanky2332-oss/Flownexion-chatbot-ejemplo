@@ -138,7 +138,7 @@ export function MiniCarrito({ primaryColor, enLaTienda, cliente }: { primaryColo
         <span className="min-w-0 flex-1 truncate text-gray-700">
           {real ? "Tu carrito" : "Añadido desde el chat"}: <strong className="text-gray-900">{uds} ud{uds === 1 ? "." : "s."}</strong>
           {" · "}
-          <span className="text-gray-500">subtotal</span> <strong className="text-gray-900">{c.resumen?.total && !real ? c.resumen.total : eur(subtotal)}</strong>
+          <span className="text-gray-500">subtotal</span> <strong className="text-gray-900">{eur(subtotal)}</strong>
         </span>
         <span className="text-gray-400">{abierto ? "▲" : "▼"}</span>
       </button>
@@ -159,6 +159,12 @@ export function MiniCarrito({ primaryColor, enLaTienda, cliente }: { primaryColo
             <span>Subtotal ({uds} uds.)</span>
             <strong className="text-gray-900">{eur(subtotal)}</strong>
           </p>
+          {!real && c.resumen?.total && (
+            <p className="flex justify-between text-gray-500">
+              <span>Total de tu carrito en la tienda{c.resumen.count ? ` (${c.resumen.count} uds.)` : ""}</span>
+              <span className="font-semibold">{c.resumen.total}</span>
+            </p>
+          )}
           <div className="mt-2 flex gap-2">
             <button
               type="button"

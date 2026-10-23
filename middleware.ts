@@ -22,7 +22,14 @@ export function middleware(req: NextRequest) {
     try {
       const [u, ...resto] = atob(auth.slice(6)).split(":");
       const clave = permitidos.get(u);
-      if (clave && resto.join(":") === clave) return NextResponse.next();
+      if (clave && resto.join(":") === clave) {
+        // Quién ha entrado, para que el panel sepa qué enseñar (el coste de
+        // OpenAI solo lo ve Flownexion). Se pisa siempre: no se puede falsear
+        // desde fuera.
+        const h = new Headers(req.headers);
+        h.set("x-panel-usuario", u);
+        return NextResponse.next({ request: { headers: h } });
+      }
     } catch {
       /* cabecera mal formada */
     }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { datosPanel, conversacion } from "@/lib/panel";
 
 // Panel privado del chat (usuario y contraseña, ver middleware.ts): qué se
@@ -38,6 +39,8 @@ const Vacio = ({ texto = "Nada en este periodo." }: { texto?: string }) => <p cl
 
 export default async function Panel({ searchParams }: { searchParams: { dias?: string; sesion?: string } }) {
   const dias = Math.min(365, Math.max(1, Number(searchParams.dias) || 30));
+  // El coste de OpenAI es cosa de Flownexion: ESGAS no lo ve.
+  const verCoste = headers().get("x-panel-usuario") === "flownexion";
 
   if (searchParams.sesion) return <VistaConversacion id={searchParams.sesion} dias={dias} />;
 
@@ -89,11 +92,11 @@ export default async function Panel({ searchParams }: { searchParams: { dias?: s
               <Tarjeta titulo="PDF descargados" valor={d.kpi.pdfs} />
               <Tarjeta titulo="Piden contacto" valor={d.kpi.contactos} nota={`${d.kpi.escalados} respuestas ofrecieron un técnico`} />
               <Tarjeta titulo="Valoraciones" valor={`👍 ${d.kpi.votosSi} · 👎 ${d.kpi.votosNo}`} />
-              <Tarjeta
+              {verCoste && <Tarjeta
                 titulo="Coste de OpenAI (estimado)"
                 valor={`${d.kpi.costeUsd.toFixed(2)} $`}
                 nota={`${d.kpi.mensajes ? (d.kpi.costeUsd / d.kpi.mensajes).toFixed(3) : "0"} $ por pregunta · ${d.kpi.pctCache} % del prompt desde caché`}
-              />
+              />}
             </div>
 
             <Seccion titulo="Actividad por día">

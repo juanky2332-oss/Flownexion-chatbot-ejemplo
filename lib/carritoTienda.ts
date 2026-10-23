@@ -197,7 +197,7 @@ async function unidadesEnCarrito(l: LineaCarrito, identityToken?: string | null)
     const r = await fetch("/api/carrito-estado", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_product: l.id_product, id_product_attribute: l.id_product_attribute ?? 0, ...(identityToken ? { identityToken } : {}) }),
+      body: JSON.stringify({ id_product: l.id_product, id_product_attribute: l.id_product_attribute ?? 0, ...(identityToken ? { identityToken } : {}), origen: enTienda() ? "tienda" : "web" }),
     });
     const d = await r.json();
     return typeof d?.qty === "number" ? d.qty : null;
@@ -252,7 +252,7 @@ export async function leerCarritoTienda(identityToken?: string | null): Promise<
     const r = await fetch("/api/carrito-estado", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accion: "resumen", ...(identityToken ? { identityToken } : {}) }),
+      body: JSON.stringify({ accion: "resumen", ...(identityToken ? { identityToken } : {}), origen: enTienda() ? "tienda" : "web" }),
     });
     const d = await r.json();
     return Array.isArray(d?.lineas) ? (d.lineas as LineaCarrito[]) : null;
