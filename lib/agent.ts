@@ -1560,7 +1560,11 @@ export async function runAgent(
       // equivalente NTN/SNR (misma pieza: 6201 2RS = SNR 6201 EE).
       const hit = hits.find((t) => !marca || t.marca.toUpperCase().startsWith(marca)) ??
         (marca === "TL" ? hits.find((t) => t.coincidencia === "equivalente") : undefined);
-      if (hit && !tecnicas.some((t) => t.marca === hit.marca && t.referencia === hit.referencia)) tecnicas.push(hit);
+      if (hit && !tecnicas.some((t) => t.marca === hit.marca && t.referencia === hit.referencia)) {
+        // En el PDF, la pieza con el nombre con que el cliente la ve ("TL 6201
+        // 2RS"), indicando de qué equivalente salen los datos.
+        tecnicas.push(hit.coincidencia === "equivalente" ? { ...hit, pedida: sinParentesis.replace(/^RODAMIENTOS?\s+/i, "") } : hit);
+      }
     }
     if (!escalation.needsHuman && /\b(tel[eé]fono|e-?mail|correo electr[oó]nico|con el equipo de ESGAS|un t[eé]cnico de ESGAS)\b/i.test(texto)) {
       escalation.needsHuman = true;

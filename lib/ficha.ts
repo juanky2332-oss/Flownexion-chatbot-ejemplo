@@ -336,7 +336,9 @@ export function fichasParaPdf(texto: string, consultadas: FichaKb[], comparando 
     const nombrada = textoNombraRef(texto, kb.referencia, kb.marca) || (!!pedida && textoNombraRef(texto, kb.pedida as string));
     if (!nombrada) continue;
     const f = fichaDesdeKb(kb);
-    if (kb.coincidencia === "equivalente") f.titulo = `${f.titulo} (equivalente)`;
+    if (kb.coincidencia === "equivalente") {
+      f.titulo = kb.pedida && /\s/.test(kb.pedida) ? `${kb.pedida} (datos de su equivalente ${f.titulo})` : `${f.titulo} (equivalente)`;
+    }
     if (f.datos.length < MIN_DATOS) continue;
     extra.push(f);
     if (delTexto.length + extra.length >= MAX_FICHAS_KB) break;
