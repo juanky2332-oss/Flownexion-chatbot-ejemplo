@@ -1652,3 +1652,15 @@ export function medidasDelMensaje(mensaje: string): CriterioMedidas | null {
     ...(proteccion ? { proteccion } : {}),
   };
 }
+
+/**
+ * El mensaje sin las cantidades ("quiero 10 rodamientos 6201 2rs" → "quiero
+ * rodamientos 6201 2rs"). Sin esto la cantidad se pegaba a la referencia
+ * ("1062012RS") y el bot no reconocía la pieza exacta pedida.
+ */
+export function sinCantidades(mensaje: string): string {
+  return String(mensaje ?? "")
+    .replace(/\b\d{1,5}\s*(?=(?:uds?\.?|unidades|piezas|rodam[a-záéíóú]*|correa[a-záéíóú]*|soportes?|juegos?|retenes|cadenas?)\b)/gi, "")
+    // "dame 3 del 6205": cantidad de hasta 3 cifras delante de "del/de" + referencia.
+    .replace(/\b\d{1,3}\s+(?=del?\s+\S*\d{3})/gi, "");
+}

@@ -25,6 +25,7 @@ import {
   extractQueryCandidates,
   findByDimensions,
   medidasDelMensaje,
+  sinCantidades,
 } from "./kb";
 import {
   analizarVariantes,
@@ -1238,7 +1239,7 @@ export function datosDelCliente(mensajesCliente: string[]): string[] {
   const refs = Array.from(
     new Set(
       mensajesCliente
-        .flatMap((m) => extractQueryCandidates(m))
+        .flatMap((m) => extractQueryCandidates(sinCantidades(m)))
         .filter((c) => (c.match(/\d/g) ?? []).length >= 3 && c.length >= 4 && c.length <= 20 && !/[A-Z]{4,}/.test(c))
     )
   );
@@ -1565,7 +1566,7 @@ export async function runAgent(
   // entera pegada ("QUIEROCOMPRAR6205"): una referencia real nunca encadena
   // tantas letras (6205ZZC3, UC205, 32008XU, 6205LLU/C3 como mucho llevan
   // dos o tres seguidas).
-  const refDetectada = extractQueryCandidates(message).find(
+  const refDetectada = extractQueryCandidates(sinCantidades(message)).find(
     (c) =>
       (c.match(/\d/g) ?? []).length >= 3 &&
       c.length >= 4 &&

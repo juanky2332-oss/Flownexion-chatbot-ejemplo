@@ -5,7 +5,7 @@ import { verifyIdentityToken } from "@/lib/hmac";
 import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
 import { isPromptExtractionAttempt, IDENTITY_DEFLECTION } from "@/lib/guardrails";
 import { fichasParaPdf, pideComparar } from "@/lib/ficha";
-import { extractQueryCandidates } from "@/lib/kb";
+import { extractQueryCandidates, sinCantidades } from "@/lib/kb";
 import { MODEL } from "@/lib/llm";
 import { registrarMensaje, registrarError } from "@/lib/registro";
 import type { ChatRequest, Message, CartItem, PSCustomer } from "@/lib/types";
@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
     // consultó y nombra (ver fichasParaPdf en lib/ficha.ts).
     // Comparativa en PDF solo si el cliente ha pedido comparar (o ha nombrado
     // dos referencias); si no, cada ficha por separado.
-    const refsMensaje = extractQueryCandidates(message).filter((c) => (c.match(/\d/g) ?? []).length >= 3 && c.length <= 20 && !/[A-Z]{4,}/.test(c));
+    const refsMensaje = extractQueryCandidates(sinCantidades(message)).filter((c) => (c.match(/\d/g) ?? []).length >= 3 && c.length <= 20 && !/[A-Z]{4,}/.test(c));
     const pideCompararMsg = pideComparar(message, refsMensaje.filter((c, i, a) => !a.some((o, j) => j !== i && o.length > c.length && o.includes(c))));
     const fichas = fichasParaPdf(r.output, r.tecnicas ?? [], pideCompararMsg);
     const comparar = fichas.length >= 2 && pideCompararMsg;
