@@ -41,3 +41,4 @@ data/source/
 
 # Claude Code (local)
 .claude/
+.env*

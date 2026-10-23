@@ -6,6 +6,8 @@ import remarkGfm from "remark-gfm";
 import type { Product } from "@/lib/types";
 import type { FichaTecnica } from "@/lib/ficha";
 import ProductCard from "./ProductCard";
+import { anadirEnTienda, enTienda, enviarEvento, type LineaCarrito } from "@/lib/carritoTienda";
+import { useCarritoChat } from "./CarritoChat";
 
 export interface ChatMessage {
   id: string;
@@ -17,6 +19,10 @@ export interface ChatMessage {
   humanContext?: string;
   /** Fichas técnicas de la respuesta: si hay, se ofrece descargarlas en PDF. */
   fichas?: FichaTecnica[];
+  /** La respuesta aún se está escribiendo (streaming). */
+  enCurso?: boolean;
+  /** Qué está haciendo el bot mientras prepara la respuesta. */
+  estado?: string;
 }
 
 interface ChatBubbleProps {
@@ -27,6 +33,10 @@ interface ChatBubbleProps {
   customerId?: number | null;
   supportPhone?: string;
   supportEmail?: string;
+  /** Pregunta del cliente a la que responde este mensaje (para la valoración). */
+  pregunta?: string;
+  /** E-mail del cliente identificado, para no pedírselo al dejar sus datos. */
+  clienteEmail?: string | null;
 }
 
 /**
@@ -67,8 +77,27 @@ export default function ChatBubble({
   customerId,
   supportPhone,
   supportEmail,
+  pregunta,
+  clienteEmail,
 }: ChatBubbleProps) {
   const isUser = message.role === "user";
+
+  // Mientras se piensa la respuesta y aún no hay texto: el indicador de
+  // escritura con lo que está haciendo ("Consultando el catálogo…").
+  if (!isUser && message.enCurso && !message.content) {
+    return (
+      <div className="flex justify-start">
+        <div className="flex items-center gap-2 rounded-2xl rounded-bl-md border border-gray-100 bg-white px-4 py-3 shadow-sm">
+          <span className="flex items-center gap-1">
+            {[0, 1, 2].map((i) => (
+              <span key={i} className="h-2 w-2 animate-typing-bounce rounded-full bg-gray-400" style={{ animationDelay: `${i * 0.15}s` }} />
+            ))}
+          </span>
+          {message.estado && <span className="text-xs text-gray-500">{message.estado}</span>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -101,6 +130,10 @@ export default function ChatBubble({
                       <a
                         {...props}
                         href={href}
+                        onClick={() => {
+                          if (href?.startsWith("tel:")) enviarEvento("contacto_tel", { desde: "texto" });
+                          else if (href?.startsWith("mailto:")) enviarEvento("contacto_email", { desde: "texto" });
+                        }}
                         {...(isContact
                           ? {}
                           : { target: "_blank", rel: "noopener noreferrer" })}
@@ -126,7 +159,7 @@ export default function ChatBubble({
           )}
         </div>
 
-        {message.products && message.products.length > 0 && (
+        {!message.enCurso && message.products && message.products.length > 0 && (
           <div className="mt-1">
             {message.products.map((p) => (
               <ProductCard
@@ -143,7 +176,11 @@ export default function ChatBubble({
           </div>
         )}
 
-        {!isUser && message.fichas && message.fichas.length > 0 && (
+        {!isUser && !message.enCurso && message.products && message.products.length > 1 && (
+          <AnadirVarios products={message.products} primaryColor={primaryColor} psBase={psBase} cliente={clienteEmail} />
+        )}
+
+        {!isUser && !message.enCurso && message.fichas && message.fichas.length > 0 && (
           <DescargaFicha fichas={message.fichas} primaryColor={primaryColor} />
         )}
 
@@ -157,6 +194,7 @@ export default function ChatBubble({
             {supportPhone && (
               <a
                 href={`tel:${supportPhone.replace(/\s+/g, "")}`}
+                onClick={() => enviarEvento("contacto_tel", { desde: "boton", consulta: message.humanContext })}
                 className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-sm ring-1 ring-amber-300 transition hover:bg-amber-100"
               >
                 📞 Llamar · {supportPhone}
@@ -173,12 +211,18 @@ export default function ChatBubble({
                       )}`
                     : `mailto:${supportEmail}`
                 }
+                onClick={() => enviarEvento("contacto_email", { desde: "boton", consulta: message.humanContext })}
                 className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-sm ring-1 ring-amber-300 transition hover:bg-amber-100"
               >
                 ✉️ {message.humanContext ? "Enviar consulta por e-mail" : supportEmail}
               </a>
             )}
+            <DejarContacto consulta={message.humanContext || pregunta || ""} clienteEmail={clienteEmail} />
           </div>
+        )}
+
+        {!isUser && !message.enCurso && message.id !== "welcome" && (
+          <Valoracion pregunta={pregunta ?? ""} respuesta={message.content} />
         )}
       </div>
     </div>
@@ -209,6 +253,7 @@ function DescargaFicha({ fichas, primaryColor }: { fichas: FichaTecnica[]; prima
     setError(false);
     try {
       await accion(await import("@/lib/fichaPdf"));
+      enviarEvento("pdf", { tipo: id === "comparativa" ? "comparativa" : "ficha", refs: fichas.map((f) => f.referencia) });
     } catch (err) {
       console.error("[ficha pdf]", err);
       setError(true);
@@ -256,6 +301,235 @@ function DescargaFicha({ fichas, primaryColor }: { fichas: FichaTecnica[]; prima
           No se ha podido generar el PDF. Vuelve a intentarlo en unos segundos.
         </p>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * "Añadir varios" bajo una comparativa: marca los que quieras, ajusta las
+ * unidades de cada uno y añádelos todos de una vez. Solo con el chat dentro de
+ * la tienda, que es donde el carrito se puede llenar con la sesión del cliente.
+ */
+function AnadirVarios({ products, primaryColor, psBase = "https://b2b.esgas.es", cliente }: { products: Product[]; primaryColor: string; psBase?: string; cliente?: string | null }) {
+  const comprables = products.filter((p) => p.stock === undefined || p.stock > 0);
+  const carrito = useCarritoChat();
+  const [abierto, setAbierto] = useState(false);
+  const [sel, setSel] = useState<Record<number, number>>({});
+  const [enviando, setEnviando] = useState(false);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [dentro, setDentro] = useState(false);
+  useEffect(() => setDentro(enTienda(psBase)), [psBase]);
+  // Fuera de la tienda no se puede llenar su carrito, pero el presupuesto sí.
+  if (comprables.length < 2) return null;
+
+  const max = (p: Product) => (p.stock !== undefined ? Math.max(1, p.stock) : 999);
+  const marcados = comprables.filter((p) => sel[p.id] !== undefined);
+  const totalUds = marcados.reduce((s, p) => s + (sel[p.id] ?? 0), 0);
+  const subtotal = marcados.reduce((s, p) => s + (sel[p.id] ?? 0) * p.price, 0);
+
+  const alternar = (p: Product) =>
+    setSel((prev) => {
+      const n = { ...prev };
+      if (n[p.id] !== undefined) delete n[p.id];
+      else n[p.id] = Math.min(Math.max(1, p.qty ?? 1), max(p));
+      return n;
+    });
+  const cambiar = (p: Product, d: number) =>
+    setSel((prev) => ({ ...prev, [p.id]: Math.min(max(p), Math.max(1, (prev[p.id] ?? 1) + d)) }));
+
+  const presupuesto = async () => {
+    // Lo marcado, o todos si no se ha marcado nada (1 ud de cada uno).
+    const lista = marcados.length ? marcados : comprables;
+    const { descargarPresupuestoPdf } = await import("@/lib/fichaPdf");
+    await descargarPresupuestoPdf(
+      lista.map((p) => ({ referencia: p.reference, descripcion: p.name, uds: sel[p.id] ?? Math.max(1, p.qty ?? 1), precio: p.price, stock: p.stock })),
+      cliente
+    );
+    enviarEvento("pdf", { tipo: "presupuesto", refs: lista.map((p) => p.reference) });
+  };
+
+  const anadir = async () => {
+    if (!marcados.length || enviando) return;
+    setEnviando(true);
+    setAviso(null);
+    const lineas: LineaCarrito[] = marcados.map((p) => ({
+      id_product: Number(p.id),
+      id_product_attribute: p.idProductAttribute ?? 0,
+      qty: sel[p.id],
+      name: p.name,
+      reference: p.reference,
+      price: p.price,
+    }));
+    const r = await anadirEnTienda(lineas, psBase);
+    setEnviando(false);
+    if (r.sinRespuesta) {
+      setAviso({ ok: false, texto: "La tienda no ha respondido. Añádelos desde cada tarjeta." });
+      return;
+    }
+    if (r.needsLogin && !r.ok) {
+      setAviso({ ok: false, texto: "Inicia sesión en la tienda para añadir productos a tu carrito." });
+      return;
+    }
+    if (r.ok) {
+      carrito?.registrar(r.anadidas, { resumen: r.resumen, cartUrl: r.cartUrl, orderUrl: r.orderUrl });
+      enviarEvento("anadir_carrito", {
+        multiple: true,
+        lineas: r.anadidas.map((l) => ({ ref: l.reference, id: l.id_product, uds: l.qty, precio: l.price })),
+      });
+      setSel({});
+    }
+    const fallos = r.fallidas.map((f) => f.linea.reference || f.linea.name).join(", ");
+    setAviso({
+      ok: r.ok && !r.fallidas.length,
+      texto: r.ok
+        ? `✓ Añadidos ${r.anadidas.length} producto${r.anadidas.length === 1 ? "" : "s"} a tu carrito${fallos ? `. No se pudo añadir: ${fallos}` : ""}.`
+        : "No se pudo añadir ninguno. Inténtalo desde cada tarjeta o contacta por teléfono o e-mail.",
+    });
+  };
+
+  return (
+    <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 text-xs shadow-sm">
+      <button
+        type="button"
+        onClick={() => setAbierto((a) => !a)}
+        className="flex w-full items-center justify-between font-semibold"
+        style={{ color: primaryColor }}
+        aria-expanded={abierto}
+      >
+        <span>{dentro ? "🛒 Añadir varios a la vez · presupuesto" : "📄 Presupuesto de varios productos"}</span>
+        <span className="text-gray-400">{abierto ? "▲" : "▼"}</span>
+      </button>
+      {abierto && (
+        <div className="mt-2 space-y-1.5">
+          {comprables.map((p) => {
+            const on = sel[p.id] !== undefined;
+            return (
+              <div key={p.id} className="flex items-center gap-2">
+                <input type="checkbox" checked={on} onChange={() => alternar(p)} className="h-4 w-4 shrink-0" aria-label={`Seleccionar ${p.name}`} />
+                <button type="button" onClick={() => alternar(p)} className="min-w-0 flex-1 truncate text-left text-gray-700">
+                  <span className="font-semibold text-gray-900">{p.reference || p.name}</span> · {p.price.toFixed(2)} €
+                  {p.stock !== undefined && <span className="text-gray-400"> · {p.stock} en stock</span>}
+                </button>
+                <div className={`flex items-center overflow-hidden rounded-md border border-gray-200 ${on ? "" : "opacity-40"}`}>
+                  <button type="button" disabled={!on} onClick={() => cambiar(p, -1)} className="h-6 w-6 font-bold text-gray-500 hover:bg-gray-100" aria-label="Quitar una unidad">−</button>
+                  <span className="w-8 text-center font-semibold">{on ? sel[p.id] : 0}</span>
+                  <button type="button" disabled={!on || sel[p.id] >= max(p)} onClick={() => cambiar(p, 1)} className="h-6 w-6 font-bold text-gray-500 hover:bg-gray-100 disabled:opacity-40" aria-label="Añadir una unidad">+</button>
+                </div>
+              </div>
+            );
+          })}
+          {dentro && (
+            <button
+              type="button"
+              onClick={anadir}
+              disabled={!marcados.length || enviando}
+              className="mt-1 w-full rounded-lg py-1.5 font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ backgroundColor: primaryColor }}
+            >
+              {enviando
+                ? "Añadiendo…"
+                : marcados.length
+                  ? `Añadir ${marcados.length} producto${marcados.length === 1 ? "" : "s"} · ${totalUds} uds · ${subtotal.toFixed(2)} €`
+                  : "Marca los que quieras añadir"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={presupuesto}
+            className="w-full rounded-lg border py-1.5 font-semibold transition hover:bg-gray-50"
+            style={{ borderColor: primaryColor, color: primaryColor }}
+          >
+            📄 {marcados.length ? `Presupuesto PDF de lo marcado (${totalUds} uds)` : "Presupuesto PDF de todos (1 ud de cada)"}
+          </button>
+        </div>
+      )}
+      {aviso && <p className={`mt-1.5 font-medium ${aviso.ok ? "text-green-700" : "text-red-600"}`}>{aviso.texto}</p>}
+    </div>
+  );
+}
+
+/** El cliente deja su teléfono o e-mail y ESGAS le contacta (queda en el panel). */
+function DejarContacto({ consulta, clienteEmail }: { consulta: string; clienteEmail?: string | null }) {
+  const [valor, setValor] = useState(clienteEmail ?? "");
+  const [estado, setEstado] = useState<"idle" | "enviando" | "ok" | "error">("idle");
+  const limpio = valor.trim();
+  const valido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(limpio) || limpio.replace(/\D/g, "").length >= 9;
+
+  if (estado === "ok") {
+    return <p className="w-full text-xs font-semibold text-green-700">✓ Recibido. Un técnico de ESGAS te contactará lo antes posible.</p>;
+  }
+  return (
+    <form
+      className="flex w-full flex-wrap gap-1.5"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!valido || estado === "enviando") return;
+        setEstado("enviando");
+        const ok = await enviarEvento("contacto_datos", { contacto: limpio, consulta: consulta.slice(0, 300) });
+        setEstado(ok ? "ok" : "error");
+      }}
+    >
+      <input
+        value={valor}
+        onChange={(e) => setValor(e.target.value)}
+        placeholder="O déjanos tu teléfono o e-mail y te contactamos"
+        className="min-w-0 flex-1 rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-amber-400"
+        aria-label="Teléfono o e-mail de contacto"
+      />
+      <button
+        type="submit"
+        disabled={!valido || estado === "enviando"}
+        className="shrink-0 rounded-full bg-amber-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-amber-700 disabled:opacity-50"
+      >
+        {estado === "enviando" ? "…" : "Enviar"}
+      </button>
+      {estado === "error" && <span className="w-full text-[11px] text-red-600">No se ha enviado. Inténtalo otra vez.</span>}
+    </form>
+  );
+}
+
+/** 👍/👎 bajo cada respuesta: lo que no gusta aparece en el panel para corregirlo. */
+function Valoracion({ pregunta, respuesta }: { pregunta: string; respuesta: string }) {
+  const [voto, setVoto] = useState<"si" | "no" | null>(null);
+  const [comentario, setComentario] = useState("");
+  const [enviado, setEnviado] = useState(false);
+
+  const votar = (v: "si" | "no") => {
+    if (voto) return;
+    setVoto(v);
+    if (v === "si") enviarEvento("valoracion", { voto: "si", pregunta: pregunta.slice(0, 300), respuesta: respuesta.slice(0, 600) });
+  };
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1 pl-1 text-[11px] text-gray-400">
+      {!voto && (
+        <>
+          <span>¿Te ha servido?</span>
+          <button type="button" onClick={() => votar("si")} className="rounded px-1 hover:bg-gray-100" aria-label="Sí, me ha servido">👍</button>
+          <button type="button" onClick={() => votar("no")} className="rounded px-1 hover:bg-gray-100" aria-label="No me ha servido">👎</button>
+        </>
+      )}
+      {voto === "si" && <span>Gracias por tu valoración.</span>}
+      {voto === "no" && !enviado && (
+        <form
+          className="flex w-full gap-1"
+          onSubmit={(e) => {
+            e.preventDefault();
+            enviarEvento("valoracion", { voto: "no", comentario: comentario.slice(0, 500), pregunta: pregunta.slice(0, 300), respuesta: respuesta.slice(0, 600) });
+            setEnviado(true);
+          }}
+        >
+          <input
+            value={comentario}
+            onChange={(e) => setComentario(e.target.value)}
+            placeholder="¿Qué ha faltado? (opcional)"
+            className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1 text-[11px] text-gray-700 outline-none"
+          />
+          <button type="submit" className="rounded bg-gray-100 px-2 py-1 font-semibold text-gray-600 hover:bg-gray-200">Enviar</button>
+        </form>
+      )}
+      {voto === "no" && enviado && <span>Gracias, lo revisaremos para mejorarlo.</span>}
     </div>
   );
 }

@@ -1245,7 +1245,9 @@ export function findTranslinkBelt(query: string, limit = 6): TlBeltInfo[] {
 export function findTranslinkBeltForMessage(message: string): TlBeltInfo[] {
   const m = String(message ?? "");
   const plain = m.normalize("NFD").replace(/[̀-ͯ]/g, "");
-  if (!BELT_INTENT.test(plain)) return [];
+  // Una referencia TL escrita tal cual ("TL-1000PU-AT10") también es una
+  // consulta de correa aunque no diga la palabra.
+  if (!BELT_INTENT.test(plain) && !/\bTL-[A-Z0-9]*\d/i.test(plain)) return [];
   return findTranslinkBelt(m, 4);
 }
 

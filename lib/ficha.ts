@@ -259,7 +259,7 @@ function valorPlano(v: string | number): string {
 
 /** Convierte la ficha del KB al formato del PDF ("Peso (g)" → "Peso: 125 g"). */
 export function fichaDesdeKb(kb: FichaKb): FichaTecnica {
-  const marca = /^TL/i.test(kb.marca) ? "TL" : kb.marca.trim();
+  const marca = /^TL\b/i.test(kb.marca) ? "TL" : kb.marca.trim();
   const datos: [string, string][] = [];
   let di = "", de = "", an = "";
   for (const [k, v] of Object.entries(kb.datos ?? {})) {

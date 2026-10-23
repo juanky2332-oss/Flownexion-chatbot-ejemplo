@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runAgent, LIMITE_DURO_MS } from "@/lib/agent";
+import { runAgent, LIMITE_DURO_MS, type AgentResult, type EventoAgente } from "@/lib/agent";
 import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
 import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
 import { isPromptExtractionAttempt, IDENTITY_DEFLECTION } from "@/lib/guardrails";
 import { fichasParaPdf } from "@/lib/ficha";
-import type { ChatRequest, Message, CartItem } from "@/lib/types";
+import { MODEL } from "@/lib/llm";
+import { registrarMensaje, registrarError } from "@/lib/registro";
+import type { ChatRequest, Message, CartItem, PSCustomer } from "@/lib/types";
 
 const MAX_MESSAGE_LENGTH = 1500;
 
@@ -17,8 +19,60 @@ export function OPTIONS(req: NextRequest) {
   return preflight(req);
 }
 
+// El cliente se busca en la Webservice en cada mensaje; se guarda 10 min para
+// no pagar ese segundo extra en cada turno de la misma conversación.
+const clientesCache = new Map<string, { c: PSCustomer | null; ts: number }>();
+async function clienteCacheado(clave: string, buscar: () => Promise<PSCustomer | null>): Promise<PSCustomer | null> {
+  const hit = clientesCache.get(clave);
+  if (hit && Date.now() - hit.ts < 600_000) return hit.c;
+  const c = await buscar();
+  clientesCache.set(clave, { c, ts: Date.now() });
+  if (clientesCache.size > 500) clientesCache.delete(clientesCache.keys().next().value as string);
+  return c;
+}
+
+/**
+ * Quién es el cliente, para aplicar SU descuento. Por orden de confianza:
+ *  1. Token firmado por el módulo nexionchat de la tienda (HMAC): seguro.
+ *  2. Mientras el módulo no esté instalado: el e-mail (o id) del cliente que
+ *     la propia tienda publica en window.prestashop.customer, leído por
+ *     widget.js. Va sin firmar, así que SOLO sirve para calcular el precio de
+ *     su grupo: nunca da acceso a carritos ni a tokens de nadie. Con
+ *     IDENTIDAD_FIRMADA_OBLIGATORIA=1 (cuando el módulo esté puesto) se ignora.
+ *  3. Fuera de la tienda (web de pruebas): la cuenta de pruebas.
+ */
+async function resolverCliente(body: ChatRequest, origen: "tienda" | "web") {
+  const claims = verifyIdentityToken(body?.identityToken ?? "");
+  if (claims) return { customerId: claims.id_customer, groupId: claims.id_group, email: claims.email, firmado: true };
+
+  if (process.env.IDENTIDAD_FIRMADA_OBLIGATORIA !== "1") {
+    const email = typeof body?.customerEmail === "string" ? body.customerEmail.trim().toLowerCase() : "";
+    const rawId = typeof body?.customerId === "number" && body.customerId > 0 ? body.customerId : 0;
+    let c: PSCustomer | null = null;
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) c = await clienteCacheado(`e:${email}`, () => psGetCustomer(email));
+    else if (rawId) c = await clienteCacheado(`i:${rawId}`, () => psGetCustomerById(rawId));
+    if (c) return { customerId: c.id, groupId: c.groupId, email: c.email, firmado: false };
+  }
+
+  // La cuenta de pruebas solo fuera de la tienda: dentro, un cliente sin
+  // identificar ve el precio de tarifa, nunca el descuento de otra cuenta.
+  if (origen === "web" && process.env.TEST_CUSTOMER_EMAIL?.trim()) {
+    const email = process.env.TEST_CUSTOMER_EMAIL.trim();
+    const c = await clienteCacheado(`e:${email}`, () => psGetCustomer(email));
+    if (c) return { customerId: c.id, groupId: c.groupId, email: undefined, firmado: false };
+  }
+  return { customerId: undefined, groupId: undefined, email: undefined, firmado: false };
+}
+
+// Escalados que NO son "el bot no supo": el cliente lo pidió, o es un pedido
+// que hay que ampliar por teléfono. El resto se cuenta como consulta sin
+// respuesta en el panel, que es la lista para mejorar el bot.
+const ESCALADOS_NORMALES = /peticion_cliente|stock_insuficiente|condiciones_comerciales/i;
+const NEGATIVA = /no (he podido|he encontrado|tengo (informaci|datos|esa)|dispongo|consta|puedo confirmar)/i;
+
 export async function POST(req: NextRequest) {
   const headers = corsHeaders(req);
+  const inicio = Date.now();
 
   const ip = getClientIp(req);
   if (isRateLimited(ip)) {
@@ -42,11 +96,12 @@ export async function POST(req: NextRequest) {
       { status: 400, headers }
     );
   }
+  const sessionId = typeof body?.sessionId === "string" && body.sessionId ? body.sessionId : "sin-sesion";
+  const origen: "tienda" | "web" = body?.origen === "tienda" ? "tienda" : "web";
+  const quiereStream = body?.stream === true;
 
   // Defensa en profundidad: intercepta los intentos más obvios de extraer
   // el system prompt/identidad del modelo sin gastar una llamada a OpenAI.
-  // Ver lib/guardrails.ts — el system prompt cubre además las reformulaciones
-  // más sutiles que esta heurística no detecta.
   if (isPromptExtractionAttempt(message)) {
     return NextResponse.json({ output: IDENTITY_DEFLECTION, products: [] }, { headers });
   }
@@ -66,78 +121,32 @@ export async function POST(req: NextRequest) {
     ? (body.cart as CartItem[]).slice(0, 20)
     : undefined;
 
-  // Identidad: el token HMAC firmado tiene prioridad absoluta sobre cualquier dato del body
-  let customerGroupId: number | undefined;
-  let customerId: number | undefined;
-  const claims = verifyIdentityToken(body?.identityToken ?? "");
-  if (claims) {
-    customerGroupId = claims.id_group;
-    customerId = claims.id_customer;
-  } else {
-    // Sin token firmado (no hay módulo Prestashop instalado que lo genere):
-    // el id_customer llega sin firmar desde window.prestashop.customer.id,
-    // pero el grupo NUNCA se confía del cliente — se vuelve a resolver aquí
-    // contra la Webservice API con nuestra propia ws_key.
-    const rawId =
-      typeof body?.customerId === "number" && body.customerId > 0
-        ? body.customerId
-        : undefined;
-    if (rawId) {
-      const real = await psGetCustomerById(rawId);
-      if (real) {
-        customerId = real.id;
-        customerGroupId = real.groupId;
-      }
-    } else if (!process.env.HMAC_SECRET) {
-      // Sin secreto configurado y sin customerId (demo/dev): acepta
-      // customerGroupId directo del body.
-      customerGroupId =
-        typeof body?.customerGroupId === "number" && body.customerGroupId > 0
-          ? body.customerGroupId
-          : undefined;
-    }
-  }
+  const cliente = await resolverCliente(body, origen);
 
-  // Sin ninguna identidad real (probando standalone en el deploy de Vercel,
-  // sin login en b2b.esgas.es): igual que /api/cart, cae al cliente de
-  // pruebas configurado en TEST_CUSTOMER_EMAIL para poder verificar el
-  // precio con descuento antes de embeber el chat en la tienda real.
-  if (!customerId && process.env.TEST_CUSTOMER_EMAIL?.trim()) {
-    const testCustomer = await psGetCustomer(process.env.TEST_CUSTOMER_EMAIL.trim());
-    if (testCustomer) {
-      customerId = testCustomer.id;
-      customerGroupId = testCustomer.groupId;
-    }
-  }
-
-  try {
-    // Límite DURO: esta ruta SIEMPRE tiene que devolver JSON. Si la
-    // conversación se pasara de tiempo, sería Vercel quien cortase (maxDuration
-    // = 60 s) sirviendo su propia página de error; el widget no recibiría JSON
-    // y el cliente vería "Lo siento, no he podido procesar tu consulta", sin
-    // respuesta y sin ninguna vía de contacto. Pasaba de verdad con "quiero
-    // comprar el rodamiento 3309" cuando el catálogo estaba en frío.
-    //
-    // runAgent tiene además su propio presupuesto interno (más corto) para
-    // cerrar bien la respuesta; esto es solo la red de seguridad final.
+  // Límite DURO: esta ruta SIEMPRE tiene que contestar. Si la conversación se
+  // pasara de tiempo, sería Vercel quien cortase (maxDuration = 60 s) con su
+  // propia página de error, y el cliente se quedaría sin respuesta y sin
+  // contacto. runAgent tiene además su propio presupuesto interno (más corto)
+  // para cerrar bien la respuesta; esto es solo la red de seguridad final.
+  const responder = async (onEvento?: (e: EventoAgente) => void) => {
     let temporizador: ReturnType<typeof setTimeout> | undefined;
-    const porTiempo = new Promise<Awaited<ReturnType<typeof runAgent>>>((resolve) => {
-      temporizador = setTimeout(
-        () =>
-          resolve({
-            output:
-              "Esta consulta me está llevando más de lo normal. Dime la referencia o la medida exacta y lo miro enseguida; " +
-              "y si prefieres resolverlo ya, escríbenos por teléfono o e-mail y te atendemos al momento.",
-            products: [],
-            needsHuman: true,
-            humanContext: message.slice(0, 150),
-          }),
-        LIMITE_DURO_MS
-      );
+    let cortado = false;
+    const porTiempo = new Promise<AgentResult>((resolve) => {
+      temporizador = setTimeout(() => {
+        cortado = true;
+        resolve({
+          output:
+            "Esta consulta me está llevando más de lo normal. Dime la referencia o la medida exacta y lo miro enseguida; " +
+            "y si prefieres resolverlo ya, escríbenos por teléfono o e-mail y te atendemos al momento.",
+          products: [],
+          needsHuman: true,
+          humanContext: message.slice(0, 150),
+          motivo: "limite_de_tiempo",
+        });
+      }, LIMITE_DURO_MS);
     });
-
-    const { output, products, needsHuman, humanContext, tecnicas } = await Promise.race([
-      runAgent(message, history, cart, customerGroupId, customerId),
+    const r = await Promise.race([
+      runAgent(message, history, cart, cliente.groupId, cliente.customerId, onEvento),
       porTiempo,
     ]).finally(() => {
       if (temporizador) clearTimeout(temporizador);
@@ -146,30 +155,97 @@ export async function POST(req: NextRequest) {
     // Ficha técnica descargable en PDF: la que trae la respuesta y, si el bot
     // no respetó el formato, la ficha verificada del KB de cada referencia que
     // consultó y nombra (ver fichasParaPdf en lib/ficha.ts).
-    const fichas = fichasParaPdf(output, tecnicas ?? []);
+    const fichas = fichasParaPdf(r.output, r.tecnicas ?? []);
+    const sinRespuesta =
+      cortado ||
+      (!!r.needsHuman && !ESCALADOS_NORMALES.test(r.motivo ?? "")) ||
+      (!r.products.length && NEGATIVA.test(r.output));
 
-    return NextResponse.json(
-      { output, products, needsHuman, humanContext, ...(fichas.length ? { fichas } : {}) },
-      { headers }
-    );
-  } catch (err) {
+    // Las baterías de prueba (sessionId "prueba-…") no cuentan en el panel.
+    if (!sessionId.startsWith("prueba-")) await registrarMensaje({
+      sessionId,
+      origen,
+      cliente: cliente.email,
+      pregunta: message,
+      respuesta: r.output,
+      productos: r.products.map((p) => ({ id: p.id, ref: p.reference, nombre: p.name, precio: p.price, stock: p.stock })),
+      escalado: !!r.needsHuman,
+      motivo: r.motivo,
+      sinRespuesta,
+      ms: Date.now() - inicio,
+      modelo: MODEL,
+      uso: r.uso,
+    });
+
+    return {
+      output: r.output,
+      products: r.products,
+      needsHuman: r.needsHuman,
+      humanContext: r.humanContext,
+      ...(fichas.length ? { fichas } : {}),
+    };
+  };
+
+  const fallo = async (err: unknown) => {
     // El detalle (clave de OpenAI ausente/inválida, sin cuota, etc.) es
-    // información interna de infraestructura: se queda en los logs del
-    // servidor para diagnóstico, pero al cliente nunca se le muestra —
-    // revelarla es tan indeseable como revelar el system prompt.
+    // información interna: se queda en los logs y en el panel, nunca se le
+    // enseña al cliente.
     const msg = err instanceof Error ? err.message : "";
     let category = "error_generico";
     if (/OPENAI_API_KEY/i.test(msg)) category = "falta_openai_api_key";
     else if (/401|invalid.*api key|incorrect api key/i.test(msg)) category = "openai_api_key_invalida";
-    else if (/429|quota|insufficient/i.test(msg)) category = "openai_sin_cuota";
+    else if (/429|quota|insufficient|credit/i.test(msg)) category = "openai_sin_cuota";
     console.error("[/api/chat] error:", category, err);
+    await registrarError("/api/chat", category, msg);
+    return {
+      output:
+        "Ups, ha habido un problema técnico procesando tu consulta. Vuelve a intentarlo en un momento y, si te corre prisa, escríbenos por teléfono o e-mail.",
+      products: [],
+      needsHuman: true,
+      humanContext: message.slice(0, 150),
+    };
+  };
 
-    return NextResponse.json(
-      {
-        output:
-          "Ups, ha habido un problema técnico procesando tu consulta. ¿Puedes intentarlo de nuevo en un momento?",
-      },
-      { status: 500, headers }
-    );
+  if (!quiereStream) {
+    try {
+      return NextResponse.json(await responder(), { headers });
+    } catch (err) {
+      return NextResponse.json(await fallo(err), { status: 500, headers });
+    }
   }
+
+  // Streaming: una línea JSON por evento (estado / texto / reinicio) y una
+  // última {tipo:"fin", ...} con la respuesta definitiva, que es la que manda.
+  const enc = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const enviar = (obj: unknown) => {
+        try {
+          controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
+        } catch {
+          /* el cliente cerró la conexión */
+        }
+      };
+      try {
+        const final = await responder(enviar);
+        enviar({ tipo: "fin", ...final });
+      } catch (err) {
+        enviar({ tipo: "fin", ...(await fallo(err)) });
+      } finally {
+        try {
+          controller.close();
+        } catch {
+          /* ya cerrado */
+        }
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      ...headers,
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

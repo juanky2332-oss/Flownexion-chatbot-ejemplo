@@ -50,18 +50,24 @@
   var EXPANDED_H  = "640px";
   var tokenSent   = false;
 
-  // Prestashop expone de forma nativa window.prestashop.customer en toda
-  // página del tema (sin instalar nada nuestro) cuando hay sesión activa.
-  // Se lo pasamos al chat sin firmar: el backend vuelve a resolver el grupo
-  // real contra su propia Webservice API, nunca confía en un grupo que
-  // venga del navegador. Sin esto el chat no sabe quién es el cliente.
+  // Identidad del cliente, para que el chat le aplique SU descuento:
+  //  1. Con el módulo nexionchat instalado, la tienda firma un token
+  //     (window.ESGASChatConfig.identityToken) que el backend verifica.
+  //  2. Sin módulo, el e-mail que el propio tema publica en
+  //     window.prestashop.customer (este tema no publica el id). Va sin firmar
+  //     y el backend solo lo usa para calcular el precio de su grupo.
   function sendIdentityToken() {
     if (!iframeEl || !iframeEl.contentWindow) return;
     try {
+      if (cfg.identityToken) {
+        iframeEl.contentWindow.postMessage({ type: "esgas-identity-token", token: String(cfg.identityToken) }, ORIGIN);
+        tokenSent = true;
+        return;
+      }
       var c = window.prestashop && window.prestashop.customer;
-      if (c && c.is_logged && c.id) {
+      if (c && c.is_logged && (c.email || c.id)) {
         iframeEl.contentWindow.postMessage(
-          { type: "esgas-customer-id", id: Number(c.id) },
+          { type: "esgas-customer", email: c.email ? String(c.email) : "", id: c.id ? Number(c.id) : 0 },
           ORIGIN
         );
         tokenSent = true;
@@ -75,8 +81,10 @@
     var d = ev.data || {};
 
     // El widget dentro del iframe avisa que está listo para recibir el token
+    // Siempre se reenvía: el envío del "load" puede llegar antes de que el
+    // chat esté escuchando y perderse; "esgas-ready" garantiza que ya escucha.
     if (d.type === "esgas-ready") {
-      if (!tokenSent) sendIdentityToken();
+      sendIdentityToken();
       return;
     }
 
@@ -96,20 +104,42 @@
     // Añadir producto al carrito desde el iframe. Se hace aquí (en la página
     // de la tienda, mismo origen) con el añadir al carrito NATIVO, y se le
     // devuelve el resultado al chat para que lo muestre en la tarjeta.
+    // Varias líneas (el "añadir varios" de una comparativa) van una detrás
+    // de otra: PrestaShop actualiza el mismo carrito y en paralelo podría
+    // perder alguna. Se devuelve el resultado de cada una y el resumen real
+    // del carrito (nº de unidades y total) para el mini-carrito del chat.
     if (d.type === "esgas-add-to-cart") {
-      var items = d.items || [];
+      var items = (d.items || []).slice(0, 10);
       if (!items.length) return;
       var reqId = d.requestId || null;
-      addToCart(items[0]).then(function (res) {
-        if (res.ok) emitUpdateCart(items[0], res);
+      var results = [];
+      var last = null;
+      var needsLogin = false;
+      var chain = Promise.resolve();
+      items.forEach(function (item) {
+        chain = chain.then(function () {
+          if (needsLogin) { results.push({ ok: false, error: "sin_sesion" }); return; }
+          return addToCart(item).then(function (res) {
+            if (res.needsLogin) needsLogin = true;
+            if (res.ok) last = { item: item, res: res };
+            results.push({ ok: !!res.ok, qty: res.qty, error: res.error || null });
+          });
+        });
+      });
+      chain.then(function () {
+        if (last) emitUpdateCart(last.item, last.res);
+        var first = results[0] || {};
         reply({
           type: "esgas-cart-result",
           requestId: reqId,
-          ok: res.ok,
-          qty: res.qty,
-          error: res.error || null,
-          needsLogin: !!res.needsLogin,
+          ok: results.some(function (r) { return r.ok; }),
+          qty: first.qty,
+          error: first.error || null,
+          results: results,
+          needsLogin: needsLogin,
           cartUrl: cartPageUrl(),
+          orderUrl: orderPageUrl(),
+          summary: last ? cartSummary(last.res.cart) : null,
         });
       });
       return;
@@ -137,6 +167,26 @@
     var p = ps();
     var base = (p && p.urls && p.urls.pages && p.urls.pages.cart) || "/carrito";
     return base + (base.indexOf("?") === -1 ? "?" : "&") + "action=show";
+  }
+
+  function orderPageUrl() {
+    var p = ps();
+    return (p && p.urls && p.urls.pages && p.urls.pages.order) || "/pedido";
+  }
+
+  // Resumen del carrito tal cual lo devuelve PrestaShop 1.7 al añadir
+  // (importes ya formateados por la tienda, con el descuento del cliente).
+  function cartSummary(cart) {
+    if (!cart) return null;
+    try {
+      var t = cart.totals && cart.totals.total;
+      var sub = cart.subtotals && cart.subtotals.products;
+      return {
+        count: Number(cart.products_count) || undefined,
+        total: (t && (t.value || t.amount)) ? String(t.value || t.amount) : undefined,
+        subtotal: (sub && sub.value) ? String(sub.value) : undefined,
+      };
+    } catch (e) { return null; }
   }
 
   function isLogged() {

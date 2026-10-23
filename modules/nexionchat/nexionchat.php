@@ -1,8 +1,16 @@
 <?php
 /**
- * Módulo nexionchat para PrestaShop 8.x
- * Embebe el chatbot ESGAS como iframe flotante en todas las páginas de la tienda.
- * El token HMAC es opcional: sin él el chatbot funciona en modo anónimo.
+ * Módulo nexionchat — Asistente técnico ESGAS para PrestaShop 1.7 / 8.
+ *
+ * Hace dos cosas, nada más:
+ *  1. Carga el chat (widget.js) en todas las páginas de la tienda.
+ *  2. Si el cliente ha iniciado sesión, le pasa al chat un TOKEN FIRMADO con
+ *     su id, su grupo y su e-mail (HMAC-SHA256 con el secreto compartido).
+ *     El chat lo verifica en su servidor: así cada cliente ve SU descuento y
+ *     nadie puede hacerse pasar por otro cliente.
+ *
+ * El añadir al carrito lo hace widget.js con el añadir nativo de la tienda
+ * (con su token de seguridad), por eso este módulo no necesita controladores.
  */
 
 if (!defined('_PS_VERSION_')) {
@@ -11,28 +19,30 @@ if (!defined('_PS_VERSION_')) {
 
 class Nexionchat extends Module
 {
+    const DEFAULT_CHAT_URL = 'https://flownexion-chatbot-ejemplo.vercel.app';
+
     public function __construct()
     {
-        $this->name              = 'nexionchat';
-        $this->tab               = 'front_office_features';
-        $this->version           = '1.0.0';
-        $this->author            = 'Flownexion';
-        $this->need_instance     = 0;
-        $this->ps_versions_compliancy = ['min' => '8.0', 'max' => _PS_VERSION_];
-        $this->bootstrap         = true;
+        $this->name                   = 'nexionchat';
+        $this->tab                    = 'front_office_features';
+        $this->version                = '2.0.0';
+        $this->author                 = 'Flownexion';
+        $this->need_instance          = 0;
+        $this->ps_versions_compliancy = ['min' => '1.7.0.0', 'max' => _PS_VERSION_];
+        $this->bootstrap              = true;
 
         parent::__construct();
 
-        $this->displayName = $this->l('NexionChat — Asistente IA');
-        $this->description = $this->l('Chatbot conversacional ESGAS. Embebe el técnico virtual de ESGAS como widget flotante.');
+        $this->displayName = $this->l('NexionChat — Asistente técnico ESGAS');
+        $this->description = $this->l('Chat técnico de ESGAS con precios del cliente y añadir al carrito.');
     }
 
     public function install()
     {
         return parent::install()
-            && $this->registerHook('displayFooter')
+            && $this->registerHook('displayBeforeBodyClosingTag')
             && Configuration::updateValue('NEXIONCHAT_HMAC_SECRET', '')
-            && Configuration::updateValue('NEXIONCHAT_CHAT_URL', 'https://esgas.nodoflow.com');
+            && Configuration::updateValue('NEXIONCHAT_CHAT_URL', self::DEFAULT_CHAT_URL);
     }
 
     public function uninstall()
@@ -42,17 +52,21 @@ class Nexionchat extends Module
             && Configuration::deleteByName('NEXIONCHAT_CHAT_URL');
     }
 
-    // ─── Página de configuración en el back-office ───────────────────────────
+    // ─── Configuración en el back-office ─────────────────────────────────────
 
     public function getContent()
     {
         $output = '';
         if (Tools::isSubmit('submitNexionchatConfig')) {
-            $secret = Tools::getValue('NEXIONCHAT_HMAC_SECRET');
-            $url    = rtrim(Tools::getValue('NEXIONCHAT_CHAT_URL'), '/');
-            Configuration::updateValue('NEXIONCHAT_HMAC_SECRET', $secret);
-            Configuration::updateValue('NEXIONCHAT_CHAT_URL', $url);
-            $output .= $this->displayConfirmation($this->l('Configuración guardada.'));
+            $url    = rtrim(trim((string) Tools::getValue('NEXIONCHAT_CHAT_URL')), '/');
+            $secret = trim((string) Tools::getValue('NEXIONCHAT_HMAC_SECRET'));
+            if (!Validate::isAbsoluteUrl($url) || strpos($url, 'https://') !== 0) {
+                $output .= $this->displayError($this->l('La URL del chat debe empezar por https://'));
+            } else {
+                Configuration::updateValue('NEXIONCHAT_CHAT_URL', $url);
+                Configuration::updateValue('NEXIONCHAT_HMAC_SECRET', $secret);
+                $output .= $this->displayConfirmation($this->l('Configuración guardada.'));
+            }
         }
         return $output . $this->renderConfigForm();
     }
@@ -61,162 +75,65 @@ class Nexionchat extends Module
     {
         $fields_form = [[
             'form' => [
-                'legend' => [
-                    'title' => $this->l('Configuración NexionChat'),
-                    'icon'  => 'icon-cogs',
-                ],
-                'input' => [
+                'legend' => ['title' => $this->l('Configuración del chat'), 'icon' => 'icon-cogs'],
+                'input'  => [
                     [
                         'type'     => 'text',
-                        'label'    => $this->l('URL del chatbot'),
+                        'label'    => $this->l('URL del chat'),
                         'name'     => 'NEXIONCHAT_CHAT_URL',
-                        'size'     => 80,
                         'required' => true,
-                        'hint'     => $this->l('URL de Vercel donde está desplegado el chatbot.'),
+                        'desc'     => $this->l('Dirección del chat que os ha dado Flownexion (empieza por https://).'),
                     ],
                     [
                         'type'     => 'text',
-                        'label'    => $this->l('Secreto HMAC (opcional)'),
+                        'label'    => $this->l('Clave secreta'),
                         'name'     => 'NEXIONCHAT_HMAC_SECRET',
-                        'size'     => 80,
                         'required' => false,
-                        'hint'     => $this->l('Deja vacío para modo anónimo. Rellena para activar precios B2B personalizados por cliente.'),
+                        'desc'     => $this->l('Clave que os ha dado Flownexion. Con ella, cada cliente ve su propio precio en el chat.'),
                     ],
                 ],
                 'submit' => ['title' => $this->l('Guardar')],
             ],
         ]];
 
-        $helper = new HelperForm();
-        $helper->module          = $this;
-        $helper->name_controller = $this->name;
-        $helper->token           = Tools::getAdminTokenLite('AdminModules');
-        $helper->currentIndex    = AdminController::$currentIndex . '&configure=' . $this->name;
-        $helper->default_form_language = $this->context->language->id;
-        $helper->show_toolbar    = false;
-
+        $helper                           = new HelperForm();
+        $helper->module                   = $this;
+        $helper->name_controller          = $this->name;
+        $helper->token                    = Tools::getAdminTokenLite('AdminModules');
+        $helper->currentIndex             = AdminController::$currentIndex . '&configure=' . $this->name;
+        $helper->default_form_language    = (int) $this->context->language->id;
+        $helper->show_toolbar             = false;
+        $helper->submit_action            = 'submitNexionchatConfig';
         $helper->fields_value['NEXIONCHAT_CHAT_URL']    = Configuration::get('NEXIONCHAT_CHAT_URL');
         $helper->fields_value['NEXIONCHAT_HMAC_SECRET'] = Configuration::get('NEXIONCHAT_HMAC_SECRET');
 
         return $helper->generateForm($fields_form);
     }
 
-    // ─── Hook: inyecta iframe + bridge JS justo antes de </body> ─────────────
+    // ─── Inserta el chat justo antes de </body> ──────────────────────────────
 
-    public function hookDisplayFooter($params)
+    public function hookDisplayBeforeBodyClosingTag($params)
     {
-        // Solo para clientes logueados
-        if (!$this->context->customer->isLogged()) {
-            return '';
-        }
+        $chatUrl = rtrim((string) (Configuration::get('NEXIONCHAT_CHAT_URL') ?: self::DEFAULT_CHAT_URL), '/');
+        $secret  = (string) Configuration::get('NEXIONCHAT_HMAC_SECRET');
 
-        $secret  = Configuration::get('NEXIONCHAT_HMAC_SECRET');
-        $chatUrl = rtrim(
-            Configuration::get('NEXIONCHAT_CHAT_URL') ?: 'https://esgas.nodoflow.com',
-            '/'
-        );
+        $config = ['company' => 'ESGAS', 'color' => '#0066cc'];
 
-        // ── Token HMAC (opcional) ────────────────────────────────────────────
-        $token = '';
-        if ($secret) {
+        $customer = $this->context->customer;
+        if ($secret !== '' && $customer && $customer->isLogged()) {
             $payload = json_encode([
-                'id_customer' => (int) $this->context->customer->id,
-                'id_group'    => (int) $this->context->customer->id_default_group,
-                'email'       => $this->context->customer->email,
-                'exp'         => time() + 900,
-            ], JSON_UNESCAPED_UNICODE);
-
-            $signature = hash_hmac('sha256', $payload, $secret);
-            $token     = base64_encode($payload) . '.' . $signature;
+                'id_customer' => (int) $customer->id,
+                'id_group'    => (int) $customer->id_default_group,
+                'email'       => (string) $customer->email,
+                'exp'         => time() + 7200,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $config['identityToken'] = base64_encode($payload) . '.' . hash_hmac('sha256', $payload, $secret);
         }
 
-        // ── Valores JS seguros ───────────────────────────────────────────────
-        $chatUrlHtml = htmlspecialchars($chatUrl, ENT_QUOTES, 'UTF-8');
-        $chatUrlJs   = json_encode($chatUrl, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT);
-        $tokenJs     = json_encode($token,   JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT);
+        $flags  = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
+        $src    = htmlspecialchars($chatUrl . '/widget.js?v=' . $this->version, ENT_QUOTES, 'UTF-8');
 
-        // ── CSS ──────────────────────────────────────────────────────────────
-        $output  = '<style>';
-        $output .= '#nexionchat-frame{';
-        $output .= 'position:fixed;bottom:0;right:0;';
-        $output .= 'width:80px;height:80px;';
-        $output .= 'border:none;z-index:2147482999;';
-        $output .= 'background:transparent;overflow:hidden;';
-        $output .= 'transition:width .2s ease,height .2s ease;';
-        $output .= '}';
-        $output .= '</style>';
-
-        // ── Iframe ───────────────────────────────────────────────────────────
-        $output .= '<iframe';
-        $output .= ' id="nexionchat-frame"';
-        $output .= ' src="' . $chatUrlHtml . '/embed"';
-        $output .= ' frameborder="0" scrolling="no"';
-        $output .= ' allow="clipboard-write"';
-        $output .= ' title="Asistente técnico ESGAS"';
-        $output .= '></iframe>';
-
-        // ── Bridge JS ────────────────────────────────────────────────────────
-        $output .= '<script>';
-        $output .= '(function(){';
-        $output .= 'var chatUrl=' . $chatUrlJs . ';';
-        $output .= 'var token='   . $tokenJs   . ';';
-        $output .= 'var frame=document.getElementById("nexionchat-frame");';
-        $output .= 'if(!frame)return;';
-
-        // Enviar token cuando el iframe esté listo (si hay token)
-        $output .= 'function sendToken(){';
-        $output .= '  if(token&&frame.contentWindow){';
-        $output .= '    frame.contentWindow.postMessage({type:"esgas-identity-token",token:token},chatUrl);';
-        $output .= '  }';
-        $output .= '}';
-        $output .= 'frame.addEventListener("load",function(){setTimeout(sendToken,80);});';
-
-        // Mensajes desde el iframe
-        $output .= 'window.addEventListener("message",function(e){';
-        $output .= '  if(!frame.contentWindow||e.source!==frame.contentWindow)return;';
-
-        // Widget listo → enviar token
-        $output .= '  if(e.data&&e.data.type==="esgas-ready"){sendToken();return;}';
-
-        // Redimensionar iframe al abrir/cerrar chat
-        $output .= '  if(e.data&&e.data.type==="esgas-chat"){';
-        $output .= '    if(e.data.open){frame.style.width="450px";frame.style.height="680px";}';
-        $output .= '    else{frame.style.width="80px";frame.style.height="80px";}';
-        $output .= '    return;';
-        $output .= '  }';
-
-        // Añadir al carrito (misma sesión, mismo dominio — sin CORS)
-        $output .= '  if(e.data&&e.data.type==="esgas-add-to-cart"&&Array.isArray(e.data.items)){';
-        $output .= '    var items=e.data.items;';
-        $output .= '    Promise.all(items.map(function(item){';
-        $output .= '      var b=new URLSearchParams({';
-        $output .= '        id_product:String(item.id_product||0),';
-        $output .= '        id_product_attribute:String(item.id_product_attribute||0),';
-        $output .= '        qty:String(item.qty||1),';
-        $output .= '        ajax:"1"';
-        $output .= '      });';
-        $output .= '      return fetch("/module/nexionchat/addtocart",{';
-        $output .= '        method:"POST",';
-        $output .= '        headers:{"Content-Type":"application/x-www-form-urlencoded"},';
-        $output .= '        body:b.toString(),';
-        $output .= '        credentials:"same-origin"';
-        $output .= '      }).then(function(r){return r.json();}).catch(function(){return{};});';
-        $output .= '    })).then(function(results){';
-        $output .= '      var first=items[0]||{};';
-        $output .= '      var res=results[0]||{};';
-        $output .= '      frame.contentWindow.postMessage({type:"esgas-cart-handled",name:first.name||""},chatUrl);';
-        $output .= '      if(typeof prestashop!=="undefined"&&prestashop.emit){';
-        $output .= '        prestashop.emit("updateCart",{reason:{idProduct:first.id_product,idProductAttribute:first.id_product_attribute||0}});';
-        $output .= '      }';
-        $output .= '      if(res.cartUrl){setTimeout(function(){window.open(res.cartUrl,"_blank");},600);}';
-        $output .= '    });';
-        $output .= '    return;';
-        $output .= '  }';
-
-        $output .= '});';
-        $output .= '})();';
-        $output .= '</script>';
-
-        return $output;
+        return '<script>window.ESGASChatConfig=' . json_encode($config, $flags) . ';</script>'
+            . '<script src="' . $src . '" async></script>';
     }
 }

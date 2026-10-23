@@ -13,9 +13,13 @@
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck && npm run check:glosario && npm run test:kb && npm run build",
     "check:glosario": "ts-node --project tsconfig.scripts.json scripts/check-glosario.ts",
-    "audit:fichas": "node scripts/audit-fichas.js"
+    "audit:fichas": "node scripts/audit-fichas.js",
+    "test:dialogo": "ts-node --project tsconfig.scripts.json scripts/test-dialogo.ts",
+    "errores:excel": "node scripts/listado-errores-excel.js",
+    "zip:modulo": "node scripts/zip-modulo.js"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
     "jspdf": "4.2.1",
     "next": "14.2.5",
     "openai": "^4.56.0",

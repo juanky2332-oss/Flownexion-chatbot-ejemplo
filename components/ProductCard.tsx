@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import type { Product } from "@/lib/types";
+import { anadirEnTienda, enTienda, enviarEvento } from "@/lib/carritoTienda";
+import { useCarritoChat } from "./CarritoChat";
 
 interface ProductCardProps {
   product: Product;
@@ -86,22 +88,8 @@ export default function ProductCard({
   // añadir NATIVO de PrestaShop (el mismo que el botón de la ficha): crea el
   // carrito si no existe, comprueba el stock y actualiza la cabecera. Y el
   // carrito solo se ofrece cuando la tienda ha confirmado que lo añadió.
-  const inStore = (() => {
-    if (typeof window === "undefined") return false;
-    try {
-      if (window.top === window.self) return false;
-    } catch {
-      /* iframe de otro origen: seguimos comprobando */
-    }
-    try {
-      const shop = new URL(psBase).origin;
-      const anc = (window.location as Location & { ancestorOrigins?: DOMStringList }).ancestorOrigins;
-      if (anc && anc.length) return anc[0] === shop;
-      return !!document.referrer && new URL(document.referrer).origin === shop;
-    } catch {
-      return false;
-    }
-  })();
+  const inStore = enTienda(psBase);
+  const carrito = useCarritoChat();
 
   // addchat.php en la raíz de la tienda: añade al carrito de la sesión y, con
   // redirect=1, él mismo lleva la pestaña al carrito tras añadir (así el
@@ -151,51 +139,40 @@ export default function ProductCard({
       // cuándo terminó ni dé un "añadido" que no puede comprobar.
       const url = addchatUrl(safeQty);
       const tab = window.open(url, "_blank");
+      // Fuera de la tienda no se puede confirmar si se añadió: se anota como
+      // intento para el panel.
+      enviarEvento("anadir_carrito", { ref: product.reference, id: product.id, uds: safeQty, precio: product.price, confirmado: false });
       if (!tab) setStoreLink(url);
       return;
     }
 
     setAdding(true);
-    const requestId = `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    let done = false;
-
-    const finish = () => {
-      done = true;
-      window.removeEventListener("message", onResult);
-      clearTimeout(timer);
-      setAdding(false);
+    const linea = {
+      id_product: Number(product.id),
+      id_product_attribute: product.idProductAttribute ?? 0,
+      qty: safeQty,
+      name: product.name,
+      reference: product.reference,
+      price: product.price,
     };
-
-    function onResult(ev: MessageEvent) {
-      const d = ev.data || {};
-      if (d.type !== "esgas-cart-result" || d.requestId !== requestId || done) return;
-      finish();
-      if (d.ok) setAdded({ qty: Number(d.qty) || safeQty, cartUrl: d.cartUrl || cartPage });
-      else showStoreError(typeof d.error === "string" ? d.error : null, !!d.needsLogin);
-    }
-
-    const timer = setTimeout(() => {
-      if (done) return;
-      finish();
-      // La tienda no contestó (página sin el widget actualizado): se deja el
-      // enlace a la ficha para terminar allí, sin prometer nada.
-      setStoreLink(addchatUrl(safeQty));
-    }, 15000);
-
-    window.addEventListener("message", onResult);
-    window.parent.postMessage(
-      {
-        type: "esgas-add-to-cart",
-        requestId,
-        items: [{
-          id_product: Number(product.id),
-          id_product_attribute: product.idProductAttribute ?? 0,
-          qty: safeQty,
-          name: product.name,
-        }],
-      },
-      new URL(psBase).origin
-    );
+    anadirEnTienda([linea], psBase).then((r) => {
+      setAdding(false);
+      if (r.sinRespuesta) {
+        // La tienda no contestó (página sin el widget actualizado): se deja
+        // el enlace para terminar allí, sin prometer nada.
+        setStoreLink(addchatUrl(safeQty));
+        return;
+      }
+      if (r.ok) {
+        setAdded({ qty: safeQty, cartUrl: r.cartUrl });
+        carrito?.registrar(r.anadidas, { resumen: r.resumen, cartUrl: r.cartUrl, orderUrl: r.orderUrl });
+        enviarEvento("anadir_carrito", { ref: product.reference, id: product.id, uds: safeQty, precio: product.price });
+      } else {
+        const error = r.fallidas[0]?.error ?? null;
+        showStoreError(error, r.needsLogin);
+        enviarEvento("anadir_error", { ref: product.reference, id: product.id, uds: safeQty, error: r.needsLogin ? "sin_sesion" : error });
+      }
+    });
   };
 
   return (

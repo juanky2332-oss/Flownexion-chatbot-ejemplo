@@ -401,3 +401,132 @@ export async function construirComparativaPdf(fichas: FichaTecnica[], logo: stri
   }
   return doc;
 }
+
+// ── Presupuesto con varias líneas ────────────────────────────────────────────
+
+export interface LineaPresupuesto {
+  referencia: string;
+  descripcion: string;
+  uds: number;
+  precio: number;
+  stock?: number;
+}
+
+const AVISO_PRESUPUESTO =
+  "* Presupuesto orientativo generado desde el asistente de la página con los precios y el stock del momento de la consulta. " +
+  "No constituye una oferta en firme: el precio y la disponibilidad definitivos son los que figuren al tramitar el pedido.";
+
+const eurPdf = (n: number) =>
+  n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " EUR";
+
+export async function descargarPresupuestoPdf(lineas: LineaPresupuesto[], cliente?: string | null): Promise<void> {
+  if (!lineas.length) return;
+  const doc = await construirPresupuestoPdf(lineas, await cargarLogo(), cliente ?? null, new Date());
+  const nombre = `Presupuesto ESGAS ${new Date().toISOString().slice(0, 10)}.pdf`;
+  try {
+    doc.save(nombre);
+  } catch {
+    window.open(doc.output("bloburl").toString(), "_blank", "noopener");
+  }
+}
+
+export async function construirPresupuestoPdf(lineas: LineaPresupuesto[], logo: string | null, cliente: string | null, fecha: Date) {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const anchoUtil = ANCHO - MARGEN_X * 2;
+  const TAM_T = 9;
+  const LIN = TAM_T + 3;
+  const PAD = 4;
+  const GRIS: [number, number, number] = [235, 237, 240];
+  const BORDE: [number, number, number] = [190, 195, 202];
+  // Referencia · Descripción · Uds · Precio ud. · Importe
+  const anchos = [95, anchoUtil - 95 - 40 - 80 - 85, 40, 80, 85];
+  const derecha = [false, false, true, true, true];
+  let y = 0;
+
+  const pie = () => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(0);
+    doc.text(doc.splitTextToSize(latin1(AVISO_PRESUPUESTO), anchoUtil), MARGEN_X, ALTO - 70);
+  };
+  const celda = (texto: string, x: number, ancho: number, alto: number, relleno: boolean, negrita: boolean, alDerecha: boolean) => {
+    if (relleno) {
+      doc.setFillColor(...GRIS);
+      doc.rect(x, y, ancho, alto, "F");
+    }
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.5);
+    doc.rect(x, y, ancho, alto, "S");
+    doc.setFont("helvetica", negrita ? "bold" : "normal");
+    doc.setFontSize(TAM_T);
+    const ls: string[] = doc.splitTextToSize(latin1(texto), ancho - PAD * 2);
+    ls.forEach((l, i) =>
+      alDerecha
+        ? doc.text(l, x + ancho - PAD, y + PAD + TAM_T + i * LIN - 1, { align: "right" })
+        : doc.text(l, x + PAD, y + PAD + TAM_T + i * LIN - 1)
+    );
+  };
+  const fila = (textos: string[], cabecera: boolean) => {
+    doc.setFontSize(TAM_T);
+    const n = Math.max(...textos.map((t, i) => (doc.splitTextToSize(latin1(t), anchos[i] - PAD * 2) as string[]).length));
+    const alto = n * LIN + PAD * 2;
+    if (y + alto > LIMITE_Y - 40) nuevaPagina(false);
+    let x = MARGEN_X;
+    textos.forEach((t, i) => {
+      celda(t, x, anchos[i], alto, cabecera, cabecera, !cabecera && derecha[i]);
+      x += anchos[i];
+    });
+    y += alto;
+  };
+  const CABECERA = ["Referencia", "Descripción", "Uds", "Precio ud.", "Importe"];
+  function nuevaPagina(primera: boolean) {
+    if (!primera) doc.addPage();
+    if (logo) doc.addImage(logo, "PNG", LOGO.x, LOGO.y, LOGO.w, LOGO.h);
+    pie();
+    y = CUERPO_Y - 10;
+    if (primera) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text("PRESUPUESTO", MARGEN_X, y);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(latin1(fecha.toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" })), ANCHO - MARGEN_X, y, { align: "right" });
+      y += 14;
+      if (cliente) {
+        doc.text(latin1(`Cliente: ${cliente}`), MARGEN_X, y);
+        y += 14;
+      }
+      y += 4;
+    }
+    fila(CABECERA, true);
+  }
+
+  nuevaPagina(true);
+  let total = 0;
+  for (const l of lineas) {
+    const importe = l.uds * l.precio;
+    total += importe;
+    fila([l.referencia, l.descripcion, String(l.uds), eurPdf(l.precio), eurPdf(importe)], false);
+  }
+  // Total
+  const xTotal = MARGEN_X + anchos[0] + anchos[1] + anchos[2];
+  const alto = LIN + PAD * 2;
+  celda("Total", xTotal, anchos[3], alto, true, true, false);
+  celda(eurPdf(total), xTotal + anchos[3], anchos[4], alto, true, true, true);
+  y += alto + 12;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(90);
+  doc.text(
+    latin1(
+      cliente
+        ? "Precios por unidad con las condiciones de su cuenta en la página en el momento de la consulta."
+        : "Precios por unidad de la página en el momento de la consulta. Inicie sesión para ver los de su cuenta."
+    ),
+    MARGEN_X,
+    y
+  );
+  doc.setTextColor(0);
+  return doc;
+}

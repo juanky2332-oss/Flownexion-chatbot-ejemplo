@@ -82,6 +82,16 @@ export interface ChatRequest {
    * que venga del cliente.
    */
   customerId?: number;
+  /**
+   * E-mail del cliente que publica la propia tienda (window.prestashop.customer),
+   * sin firmar: solo sirve para calcular el precio de su grupo mientras no esté
+   * instalado el módulo de identidad firmada.
+   */
+  customerEmail?: string;
+  /** "tienda" si el chat está embebido en b2b.esgas.es. */
+  origen?: "tienda" | "web";
+  /** true → la respuesta llega por streaming (NDJSON). */
+  stream?: boolean;
   /** Estado actual del carrito virtual del chatbot. */
   cart?: CartItem[];
 }

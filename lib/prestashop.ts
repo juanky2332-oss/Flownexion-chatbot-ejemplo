@@ -180,7 +180,10 @@ function normalizeProduct(raw: any, basePrice?: number): Product {
 
 let _nameCache: Array<{ id: number; name: string; reference: string }> | null = null;
 let _nameCacheTs = 0;
-const NAME_CACHE_TTL = 5 * 60 * 1000;
+// 30 min: el índice solo lleva nombres y referencias (precio y stock se
+// consultan siempre al momento), así que no hace falta rehacerlo cada 5 min.
+const NAME_CACHE_TTL = 30 * 60 * 1000;
+let _nameCacheEnCurso: Promise<Array<{ id: number; name: string; reference: string }>> | null = null;
 
 // Índice ligero de TODO el catálogo para la búsqueda: nombre + referencia +
 // referencia de proveedor. Antes solo se pedía [id,name] y la búsqueda
@@ -201,7 +204,30 @@ const NAME_FAIL_TTL = 60 * 1000;
 
 async function getAllNames(): Promise<Array<{ id: number; name: string; reference: string }>> {
   if (_nameCache && Date.now() - _nameCacheTs < NAME_CACHE_TTL) return _nameCache;
+  // Caducado pero existente: se usa el que hay y se renueva por detrás, así
+  // ninguna consulta del cliente paga la descarga del catálogo entero.
+  if (_nameCache) {
+    if (!_nameCacheEnCurso) _nameCacheEnCurso = descargarIndice().finally(() => (_nameCacheEnCurso = null));
+    return _nameCache;
+  }
   if (Date.now() - _nameCacheFalloTs < NAME_FAIL_TTL) return [];
+  // Si ya se está descargando (p. ej. lo lanzó el precalentado al abrir el
+  // chat), se espera a esa misma descarga en vez de pedirla dos veces.
+  _nameCacheEnCurso ??= descargarIndice().finally(() => (_nameCacheEnCurso = null));
+  return _nameCacheEnCurso;
+}
+
+/**
+ * Precalienta el índice del catálogo. Lo pide el chat en cuanto el cliente lo
+ * abre: mientras escribe su pregunta, la descarga (la parte lenta de la
+ * tienda) ya está hecha o en marcha.
+ */
+export async function calentarCatalogo(): Promise<number> {
+  if (DEMO_MODE) return 0;
+  return (await getAllNames()).length;
+}
+
+async function descargarIndice(): Promise<Array<{ id: number; name: string; reference: string }>> {
 
   const url = buildUrl("products", { display: "[id,name,reference,supplier_reference]" });
   const res = await psFetch(url, PS_CATALOG_TIMEOUT_MS);

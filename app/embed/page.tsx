@@ -1,7 +1,7 @@
 import ChatWidget from "@/components/ChatWidget";
 
 // Página servida dentro de un iframe en b2b.esgas.es.
-// La identidad llega vía postMessage (esgas-identity-token) desde el módulo nexionchat de PS.
+// La identidad llega por postMessage desde widget.js (token firmado del módulo nexionchat, o el e-mail que publica la tienda).
 export const dynamic = "force-dynamic";
 
 export default function EmbedPage({
@@ -12,7 +12,10 @@ export default function EmbedPage({
   const logoUrl = searchParams.logo || undefined;
   const primaryColor = searchParams.color || "#0066cc";
   const companyName = searchParams.company || "ESGAS";
-  const requireAuth = !!process.env.HMAC_SECRET;
+  // Solo para clientes con sesión si se pide expresamente. Antes dependía de
+  // que existiera HMAC_SECRET: poner el secreto sin el módulo instalado en la
+  // tienda bloqueaba el chat a todo el mundo.
+  const requireAuth = process.env.CHAT_SOLO_CLIENTES === "1";
 
   return (
     <div className="h-screen w-screen bg-transparent">

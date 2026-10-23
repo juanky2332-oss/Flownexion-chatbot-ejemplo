@@ -5,6 +5,8 @@ import type { Message, Product, CartItem } from "@/lib/types";
 import type { FichaTecnica } from "@/lib/ficha";
 import ChatBubble, { type ChatMessage } from "./ChatBubble";
 import RealisticRobot from "./RealisticRobot";
+import { CarritoChatProvider, MiniCarrito } from "./CarritoChat";
+import { configurarEventos, enTienda, PS_BASE } from "@/lib/carritoTienda";
 
 export interface ChatWidgetProps {
   logoUrl?: string;
@@ -20,7 +22,7 @@ const WELCOME =
 
 const LOGIN_URL = "https://b2b.esgas.es/iniciar-sesion";
 const CART_PAGE = "https://b2b.esgas.es/carrito?action=show";
-const PS_BASE   = "https://b2b.esgas.es";
+
 
 const SUPPORT_PHONE = "968 676 983";
 const SUPPORT_EMAIL = "esgas@esgas.es";
@@ -70,13 +72,22 @@ export default function ChatWidget({
 
   const [identityToken, setIdentityToken] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<number | null>(null);
+  // E-mail del cliente que publica la tienda (window.prestashop.customer), sin
+  // firmar: solo para calcular su precio mientras no esté el módulo firmado.
+  const [customerEmail, setCustomerEmail] = useState<string | null>(null);
+  const [inStore, setInStore] = useState(false);
   const [tokenChecked, setTokenChecked] = useState(false);
   const [isInIframe, setIsInIframe] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setSessionId(uid()); }, []);
+  useEffect(() => {
+    const id = uid();
+    setSessionId(id);
+    configurarEventos(id, new URL(webhookUrl, window.location.href).origin);
+    setInStore(enTienda(PS_BASE));
+  }, [webhookUrl]);
 
   useEffect(() => {
     const inIframe = detectIframe();
@@ -101,6 +112,11 @@ export default function ChatWidget({
         setCustomerId(event.data.id);
         setTokenChecked(true);
       }
+      if (event.data?.type === "esgas-customer" && event.origin === new URL(PS_BASE).origin) {
+        if (typeof event.data.email === "string" && event.data.email) setCustomerEmail(event.data.email);
+        if (typeof event.data.id === "number" && event.data.id > 0) setCustomerId(event.data.id);
+        setTokenChecked(true);
+      }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -117,6 +133,15 @@ export default function ChatWidget({
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
+  // Al abrir el chat, la tienda empieza a preparar el índice del catálogo
+  // mientras el cliente escribe (una vez por visita).
+  const calentado = useRef(false);
+  useEffect(() => {
+    if (!open || calentado.current) return;
+    calentado.current = true;
+    fetch(new URL("/api/calentar", new URL(webhookUrl, window.location.href)).toString(), { method: "POST", keepalive: true }).catch(() => undefined);
+  }, [open, webhookUrl]);
+
   // Permite abrir el chat desde fuera del widget (p.ej. el robot grande del
   // hero de la landing dispara este evento al pincharlo).
   useEffect(() => {
@@ -125,9 +150,9 @@ export default function ChatWidget({
     return () => window.removeEventListener("esgas-open-chat", openChat);
   }, []);
 
-  const isLocked   = requireAuth && isInIframe && tokenChecked && !identityToken && !customerId;
-  const tokenEmail = identityToken ? decodeTokenEmail(identityToken) : null;
-  const isIdentified = Boolean(identityToken || customerId);
+  const isLocked   = requireAuth && isInIframe && tokenChecked && !identityToken && !customerId && !customerEmail;
+  const tokenEmail = identityToken ? decodeTokenEmail(identityToken) : customerEmail;
+  const isIdentified = Boolean(identityToken || customerId || customerEmail);
 
 
   const send = useCallback(async (overrideText?: string) => {
@@ -139,61 +164,95 @@ export default function ChatWidget({
     if (overrideText === undefined) setInput("");
     setLoading(true);
 
-    const history: Message[] = [...messages, userMsg]
-      .filter((m) => m.id !== "welcome")
+    // Turnos ANTERIORES: el mensaje actual va aparte ("message"); antes iba
+    // también aquí y el modelo lo recibía dos veces.
+    const history: Message[] = messages
+      .filter((m) => m.id !== "welcome" && !m.enCurso && m.content)
       .slice(-20)
       .map((m) => ({ role: m.role, content: m.content }));
+
+    // La respuesta se pinta según llega (streaming): primero lo que está
+    // haciendo ("Consultando el catálogo…") y después el texto, palabra a
+    // palabra. La versión definitiva (con tarjetas y PDF) llega al final y
+    // sustituye a lo escrito.
+    const botId = uid();
+    setMessages((prev) => [...prev, { id: botId, role: "assistant", content: "", enCurso: true }]);
+    const actualizar = (cambio: (m: ChatMessage) => ChatMessage) =>
+      setMessages((prev) => prev.map((m) => (m.id === botId ? cambio(m) : m)));
+
+    type Final = { output?: string; products?: Product[]; needsHuman?: boolean; humanContext?: string; fichas?: FichaTecnica[] };
+    const cerrar = (data: Final) =>
+      actualizar(() => ({
+        id: botId,
+        role: "assistant",
+        // Si el servidor no devuelve texto (error, o la plataforma corta la
+        // petición), el cliente NO puede quedarse con una disculpa y nada
+        // más: se le ofrece siempre el contacto.
+        content:
+          data.output ??
+          "No he podido completar la consulta en este momento. Vuelve a intentarlo en unos segundos y, si te corre prisa, escríbenos por teléfono o e-mail y te lo resolvemos al momento.",
+        products: data.products,
+        fichas: data.fichas,
+        needsHuman: data.needsHuman ?? !data.output,
+        humanContext: data.humanContext ?? (data.output ? undefined : text.slice(0, 150)),
+      }));
 
     try {
       const res = await fetch(webhookUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
         body: JSON.stringify({
           message: text,
           sessionId,
           history,
+          stream: true,
+          origen: inStore ? "tienda" : "web",
           ...(identityToken ? { identityToken } : {}),
+          ...(!identityToken && customerEmail ? { customerEmail } : {}),
           ...(!identityToken && customerId ? { customerId } : {}),
         }),
       });
-      const data: { output?: string; products?: Product[]; needsHuman?: boolean; humanContext?: string; fichas?: FichaTecnica[] } = await res
-        .json()
-        .catch(() => ({}));
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: uid(),
-          role: "assistant",
-          // Si el servidor no devuelve texto (error 500, o la plataforma corta
-          // la petición y sirve su propia página en vez de JSON), el cliente
-          // NO puede quedarse con una disculpa y nada más: se le ofrece
-          // siempre el contacto, que es la salida que sí le resuelve.
-          content:
-            data.output ??
-            "No he podido completar la consulta en este momento. Vuelve a intentarlo en unos segundos y, si te corre prisa, escríbenos por teléfono o e-mail y te lo resolvemos al momento.",
-          products: data.products,
-          fichas: data.fichas,
-          needsHuman: data.needsHuman ?? !data.output,
-          humanContext: data.humanContext ?? (data.output ? undefined : text.slice(0, 150)),
-        },
-      ]);
+      const esStream = (res.headers.get("content-type") ?? "").includes("ndjson") && res.body;
+      if (!esStream) {
+        cerrar(await res.json().catch(() => ({})));
+      } else {
+        const reader = res.body!.getReader();
+        const dec = new TextDecoder();
+        let buffer = "";
+        let final: Final | null = null;
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += dec.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buffer.indexOf("\n")) >= 0) {
+            const linea = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!linea) continue;
+            let ev: { tipo?: string; texto?: string } & Final;
+            try { ev = JSON.parse(linea); } catch { continue; }
+            if (ev.tipo === "estado") actualizar((m) => ({ ...m, estado: ev.texto }));
+            else if (ev.tipo === "texto") actualizar((m) => ({ ...m, content: m.content + (ev.texto ?? "") }));
+            else if (ev.tipo === "reinicio") actualizar((m) => ({ ...m, content: "" }));
+            else if (ev.tipo === "fin") final = ev;
+          }
+        }
+        cerrar(final ?? {});
+      }
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: uid(),
-          role: "assistant",
-          content:
-            "Ha habido un problema de conexión. Vuelve a intentarlo, y si sigue sin ir, escríbenos por teléfono o e-mail y te atendemos al momento.",
-          needsHuman: true,
-          humanContext: text.slice(0, 150),
-        },
-      ]);
+      actualizar(() => ({
+        id: botId,
+        role: "assistant",
+        content:
+          "Ha habido un problema de conexión. Vuelve a intentarlo, y si sigue sin ir, escríbenos por teléfono o e-mail y te atendemos al momento.",
+        needsHuman: true,
+        humanContext: text.slice(0, 150),
+      }));
     } finally {
       setLoading(false);
     }
-  }, [input, loading, isLocked, messages, sessionId, webhookUrl, identityToken]);
+  }, [input, loading, isLocked, messages, sessionId, webhookUrl, identityToken, customerEmail, customerId, inStore]);
 
   const sendChip = useCallback((text: string) => { send(text); }, [send]);
 
@@ -206,6 +265,7 @@ export default function ChatWidget({
   };
 
   return (
+    <CarritoChatProvider psBase={PS_BASE}>
     <div className="fixed bottom-4 right-4 z-[2147483000] flex flex-col items-end font-sans">
       {open && (
         <div
@@ -232,10 +292,10 @@ export default function ChatWidget({
                 }`} />
                 {isLocked
                   ? <span>Acceso restringido</span>
-                  : identityToken && tokenEmail
-                    ? <span className="truncate">{tokenEmail} · B2B</span>
+                  : tokenEmail
+                    ? <span className="truncate">{tokenEmail}</span>
                     : customerId
-                      ? <span>Cliente B2B</span>
+                      ? <span>Cliente identificado</span>
                       : tokenChecked
                         ? <span>En línea</span>
                         : <span>Identificando…</span>
@@ -262,6 +322,8 @@ export default function ChatWidget({
             </button>
           </div>
 
+          {!isLocked && <MiniCarrito primaryColor={primaryColor} enLaTienda={inStore} cliente={tokenEmail} />}
+
           {isLocked ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-5 px-8 text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-3xl">🔒</div>
@@ -284,10 +346,12 @@ export default function ChatWidget({
           ) : (
             <>
               <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
-                {messages.map((m) => (
+                {messages.map((m, idx) => (
                   <ChatBubble
                     key={m.id}
                     message={m}
+                    pregunta={m.role === "assistant" && idx > 0 && messages[idx - 1].role === "user" ? messages[idx - 1].content : undefined}
+                    clienteEmail={tokenEmail}
                     primaryColor={primaryColor}
                     psBase={PS_BASE}
                     identityToken={identityToken}
@@ -315,15 +379,6 @@ export default function ChatWidget({
                   </div>
                 )}
 
-                {loading && (
-                  <div className="flex justify-start">
-                    <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-gray-100 bg-white px-4 py-3 shadow-sm">
-                      {[0, 1, 2].map((i) => (
-                        <span key={i} className="h-2 w-2 animate-typing-bounce rounded-full bg-gray-400" style={{ animationDelay: `${i * 0.15}s` }} />
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div className="border-t border-gray-200 bg-white p-3">
@@ -389,5 +444,6 @@ export default function ChatWidget({
         </a>
       </p>
     </div>
+    </CarritoChatProvider>
   );
 }

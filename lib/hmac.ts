@@ -38,7 +38,8 @@ export function verifyIdentityToken(token: string): IdentityClaims | null {
       exp?: unknown;
     };
 
-    if (typeof claims.exp === "number" && Date.now() / 1000 > claims.exp) return null;
+    // Sin caducidad no se acepta: un token copiado valdría para siempre.
+    if (typeof claims.exp !== "number" || Date.now() / 1000 > claims.exp) return null;
     if (!claims.id_customer || !claims.id_group || !claims.email) return null;
 
     return {
