@@ -192,6 +192,27 @@ function addchatUrl(l: LineaCarrito, psBase: string): string {
   );
 }
 
+/**
+ * Espera a que la tienda haya contestado en la ventanita, en vez de 3 s fijos
+ * por producto (24-10-2026: "queda muy mal que se abra y se cierre una
+ * página"). Mientras sigue en about:blank se puede leer su location; en cuanto
+ * llega la respuesta de addchat.php pasa a ser de b2b.esgas.es y leerla lanza
+ * error. addchat.php responde cuando ya ha añadido, así que ese momento basta.
+ */
+async function respuestaDeLaTienda(w: Window, maxMs = 4000): Promise<void> {
+  const inicio = Date.now();
+  while (Date.now() - inicio < maxMs) {
+    if (w.closed) return;
+    try {
+      void w.location.href; // sigue en blanco: la tienda aún no ha contestado
+    } catch {
+      await new Promise((r) => setTimeout(r, 150));
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 80));
+  }
+}
+
 async function unidadesEnCarrito(l: LineaCarrito, identityToken?: string | null): Promise<number | null> {
   try {
     const r = await fetch("/api/carrito-estado", {
@@ -220,13 +241,26 @@ export async function anadirConVentana(
   psBase = PS_BASE
 ): Promise<ResultadoFuera> {
   const antes = await Promise.all(lineas.map((l) => unidadesEnCarrito(l, identityToken)));
-  for (const l of lineas) {
+  for (const [i, l] of lineas.entries()) {
     try {
+      // Del segundo en adelante la ventanita ya es de la tienda: se devuelve a
+      // en blanco para poder saber cuándo contesta la siguiente.
+      if (i > 0) {
+        w.location.href = "about:blank";
+        for (let t = 0; t < 25; t++) {
+          try {
+            if (w.location.href === "about:blank") break;
+          } catch {
+            /* aún de la tienda */
+          }
+          await new Promise((r) => setTimeout(r, 40));
+        }
+      }
       w.location.href = addchatUrl(l, psBase);
     } catch {
       break; // el cliente cerró la ventana
     }
-    await new Promise((r) => setTimeout(r, 3000));
+    await respuestaDeLaTienda(w);
   }
   try {
     w.close();

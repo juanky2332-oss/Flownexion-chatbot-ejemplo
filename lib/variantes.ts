@@ -474,7 +474,17 @@ export function refDeConversacion(
     const explicitas = [...texto.matchAll(/Ref:\s*\**\s*([A-Z0-9][A-Z0-9 \-/.]{2,24})/gi)].map((x) =>
       x[1].trim()
     );
-    const candidatas = explicitas.length ? explicitas : extractQueryCandidates(texto).slice(0, 3);
+    // "la referencia es la NTN 1AS08-7/8": marca delante, sin "Ref:". Visto el
+    // 24-10-2026: sin esto "¿y qué temperatura aguanta este rodamiento?" no
+    // encontraba la pieza y el bot rehacía la búsqueda contradiciéndose.
+    const conMarca = [...texto.matchAll(/\b(?:NTN|SNR|TL)\s+([A-Z0-9][A-Z0-9\-/.]{2,24})/gi)]
+      .map((x) => x[1].replace(/[.,]+$/, ""))
+      .filter((c) => (c.match(/\d/g) ?? []).length >= 3);
+    // Respaldo: candidatos con pinta de referencia (la frase entera pegada no lo es).
+    const sueltas = extractQueryCandidates(texto)
+      .filter((c) => (c.match(/\d/g) ?? []).length >= 3 && c.length <= 20 && !/[A-Z]{4,}/.test(c))
+      .slice(0, 4);
+    const candidatas = explicitas.length ? explicitas : conMarca.length ? conMarca : sueltas;
     for (const cand of candidatas) {
       const hit = findTechnicalInfo(cand)[0];
       if (hit) return hit;
@@ -672,7 +682,7 @@ export function bloqueOtraMedida(refPrevia: TechInfo, mensaje = ""): string {
 // ficha del producto de la conversación se resuelve aquí y se le da hecha.
 
 const PREGUNTA_TECNICA =
-  /\b(pesa|peso|mide|medidas?|dimensi\w+|di[aá]metro|ancho|alto|altura|rodamiento\s+lleva|qu[eé]\s+rodamiento|inserto|rosca|perno|tornillo|cuerpo|carga|velocidad|rpm|tolerancia|juego|junta|sellad\w+|material|jaula|caracter[ií]sticas?|ficha|datos|dientes|desarrollo|longitud)\b/i;
+  /\b(pesa|peso|mide|medidas?|dimensi\w+|di[aá]metro|ancho|alto|altura|rodamiento\s+lleva|qu[eé]\s+rodamiento|inserto|rosca|perno|tornillo|cuerpo|carga|velocidad|rpm|tolerancia|juego|junta|sellad\w+|material|jaula|caracter[ií]sticas?|ficha|datos|dientes|desarrollo|longitud|temperaturas?|grados|calor|fr[ií]o|aguanta\w*|soporta\w*|resiste\w*|grasa|lubric\w*|engras\w*|reengras\w*|vida|duraci[oó]n|dura)\b/i;
 
 export function esPreguntaTecnicaSinRef(message: string): boolean {
   const m = String(message ?? "");
@@ -692,10 +702,17 @@ export function bloqueFichaConversacion(fichas: TechInfo[]): string | null {
   if (!fichas.length) return null;
   return (
     `🔒 FICHA VERIFICADA DEL PRODUCTO DEL QUE SE ESTÁ HABLANDO (base de datos técnica):\n${JSON.stringify(fichas)}\n` +
-    `El cliente pregunta por un dato de este producto sin repetir la referencia. Contesta SOLO con los valores ` +
-    `de este bloque, copiados tal cual (con su unidad). PROHIBIDO dar cualquier valor que no aparezca aquí: si el ` +
-    `dato que pide no está, dilo con claridad y ofrece el contacto para confirmarlo. Si hay fichas de dos marcas ` +
-    `(p.ej. SNR y TL) con valores distintos, da cada uno con su marca.`
+    `El cliente pregunta por un dato de ESTE producto sin repetir la referencia ("este rodamiento", "¿y cuánto pesa?"). ` +
+    `Es una pregunta de seguimiento: NO vuelvas a buscar por medidas, NO cambies de pieza y NO contradigas lo que ya le ` +
+    `dijiste en el turno anterior. Empieza la respuesta contestando a lo que pregunta, nombrando la referencia.\n` +
+    `- Si el dato está en este bloque: dalo copiado tal cual (con su unidad).\n` +
+    `- Si el dato NO está en este bloque (p.ej. la temperatura de trabajo, que la ficha no trae): llama UNA vez a ` +
+    `search_official_source con la marca, la referencia y el dato concreto (p.ej. "NTN 1AS08-7/8 temperatura de ` +
+    `funcionamiento"). Si la fuente oficial lo da, dalo diciendo de dónde sale. Si no lo da, dilo claro en una frase ` +
+    `("la ficha técnica de NTN de esta referencia no indica la temperatura de trabajo") y añade solo lo que SÍ consta ` +
+    `en este bloque y tiene relación (tipo de junta, material de jaula, si es reengrasable), sin convertirlo en una ` +
+    `cifra. PROHIBIDO inventar o estimar un valor. Cierra ofreciendo el contacto para confirmarlo.\n` +
+    `Si hay fichas de dos marcas (p.ej. SNR y TL) con valores distintos, da cada uno con su marca.`
   );
 }
 
@@ -771,15 +788,48 @@ export function cantidadPedida(message: string): number | null {
   return Number.isFinite(n) && n > 0 && n < 100000 ? n : null;
 }
 
+type TipoPieza = "correa" | "soporte" | "reten" | "cadena" | "rodamiento";
+
+function tipoDe(palabra: string): TipoPieza {
+  const t = palabra.toLowerCase();
+  if (t.startsWith("correa")) return "correa";
+  if (t.startsWith("soporte")) return "soporte";
+  if (t.startsWith("reten")) return "reten";
+  if (t.startsWith("cadena")) return "cadena";
+  return "rodamiento";
+}
+
+/**
+ * Cantidad por tipo de pieza. Visto el 24-10-2026: "quiero 5 correas y 2
+ * rodamientos 6205 zz c3" dejó la tarjeta del rodamiento en "Añadir 5 uds".
+ */
+export function cantidadesPorTipo(message: string): Partial<Record<TipoPieza, number>> {
+  const out: Partial<Record<TipoPieza, number>> = {};
+  for (const m of String(message ?? "").matchAll(/\b(\d{1,5})\s*(rodamientos?|correas?|soportes?|retenes|cadenas?)\b/gi)) {
+    const n = Number(m[1]);
+    if (n > 0 && n < 100000) out[tipoDe(m[2])] ??= n;
+  }
+  return out;
+}
+
 export function ajustarCantidad(
   texto: string,
   productos: Product[],
   message: string
 ): { texto: string; productos: Product[] } {
-  const qty = cantidadPedida(message);
-  if (!qty || !productos.length) return { texto, productos };
-  const ajustados = productos.map((p) => (p.qty ? p : { ...p, qty }));
+  const general = cantidadPedida(message);
+  if (!general || !productos.length) return { texto, productos };
+  const porTipo = cantidadesPorTipo(message);
+  const varios = Object.keys(porTipo).length > 1;
+  const ajustados = productos.map((p) => {
+    if (p.qty) return p;
+    const tipo = tipoDe(/CORREA/i.test(p.name) ? "correa" : /SOPORTE/i.test(p.name) ? "soporte" : /RETEN|RETÉN/i.test(p.name) ? "reten" : /CADENA/i.test(p.name) ? "cadena" : "rodamiento");
+    // Con varias piezas, cada tarjeta lleva la suya; si de su tipo no dijo nada, se queda en 1.
+    const qty = varios ? porTipo[tipo] : general;
+    return qty ? { ...p, qty } : p;
+  });
   const p = ajustados[0];
+  const qty = p.qty ?? general;
   const stock = p.stock ?? 0;
   let t = texto;
   if (stock > 0 && stock < qty && !/¿\s*quieres que te deje/i.test(t)) {

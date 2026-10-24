@@ -1181,8 +1181,23 @@ const BELT_INTENT =
  * correa existiendo en el KB. Resolviéndolo en código, sobre el mensaje en
  * bruto, la respuesta correcta deja de depender de esa decisión del modelo.
  */
+/**
+ * La parte del mensaje que habla de correas. Visto el 24-10-2026: "quiero 5
+ * correas y 2 rodamientos 6205 zz c3" devolvía la SPB3620, sacada de los
+ * números del RODAMIENTO. Se quitan las frases que nombran otra pieza
+ * (rodamiento, soporte, retén...) sin nombrar una correa, y las cantidades.
+ */
+export function parteDeCorrea(message: string): string {
+  const m = sinCantidades(String(message ?? ""));
+  const plano = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const OTRA_PIEZA = /\b(rodamientos?|soportes?|retene?s?|cadenas?|pi[nñ]on(es)?|casquillos?|manguitos?|rotulas?|poleas?)\b/i;
+  const frases = m.split(/[,;\n]+|\s+(?:y|e|mas|más|\+|tambien|también)\s+/i);
+  if (frases.length < 2) return m;
+  return frases.filter((f) => BELT_INTENT.test(plano(f)) || !OTRA_PIEZA.test(plano(f))).join(" ");
+}
+
 export function findBeltForMessage(message: string): BeltInfo[] {
-  const m = String(message ?? "");
+  const m = parteDeCorrea(message);
   const plain = m.normalize("NFD").replace(/[̀-ͯ]/g, "");
   if (!BELT_INTENT.test(plain)) return [];
   return findBelt(m, 4);
@@ -1390,7 +1405,7 @@ export function findTranslinkBelt(query: string, limit = 6): TlBeltInfo[] {
 
 /** Correas TL a pre-inyectar para un mensaje (mismo disparador que Continental). */
 export function findTranslinkBeltForMessage(message: string): TlBeltInfo[] {
-  const m = String(message ?? "");
+  const m = parteDeCorrea(message);
   const plain = m.normalize("NFD").replace(/[̀-ͯ]/g, "");
   // Una referencia TL escrita tal cual ("TL-1000PU-AT10") también es una
   // consulta de correa aunque no diga la palabra.

@@ -17,6 +17,7 @@ import {
   findGlossaryForMessage,
   findBelt,
   findBeltForMessage,
+  parteDeCorrea,
   findTranslinkBelt,
   findTranslinkBeltForMessage,
   ambiguedadLiLd,
@@ -200,7 +201,7 @@ Esta lista completa es OBLIGATORIA en dos situaciones: (a) siempre que PRESENTES
 
 Procede así, en la MISMA respuesta:
 1. Llama SIEMPRE primero a **get_technical_info** con la referencia: es la ficha técnica oficial de nuestra base de datos local (medidas, peso, tolerancia, junta, materiales, capacidades de carga estática y dinámica, velocidades, datos de alojamiento en soportes...) — instantánea y 100% verificada. Complétala con la decodificación de referencia y las TABLAS DIMENSIONALES ISO de este prompt.
-2. SOLO si get_technical_info no devuelve nada para esa referencia, llama a **search_official_source** (si aún no la has llamado en esta consulta) pidiendo explícitamente todos los datos técnicos en una sola query: capacidad de carga dinámica y estática, tolerancia/precisión, velocidad límite, sellado, material de jaula, peso — no una llamada por dato. Si get_technical_info SÍ devolvió la ficha, NO llames a search_official_source: ya tienes el dato oficial, no lo dupliques.
+2. SOLO si get_technical_info no devuelve nada para esa referencia, llama a **search_official_source** (si aún no la has llamado en esta consulta) pidiendo explícitamente todos los datos técnicos en una sola query: capacidad de carga dinámica y estática, tolerancia/precisión, velocidad límite, sellado, material de jaula, peso — no una llamada por dato. Si get_technical_info SÍ devolvió la ficha, NO llames a search_official_source: ya tienes el dato oficial, no lo dupliques. Única excepción: el cliente pregunta por UN dato concreto que la ficha no trae (p.ej. la temperatura de trabajo); entonces sí, una búsqueda de ese dato para esa referencia, y si no aparece se dice que no consta, nunca se estima.
 3. Compila TODO lo que tengas (get_technical_info + tablas + KB + búsqueda oficial si hizo falta) en una única lista de características, no en frases sueltas. Formato sobrio, etiquetas en negrita y sin iconos:
    - **Medidas:** dØ interior × DØ exterior × B anchura
    - **Capacidad de carga dinámica / estática:** [valor] (si se ha podido confirmar)
@@ -616,6 +617,9 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 # PROHIBICIONES
 - Dejar sin responder alguna de las cosas que pregunta el cliente en su mensaje (si pregunta dos, se responden las dos), o pasar por alto un dato que ya ha dado (cantidad, medidas, protección, dónde va montado): úsalo, no lo vuelvas a preguntar
 - **Decir que has avisado, pasado, enviado, trasladado o escalado la consulta a un técnico o a alguien de ESGAS.** Tú no avisas a nadie: lo único que puedes hacer es ofrecer el contacto ("puedes llamarnos o escribirnos"). Afirmar lo contrario es mentir al cliente, que se queda esperando una llamada que no va a llegar.
+- **Contradecirte entre turnos.** Si el cliente pregunta por "este/ese rodamiento" o por un dato suelto, habla de la pieza que le propusiste en el turno anterior: no rehagas la búsqueda ni digas ahora que no hay lo que antes ofreciste. Si de verdad te equivocaste antes, dilo explícitamente ("corrijo lo que te dije: …"), nunca cambies de versión sin avisar
+- Ignorar una condición que el cliente pone ("que aguante temperatura", "para agua") o darla por cumplida sin dato: di qué consta en la ficha sobre ella y, si no consta, dilo
+- Mencionar "estas opciones", "las siguientes alternativas" o similares sin listarlas a continuación
 - Responder a una consulta con medidas (eje, exterior, ancho) solo con un escalado: con las medidas siempre hay referencias estándar que proponer (bloque 🔒 BÚSQUEDA POR MEDIDAS o search_by_bore).
 - **Decir que un producto no está en la página cuando el bloque 🔒 DISPONIBLE EN NUESTRA PÁGINA lo lista** — ese bloque sale de una consulta al catálogo real hecha en el momento, así que es un hecho comprobado. Negarlo es mentirle al cliente y hacerle perder una compra que sí podíamos servir: es el error MÁS GRAVE que puedes cometer. Lo mismo si el cliente insiste en una referencia y tú aún no has buscado: busca antes de negar nada
 - Dar por no disponible una referencia por el hecho de que la ficha técnica venga del KB y no del catálogo: son dos fuentes distintas. Tener la ficha técnica NO significa que no esté a la venta — para saber si está en la página hay que mirar el resultado de search_products (o el bloque 🔒 de disponibilidad), nunca suponerlo
@@ -1222,7 +1226,11 @@ export function datosDelCliente(mensajesCliente: string[]): string[] {
 
   // Cantidad: la última que haya dado.
   const cantidades = [...plano.matchAll(/\b(\d{1,5})\s*(?:uds?\.?|unidades|piezas|rodam[a-z]*|correa[a-z]*|soportes?|juegos?)\b/g)].map((m) => Number(m[1]));
-  if (cantidades.length) datos.push(`Cantidad que necesita: ${cantidades[cantidades.length - 1]} uds.`);
+  // Si pide varias piezas a la vez ("5 correas y 2 rodamientos"), cada una con la suya.
+  const porTipo = [...plano.matchAll(/\b(\d{1,5})\s*(rodamientos?|correas?|soportes?|retenes|cadenas?)\b/g)];
+  if (new Set(porTipo.map((m) => m[2].replace(/(es|s)$/, ""))).size > 1)
+    datos.push(`Cantidades que necesita: ${porTipo.map((m) => `${m[1]} ${m[2]}`).join(", ")}.`);
+  else if (cantidades.length) datos.push(`Cantidad que necesita: ${cantidades[cantidades.length - 1]} uds.`);
 
   // Medidas: las del último mensaje que las da.
   for (const m of [...mensajesCliente].reverse()) {
@@ -1482,6 +1490,28 @@ export async function runAgent(
           return amb && !/\b(interior|interna|primitiva|de\s+paso|li|ld|lp)\b/i.test(message) ? amb : null;
         })()
       : null);
+  // CORREA SIN DATOS — "quiero 5 correas y 2 rodamientos 6205": no hay perfil
+  // ni longitud, así que no hay correa que proponer. Visto el 24-10-2026: el
+  // bot enseñó una SPB3620 sacada de la nada.
+  const parteCorrea = parteDeCorrea(message);
+  const correaSinDatos =
+    /\bcorreas?\b/i.test(parteCorrea) &&
+    !/\d{2,}/.test(parteCorrea) &&
+    !beltHits.length &&
+    !tlBeltHits.length &&
+    !history.some((m) => m.role === "user" && (findBeltForMessage(String(m.content ?? "")).length || findTranslinkBeltForMessage(String(m.content ?? "")).length));
+  if (correaSinDatos) {
+    messages.push({
+      role: "system",
+      content:
+        `🔒 CORREA SIN IDENTIFICAR — el cliente pide correa(s) sin decir cuál (ni perfil, ni longitud, ni tipo). ` +
+        `PROHIBIDO proponer, buscar o enseñar ninguna correa concreta en esta respuesta: cualquiera sería inventada. ` +
+        `Atiende normalmente el resto de lo que pide y, para la correa, pregúntale en UNA frase lo que hace falta: ` +
+        `qué lleva grabado en el flanco (perfil y longitud, p.ej. "SPZ 1600" o "A 48") o, si no se lee, el tipo ` +
+        `(trapecial, dentada o Poly-V) y la medida aproximada. Recuerda la cantidad que ha dicho para cuando la identifique.`,
+    });
+  }
+
   if (ambLiLd) {
     messages.push({
       role: "system",
@@ -1680,7 +1710,9 @@ export async function runAgent(
       content:
         "DATOS QUE EL CLIENTE YA HA DADO EN ESTA CONVERSACIÓN (son suyos, literales):\n- " + yaDicho.join("\n- ") +
         "\nTenlos en cuenta en esta respuesta (cantidad, medidas, protección, condiciones) y NO vuelvas a preguntar ninguno. " +
-        "Si lo que ofreces no cumple alguno (p.ej. menos stock que la cantidad, otra protección), dilo claramente.",
+        "Si lo que ofreces no cumple alguno (p.ej. menos stock que la cantidad, otra protección), dilo claramente. " +
+        "Si ya le propusiste una pieza para esas medidas y ahora pregunta algo de ella, sigue con ESA pieza: no repitas la búsqueda por medidas. " +
+        "Una condición de trabajo (temperatura, agua, polvo…) no se da por cumplida si la ficha no lo dice.",
     });
   }
 
@@ -1758,7 +1790,7 @@ export async function runAgent(
   // lo que cree recordar del turno anterior.
   // Pregunta de seguimiento sin referencia ("¿y cuánto pesa?"): la ficha del
   // producto de la conversación, resuelta en código (ver fichasDeConversacion).
-  if (!pideOtraMedida(message) && esPreguntaTecnicaSinRef(message)) {
+  if (!medidas && !pideOtraMedida(message) && esPreguntaTecnicaSinRef(message)) {
     const deLaConversacion = fichasDeConversacion(history);
     tecnicas.push(...deLaConversacion);
     const bloque = bloqueFichaConversacion(deLaConversacion);
@@ -1806,9 +1838,13 @@ export async function runAgent(
     const borrador = corregirSufijosSellado(sinFalsoAviso(bruto));
     // Correas que presenta la respuesta aunque el mensaje del cliente no las
     // nombre ("dame la más común"): si están en la página, con su tarjeta.
-    if (/\b(correa|continental|TL PRO)\b/i.test(borrador)) {
-      const enTexto = findBeltForMessage(`correa ${borrador}`).slice(0, 4).map((b) => b.nombre);
-      const enTextoTl = findTranslinkBeltForMessage(`correa ${borrador}`).slice(0, 4).map((t) => t.referencia);
+    // Con la correa sin identificar no se enseña ninguna (ver CORREA SIN IDENTIFICAR).
+    if (correaSinDatos) {
+      for (let i = collected.length - 1; i >= 0; i--) if (/CORREA/i.test(collected[i].name)) collected.splice(i, 1);
+    } else if (/\b(correa|continental|TL PRO)\b/i.test(borrador)) {
+      // Texto del propio bot: sin parteDeCorrea, que partiría sus fichas por frases.
+      const enTexto = findBelt(`correa ${borrador}`, 4).map((b) => b.nombre);
+      const enTextoTl = findTranslinkBelt(`correa ${borrador}`, 4).map((t) => t.referencia);
       if (enTexto.length || enTextoTl.length) {
         const extra = await Promise.race([
           correasEnPagina([...enTexto, ...enTextoTl], groupId, customerId),

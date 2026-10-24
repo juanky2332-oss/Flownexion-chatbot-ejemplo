@@ -622,7 +622,7 @@ section("SEGUIMIENTO SIN REFERENCIA — la ficha del producto de la conversacion
   const tlF = f.find((x) => x.referencia === "TL-UCP205");
   ok(!!tlF && tlF.datos["Peso (kg)"] === "0,81" && tlF.datos["Referencia del rodamiento"] === "UC205", "ficha TL-UCP205: 0,81 kg y UC205", JSON.stringify(tlF?.datos));
   const b = v.bloqueFichaConversacion(f) ?? "";
-  ok(/0,81/.test(b) && /PROHIBIDO dar cualquier valor/.test(b), "el bloque lleva el dato y la prohibicion de inventar");
+  ok(/0,81/.test(b) && /PROHIBIDO inventar/.test(b), "el bloque lleva el dato y la prohibicion de inventar");
   ok(/termopl[aá]stico/i.test(tlF?.aviso ?? ""), "la ficha TL avisa de que no vale para la version termoplastica");
 }
 
@@ -868,5 +868,21 @@ section("FICHA TECNICA EN PDF — se extrae de respuestas REALES del bot");
   );
 }
 
+
+console.log("\n=== CONVERSACIONES DEL 24-10-2026 (seguimiento, correa sin datos, cantidades) ===");
+{
+  const k = require("../lib/kb") as typeof import("../lib/kb");
+  const vv = require("../lib/variantes") as typeof import("../lib/variantes");
+  const ag = require("../lib/agent") as typeof import("../lib/agent");
+  const bot = "Para un diámetro interior de aproximadamente 23 mm, la referencia estándar es la NTN 1AS08-7/8, con estas características:\nDiámetro interior (dØ): 22.987 mm";
+  ok(vv.esPreguntaTecnicaSinRef("y que temperatura aguanta este rodamiento"), "«¿qué temperatura aguanta?» es pregunta de seguimiento");
+  ok(vv.refDeConversacion([{ content: bot }])?.referencia === "1AS08-7/8", "la pieza de la conversación se encuentra aunque no lleve «Ref:» (NTN 1AS08-7/8)");
+  const m = "quiero 5 correas y 2 rodamientos 6205 zz c3";
+  ok(k.findBeltForMessage(m).length === 0 && k.findTranslinkBeltForMessage(m).length === 0, "«5 correas y 2 rodamientos 6205 zz c3» no saca ninguna correa de los números del rodamiento");
+  ok(k.findBeltForMessage("correa SPZ 1600 y rodamiento 6205")[0]?.nombre === "SPZ1600", "con correa y rodamiento a la vez, la correa sale bien");
+  const aj = vv.ajustarCantidad("x", [{ name: "SNR 6205 ZZ C3", stock: 30 }, { name: "CORREA CONTINENTAL SPB3620", stock: 30 }] as any[], m);
+  ok(aj.productos[0].qty === 2 && aj.productos[1].qty === 5, "cada tarjeta con su cantidad (2 rodamientos, 5 correas)");
+  ok(ag.datosDelCliente([m])[0] === "Cantidades que necesita: 5 correas, 2 rodamientos.", "el bloque de datos guarda las dos cantidades");
+}
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);
