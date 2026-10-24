@@ -1767,7 +1767,15 @@ export async function runAgent(
           `Referencias estándar que cumplen esas medidas:\n${lineasKb}\n\nEn nuestra página:\n${lineasPagina}\n\n` +
           `OBLIGATORIO: responde con estas opciones reales. Si hay alguna en la página, preséntala (máx. 2-3, primero las que tienen stock) ` +
           `con su ficha técnica completa, su precio y su stock, y cierra ofreciendo la compra de las unidades que pide si hay stock suficiente. ` +
-          (medidas.proteccion === "ambas"
+          // Condición de trabajo que la ficha no acredita ("que aguante
+          // temperatura"): visto el 24-10-2026, el bot la ignoraba.
+          (/\b(temperatura|calor|caliente|horno|agua|humed|polvo|vibraci)/i.test(message)
+            ? `El cliente pide además una condición de trabajo (${/\b(temperatura|calor|caliente|horno)/i.test(message) ? "que aguante temperatura" : "entorno exigente"}). ` +
+              `Las fichas de arriba NO traen temperatura de trabajo ni resistencia a ese entorno: dilo en UNA frase y no la des por cumplida. ` +
+              `Solo puedes mencionar lo que consta (tipo de junta, si es reengrasable, material de jaula), sin convertirlo en una cifra. `
+            : "") +
+          // Explicar ZZ frente a 2RS solo si de verdad hay de los dos tipos entre las opciones.
+          (medidas.proteccion === "ambas" && /junta:\s*(ZZ|2Z|Z\b|deflect)/i.test(lineasKb) && /junta:\s*(?!ZZ|2Z|Z\b|deflect|abierto)\S/i.test(lineasKb)
             ? `El cliente dice "tapa" sin precisar: explica en UNA frase que hay dos tipos (ZZ = tapa metálica, sin contacto; 2RS/EE = junta de goma, estanca al agua y al polvo) y, si las dos están, preséntalas y pregúntale UNA cosa: cuál necesita o qué pone grabado en el suyo. `
             : "") +
           (!medidas.de
