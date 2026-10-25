@@ -913,11 +913,12 @@ export function corregirStock(texto: string, productos: Product[], message: stri
       continue;
     }
     const titulo = /^(?:\d{1,2}[.)]\s*)?\*\*([^*]+)\*\*\s*$/.exec(t) ?? /^#{1,4}\s+(\S.*)$/.exec(t);
-    if (titulo && !/:\s*$/.test(titulo[1])) {
+    // "**Ref: …**" también va en negrita, pero no es un producto nuevo.
+    if (titulo && !/:\s*$/.test(titulo[1]) && !/^\s*ref(erencia)?\s*:/i.test(titulo[1])) {
       const p = porNombre(titulo[1]);
       // Otro producto (con tarjeta o sin ella) cierra el anterior: visto el
       // 25-10-2026, el precio/stock del 625 ZZ acababa pegado al 635 ZZ.
-      if (p !== actual || /\d{3}/.test(titulo[1])) {
+      if (p !== actual) {
         cerrar();
         actual = p;
       }
