@@ -884,5 +884,31 @@ console.log("\n=== CONVERSACIONES DEL 24-10-2026 (seguimiento, correa sin datos,
   ok(aj.productos[0].qty === 2 && aj.productos[1].qty === 5, "cada tarjeta con su cantidad (2 rodamientos, 5 correas)");
   ok(ag.datosDelCliente([m])[0] === "Cantidades que necesita: 5 correas, 2 rodamientos.", "el bloque de datos guarda las dos cantidades");
 }
+console.log("\n=== COMPARAR: siempre PDF de cada pieza + comparativa (25-10-2026) ===");
+{
+  const fi = require("../lib/ficha") as typeof import("../lib/ficha");
+  const cp = require("../lib/comparar") as typeof import("../lib/comparar");
+  const fd = require("../lib/fichaPdf") as typeof import("../lib/fichaPdf");
+  for (const m of ["compáralo con el 6305", "compárame el UCP205 y el UCF205", "¿en qué es diferente?", "cuál me conviene, el 6205 o el 6305"]) {
+    ok(fi.pideComparar(m), `«${m}» cuenta como comparar`);
+  }
+  ok(!fi.pideComparar("quiero 10 rodamientos 6201 2rs"), "pedir un rodamiento con cantidad NO es comparar");
+  const titulos = (m: string, h: { role?: string; content: string }[] = [], texto = "", delTexto: any[] = []) =>
+    cp.fichasDeComparativa(cp.piezasAComparar(m, h), delTexto, [], texto).map((f) => f.titulo);
+  ok(titulos("compara el 6205 2rs con el 6305 zz").join("|") === "SNR 6205EE (equivalente)|SNR 6305ZZ", "«compara el 6205 2rs con el 6305 zz» → una ficha por pieza, sin pegar «COMPARA»");
+  ok(titulos("6205 zz c3 vs 6205 2rs c3").length === 2, "«6205 zz c3 vs 6205 2rs c3» → dos piezas, no una referencia pegada");
+  ok(titulos("compárame el UCP205 y el UCF205").join("|") === "SNR UCP205|SNR UCF205", "soportes UCP205 y UCF205 → dos fichas");
+  ok(titulos("cuál es mejor, el 22210 o el 22212?").length === 2, "«¿el 22210 o el 22212?» → dos fichas (el «?» no estropea la referencia)");
+  const hist = [{ role: "user", content: "quiero el 6205" }, { role: "assistant", content: "**SNR 6205**\nRef: 6205\n\nInformación técnica completa:\n- a: 1" }];
+  ok(titulos("y qué diferencia tiene con el 6305?", hist).join("|") === "SNR 6205|SNR 6305", "«¿y qué diferencia tiene con el 6305?» → la del turno anterior primero + la nueva");
+  const dos = [{ role: "assistant", content: "**SNR 6205**\nRef: 6205\n\ntexto\n\n**SNR 6305**\nRef: 6305\n" }];
+  ok(titulos("compáralos", dos).join("|") === "SNR 6205|SNR 6305", "«compáralos» sin referencias → las dos del último mensaje");
+  // El texto del bot solo trae UNA ficha con formato: la otra sale del KB igualmente.
+  const conUna = "**SNR 6205**\nRef: 6205\n\nInformación técnica completa:\n- Peso: 129 g\n- Serie: 6200\n- Junta: abierto\n\nY el otro es más grande.";
+  const r = titulos("diferencias entre el 6205 y el 6305", [], conUna, fi.extraerFichas(conUna));
+  ok(r.length === 2 && r[0] === "SNR 6205" && r[1] === "SNR 6305", "si el bot solo pone una ficha, la segunda sale del KB (PDF de cada una + comparativa)", r.join(" | "));
+  const filas = fd.filasComparativa(cp.fichasDeComparativa(cp.piezasAComparar("compara el 6205 y el 6305"), [], [], ""));
+  ok(filas.some((f) => f.difiere) && filas.some((f) => !f.difiere), "la comparativa separa características diferentes e iguales");
+}
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);

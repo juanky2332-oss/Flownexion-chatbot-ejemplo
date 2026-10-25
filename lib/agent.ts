@@ -48,6 +48,8 @@ import {
   partirReferencia,
 } from "./variantes";
 import { searchOfficialSource } from "./websearch";
+import { pideComparar } from "./ficha";
+import { piezasAComparar } from "./comparar";
 import { limpiarCierreVacio } from "./guardrails";
 import { completar, completarEnStreaming } from "./llm";
 
@@ -1682,7 +1684,7 @@ export async function runAgent(
         // es entre el producto del que se venía hablando y la variante que SÍ
         // hay, no contra una pieza que no tenemos.
         const previa = refDeConversacion(history);
-        if (/\bcompar\w*/i.test(message) && previa && bloqueVar && !analisisPedida.exactas.length) {
+        if (pideComparar(message) && previa && bloqueVar && !analisisPedida.exactas.length) {
           messages.push({
             role: "system",
             content:
@@ -1805,6 +1807,25 @@ export async function runAgent(
     if (bloque) messages.push({ role: "system", content: bloque });
   }
 
+  // Comparativa pedida con palabras ("compara", "diferencias", "vs", "cuál es
+  // mejor"): las piezas se fijan en código (del mensaje y, en "¿y con el
+  // 6305?", del turno anterior) para que el modelo presente TODAS y llame a
+  // compare_products con todas. Los PDF (uno por pieza + el comparativo) los
+  // garantiza la ruta con lib/comparar.ts aunque el texto se quede corto.
+  const piezasComparadas = pideComparar(message) ? piezasAComparar(message, history) : [];
+  if (piezasComparadas.length >= 2) {
+    const lista = piezasComparadas.map((p) => `${p.marca ? p.marca + " " : ""}${p.ref}`);
+    messages.push({
+      role: "system",
+      content:
+        `🔒 COMPARATIVA PEDIDA entre: ${lista.join(" | ")}. Llama a compare_products con TODAS ellas en este orden ` +
+        `(${JSON.stringify(lista)}). En la respuesta presenta CADA una con su ficha (formato de producto, con "Ref:" e ` +
+        `"Información técnica completa:") y después la comparativa: primero en qué COINCIDEN y luego en qué se ` +
+        `DIFERENCIAN, con la diferencia exacta. No dejes ninguna fuera ni sustituyas una por otra. Si alguna no tiene ` +
+        `ficha, dilo en una frase y compara con lo que sí consta. El cliente recibirá el PDF de cada ficha y el comparativo.`,
+    });
+  }
+
   if (pideOtraMedida(message)) {
     const refPrevia = refDeConversacion(history);
     if (refPrevia) {
@@ -1883,7 +1904,7 @@ export async function runAgent(
     );
     // Al comparar con el producto del turno anterior ("compáralo con..."), su
     // ficha también hace falta para el PDF comparativo.
-    if (/\bcompar\w*/i.test(message)) {
+    if (pideComparar(message)) {
       for (const f of fichasDeConversacion(history)) if (!tecnicas.some((t) => t.marca === f.marca && t.referencia === f.referencia)) tecnicas.push(f);
       // Y si lo anterior era una correa ("compárame esta correa con esta otra").
       const previo = String([...history].reverse().find((m) => m.role === "assistant")?.content ?? "");

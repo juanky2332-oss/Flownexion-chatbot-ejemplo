@@ -5,6 +5,7 @@ import { verifyIdentityToken } from "@/lib/hmac";
 import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
 import { isPromptExtractionAttempt, IDENTITY_DEFLECTION } from "@/lib/guardrails";
 import { fichasParaPdf, pideComparar } from "@/lib/ficha";
+import { piezasAComparar, fichasDeComparativa } from "@/lib/comparar";
 import { extractQueryCandidates, sinCantidades } from "@/lib/kb";
 import { MODEL } from "@/lib/llm";
 import { registrarMensaje, registrarError } from "@/lib/registro";
@@ -160,7 +161,14 @@ export async function POST(req: NextRequest) {
     // dos referencias); si no, cada ficha por separado.
     const refsMensaje = extractQueryCandidates(sinCantidades(message)).filter((c) => (c.match(/\d/g) ?? []).length >= 3 && c.length <= 20 && !/[A-Z]{4,}/.test(c));
     const pideCompararMsg = pideComparar(message, refsMensaje.filter((c, i, a) => !a.some((o, j) => j !== i && o.length > c.length && o.includes(c))));
-    const fichas = fichasParaPdf(r.output, r.tecnicas ?? [], pideCompararMsg);
+    let fichas = fichasParaPdf(r.output, r.tecnicas ?? [], pideCompararMsg);
+    // Al comparar, una ficha por CADA pieza comparada (sacadas del mensaje y de
+    // la conversación, resueltas contra el KB), aunque el texto solo traiga una:
+    // el cliente exige su PDF por separado y el comparativo (lib/comparar.ts).
+    if (pideCompararMsg) {
+      const deLaComparativa = fichasDeComparativa(piezasAComparar(message, history), fichas, r.tecnicas ?? [], r.output);
+      if (deLaComparativa.length >= 2) fichas = deLaComparativa;
+    }
     const comparar = fichas.length >= 2 && pideCompararMsg;
     const sinRespuesta =
       cortado ||

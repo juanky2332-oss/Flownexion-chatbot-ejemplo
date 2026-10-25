@@ -347,7 +347,12 @@ export async function construirComparativaPdf(fichas: FichaTecnica[], logo: stri
       y += lista.length * 11 + 4;
       doc.setFontSize(8);
       doc.setTextColor(90);
-      doc.text("Las filas resaltadas en azul son las características en las que los productos se diferencian.", MARGEN_X, y);
+      const nDif = filas.filter((f) => f.difiere).length;
+      doc.text(
+        latin1(`${nDif} características diferentes (resaltadas en azul) y ${filas.length - nDif} iguales. "—" = no consta en esa ficha.`),
+        MARGEN_X,
+        y
+      );
       doc.setTextColor(0);
       y += 14;
     }
@@ -387,17 +392,34 @@ export async function construirComparativaPdf(fichas: FichaTecnica[], logo: stri
     y += alto;
   };
 
-  cabeceraPagina(true);
-  for (const f of filas) {
-    const textos = [f.etiqueta, ...f.valores];
-    const alto = altoFila(textos, anchos);
-    if (y + alto > limite) cabeceraPagina(false);
-    let x = MARGEN_X;
-    textos.forEach((t, i) => {
-      celda(t, x, anchos[i], alto, f.difiere ? DIF : null, i === 0);
-      x += anchos[i];
-    });
+  // Dos bloques, como pidió el cliente (25-10-2026): primero en qué se
+  // DIFERENCIAN y después en qué COINCIDEN, cada uno con su rótulo.
+  const seccion = (texto: string) => {
+    const alto = LIN + PAD * 2;
+    if (y + alto * 2 > limite) cabeceraPagina(false);
+    celda(texto, MARGEN_X, anchoUtil, alto, GRIS, true);
     y += alto;
+  };
+
+  cabeceraPagina(true);
+  const bloques: [string, FilaComparativa[]][] = [
+    ["EN QUÉ SE DIFERENCIAN", filas.filter((f) => f.difiere)],
+    ["EN QUÉ COINCIDEN", filas.filter((f) => !f.difiere)],
+  ];
+  for (const [titulo, grupo] of bloques) {
+    if (!grupo.length) continue;
+    seccion(`${titulo} (${grupo.length})`);
+    for (const f of grupo) {
+      const textos = [f.etiqueta, ...f.valores];
+      const alto = altoFila(textos, anchos);
+      if (y + alto > limite) cabeceraPagina(false);
+      let x = MARGEN_X;
+      textos.forEach((t, i) => {
+        celda(t, x, anchos[i], alto, f.difiere ? DIF : null, i === 0);
+        x += anchos[i];
+      });
+      y += alto;
+    }
   }
   return doc;
 }

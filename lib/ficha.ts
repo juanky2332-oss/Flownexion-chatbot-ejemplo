@@ -223,7 +223,9 @@ export interface FichaKb {
  */
 export function pideComparar(mensaje: string, referenciasEnMensaje: string[] = []): boolean {
   const m = String(mensaje ?? "");
-  if (/\b(compar\w*|diferencia\w*|diferencian|frente\s+a|vs\.?|versus|cu[aá]l\s+(es\s+)?mejor|en\s+qu[eé]\s+se\s+diferencian)\b/i.test(m)) return true;
+  // "comp[aá]r": con tilde ("compáralo", "compárame") \w no casa la á y antes
+  // no contaba como comparar.
+  if (/\b(comp[aá]r\w*|diferencia\w*|diferencian|diferente\w*|distint\w*|distingue\w*|frente\s+a|vs\.?|versus|cu[aá]l\s+(es\s+)?mejor|cu[aá]l\s+(me\s+)?(conviene|recomiendas|elijo|escojo|cojo)|en\s+qu[eé]\s+se\s+diferencian)\b/i.test(m)) return true;
   // Dos lecturas de la misma referencia ("62012RS" y "1062012RS", con la
   // cantidad pegada) no son dos referencias: solo cuentan las que no están una
   // dentro de otra.
