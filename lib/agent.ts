@@ -1073,9 +1073,17 @@ async function runTool(
     // Ejes fuera de la tabla de series (miniaturas de 3-9 mm, medidas no
     // estándar): las referencias reales salen de la base técnica por medidas.
     if (!products.length && boreMm > 0) {
-      const bases = Array.from(new Set(findByDimensions({ di: boreMm }, 8).map((o) => partirReferencia(o.referencia).base))).slice(0, 4);
+      // Por referencia completa y solo coincidencias exactas (buscando la base
+      // "625" la tienda devolvía piezas de otro eje; ver BÚSQUEDA POR MEDIDAS).
+      const refs = Array.from(new Set(findByDimensions({ di: boreMm }, 8).map((o) => o.referencia))).slice(0, 6);
       products = (
-        await Promise.all(bases.map((b) => searchProducts(b, groupId, idCustomer).then((ps) => filtrarFueraDeFamilia(b, ps)).catch(() => [] as Product[])))
+        await Promise.all(
+          refs.map((r) =>
+            searchProducts(r, groupId, idCustomer)
+              .then((ps) => analizarVariantes(r, ps).exactas.map((v) => v.producto))
+              .catch(() => [] as Product[])
+          )
+        )
       ).flat();
     }
     for (const p of products.slice(0, 6)) {
@@ -1774,12 +1782,22 @@ export async function runAgent(
     const opciones = findByDimensions(medidas, 8);
     if (opciones.length) {
       tecnicas.push(...opciones.slice(0, 4));
-      // Una búsqueda en la tienda por cada referencia base distinta (625, 635…).
-      const bases = Array.from(new Set(opciones.map((o) => partirReferencia(o.referencia).base))).slice(0, 4);
+      // Una búsqueda en la tienda por cada referencia COMPLETA (625 ZZ, 625 EE…)
+      // y solo sus coincidencias exactas. Visto el 25-10-2026: buscando la base
+      // "625" la tienda devolvía enchufes neumáticos y un SNR 6306 ZZ C3 (eje de
+      // 30 mm), que se colaba como opción para un eje de 5 mm.
+      const refsBuscar = Array.from(new Set(opciones.map((o) => o.referencia))).slice(0, 6);
       const enPagina = (
-        await Promise.all(
-          bases.map((b) => searchProducts(b, groupId, customerId).then((ps) => filtrarFueraDeFamilia(b, ps)).catch(() => [] as Product[]))
-        )
+        await Promise.race([
+          Promise.all(
+            refsBuscar.map((r) =>
+              searchProducts(r, groupId, customerId)
+                .then((ps) => analizarVariantes(r, ps).exactas.map((v) => v.producto))
+                .catch(() => [] as Product[])
+            )
+          ),
+          new Promise<Product[][]>((res) => setTimeout(() => res([]), 8000)),
+        ])
       ).flat();
       const proteccionDe = (nombre: string) =>
         /(2RS|LLU|LLB|LLH|\bEE\b|DDU|2RZ|\bRS\b|\bVV\b)/i.test(nombre) ? "junta" : /(ZZ|2Z|\bZ\b)/i.test(nombre) ? "deflector" : "abierto";
@@ -1791,7 +1809,6 @@ export async function runAgent(
         .filter((p) => !vistos.has(p.id) && vistos.add(p.id) && encaja(p))
         .sort((a, b) => Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0));
       for (const p of candidatos.slice(0, 3)) if (!collected.some((c) => c.id === p.id)) collected.push(p);
-      console.log("[diag-medidas]", JSON.stringify({ bases, enPagina: enPagina.map((p) => [p.name, p.stock]), candidatos: candidatos.map((p) => p.name) }));
 
       const medidasTxt =
         `dØ${medidas.di} mm` + (medidas.de ? ` × DØ${medidas.de} mm` : "") + (medidas.an ? ` × B${medidas.an} mm` : "");
