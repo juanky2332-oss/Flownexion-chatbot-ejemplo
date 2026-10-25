@@ -1073,14 +1073,14 @@ async function runTool(
     // Ejes fuera de la tabla de series (miniaturas de 3-9 mm, medidas no
     // estándar): las referencias reales salen de la base técnica por medidas.
     if (!products.length && boreMm > 0) {
-      // Por referencia completa y solo coincidencias exactas (buscando la base
+      // Por referencia completa y solo su familia (misma base) (buscando la base
       // "625" la tienda devolvía piezas de otro eje; ver BÚSQUEDA POR MEDIDAS).
       const refs = Array.from(new Set(findByDimensions({ di: boreMm }, 8).map((o) => o.referencia))).slice(0, 6);
       products = (
         await Promise.all(
           refs.map((r) =>
             searchProducts(r, groupId, idCustomer)
-              .then((ps) => analizarVariantes(r, ps).exactas.map((v) => v.producto))
+              .then((ps) => analizarVariantes(r, ps).familia.map((v) => v.producto))
               .catch(() => [] as Product[])
           )
         )
@@ -1783,7 +1783,7 @@ export async function runAgent(
     if (opciones.length) {
       tecnicas.push(...opciones.slice(0, 4));
       // Una búsqueda en la tienda por cada referencia COMPLETA (625 ZZ, 625 EE…)
-      // y solo sus coincidencias exactas. Visto el 25-10-2026: buscando la base
+      // y solo su familia (misma base: 625 con cualquier sufijo, nunca otra medida). Visto el 25-10-2026: buscando la base
       // "625" la tienda devolvía enchufes neumáticos y un SNR 6306 ZZ C3 (eje de
       // 30 mm), que se colaba como opción para un eje de 5 mm.
       const refsBuscar = Array.from(new Set(opciones.map((o) => o.referencia))).slice(0, 6);
@@ -1792,7 +1792,7 @@ export async function runAgent(
           Promise.all(
             refsBuscar.map((r) =>
               searchProducts(r, groupId, customerId)
-                .then((ps) => analizarVariantes(r, ps).exactas.map((v) => v.producto))
+                .then((ps) => analizarVariantes(r, ps).familia.map((v) => v.producto))
                 .catch(() => [] as Product[])
             )
           ),

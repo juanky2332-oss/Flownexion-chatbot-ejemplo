@@ -1153,6 +1153,9 @@ export function corregirFichasConKB(texto: string): string {
   // (cliente, 25-10-2026). Si el dato no está, la línea no se pone.
   return salida
     .filter((l) => !DATO_VACIO.test(l) && !SUFIJO_DE_RELLENO.test(l) && !codigoSinSignificadoOficial(l))
+    // Miniaturas (625, 635): la última cifra ES el eje en mm. "**05** → dØ5 mm"
+    // es incorrecto (05 = 25 mm en las series de 4 cifras): queda "**5** → dØ5 mm".
+    .map((l) => l.replace(/^(\s*[-*•]\s+\*\*)0(\d)(\*\*\s*→\s*Di[aá]metro interior\s*\**\s*dØ\s*\2\s*mm)/i, "$1$2$3"))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
 }
