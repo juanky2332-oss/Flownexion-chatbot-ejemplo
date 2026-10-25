@@ -915,7 +915,9 @@ export function corregirStock(texto: string, productos: Product[], message: stri
     const titulo = /^(?:\d{1,2}[.)]\s*)?\*\*([^*]+)\*\*\s*$/.exec(t) ?? /^#{1,4}\s+(\S.*)$/.exec(t);
     if (titulo && !/:\s*$/.test(titulo[1])) {
       const p = porNombre(titulo[1]);
-      if (p && p !== actual) {
+      // Otro producto (con tarjeta o sin ella) cierra el anterior: visto el
+      // 25-10-2026, el precio/stock del 625 ZZ acababa pegado al 635 ZZ.
+      if (p !== actual || /\d{3}/.test(titulo[1])) {
         cerrar();
         actual = p;
       }
@@ -986,8 +988,9 @@ export function corregirStock(texto: string, productos: Product[], message: stri
 // tarjeta ES la confirmación. Se quita la frase (y el "contáctanos para
 // gestionar el pedido" que la acompaña) si hay producto con stock.
 const DUDA_DISPONIBILIDAD =
-  /[^.!?\n]*\b(no\s+tengo\s+confirmaci[oó]n|no\s+(puedo|podemos)\s+confirmar\s+(la\s+|su\s+)?disponibilidad|no\s+s[eé]\s+si\s+(est[aá]n?|hay)\s+disponibles?)[^.!?\n]*[.!]?/gi;
-const CONTACTO_TRAS_DUDA = /[^.!?\n]*\bte\s+recomiendo\s+que\s+nos\s+contactes[^.!?\n]*gestionar\s+el\s+pedido[^.!?\n]*[.!]?/gi;
+  /[^.!?\n]*\b(no\s+tengo\s+confirmaci[oó]n|no\s+(puedo|podemos)\s+confirmar\s+(la\s+|su\s+)?disponibilidad|no\s+s[eé]\s+si\s+(est[aá]n?|hay)\s+disponibles?|no\s+(tengo|tenemos|hay)\s+stock\s+(disponible\s+)?(para\s+)?(estas|ninguna\s+de\s+estas)\s+referencias)[^.!?\n]*[.!]?/gi;
+const CONTACTO_TRAS_DUDA =
+  /[^.!?\n]*\b(te\s+recomiendo\s+que\s+nos\s+contactes|puedes\s+consultarnos\s+por\s+tel[eé]fono)[^.!?\n]*gestionar\s+el\s+pedido[^.!?\n]*[.!]?/gi;
 
 export function quitarDudaDisponibilidad(texto: string, productos: Product[]): string {
   if (!productos.some((p) => (p.stock ?? 0) > 0) || !DUDA_DISPONIBILIDAD.test(texto)) return texto;
@@ -1148,7 +1151,7 @@ export function corregirFichasConKB(texto: string): string {
   // Nunca un dato "No especificado / no consta" en una ficha: resta fiabilidad
   // (cliente, 25-10-2026). Si el dato no está, la línea no se pone.
   return salida
-    .filter((l) => !DATO_VACIO.test(l) && !SUFIJO_DE_RELLENO.test(l))
+    .filter((l) => !DATO_VACIO.test(l) && !SUFIJO_DE_RELLENO.test(l) && !codigoSinSignificadoOficial(l))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
 }
@@ -1160,6 +1163,18 @@ export function corregirFichasConKB(texto: string): string {
  */
 export const SUFIJO_DE_RELLENO =
   /^\s*[-*•]\s+.*→\s*\**\s*(sufijo\s+(espec[ií]fico|propio|particular|interno|adicional)|c[oó]digo\s+(interno|espec[ií]fico|del\s+fabricante)|designaci[oó]n\s+(interna|espec[ií]fica))\b[^\n]*$/i;
+
+/**
+ * "- **5K** → Especificación de embalaje y calidad": los códigos del
+ * fabricante tipo /5K, /1K, /2A, /L627 (grasa, ejecución especial...) no están
+ * en el glosario oficial y el modelo les inventa un significado distinto cada
+ * vez (25-10-2026: "sufijo específico de la serie", "embalaje y calidad"). Si
+ * el glosario no lo explica, la línea no se pone.
+ */
+function codigoSinSignificadoOficial(l: string): boolean {
+  const m = /^\s*[-*•]\s+\**\/?\s*([0-9][A-Z]{1,2}|L\d{3})\**\s*→/i.exec(l);
+  return !!m && !findGlossary(m[1]).length;
+}
 
 /** Viñeta "- **Etiqueta:** No especificada" (o no disponible, no consta, N/D...). */
 export const DATO_VACIO =
