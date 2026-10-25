@@ -176,3 +176,39 @@ export function fichasDeComparativa(
   }
   return out;
 }
+
+/**
+ * El texto de la comparativa tiene que decir en qué COINCIDEN, con los datos
+ * de las fichas. Visto el 25-10-2026: "**Coincidencias:**" y debajo nada. Si
+ * el apartado está vacío se rellena; si no está, se añade tras las diferencias.
+ */
+export function rellenarCoincidencias(texto: string, fichas: FichaTecnica[]): string {
+  if (fichas.length < 2 || !texto) return texto;
+  const clave = (v: string) => v.toUpperCase().replace(/\s+/g, "").replace(/,/g, ".");
+  const mapas = fichas.map((f) => {
+    const m = new Map<string, string>();
+    if (f.medidas) m.set("Medidas", f.medidas);
+    for (const [k, v] of f.datos) if (v) m.set(k, v);
+    return m;
+  });
+  const iguales = [...mapas[0].entries()]
+    .filter(([k, v]) => mapas.every((m) => m.has(k) && clave(m.get(k) as string) === clave(v)))
+    .slice(0, 12)
+    .map(([k, v]) => `- **${k}:** ${v}`);
+  if (!iguales.length) return texto;
+  const lineas = texto.split("\n");
+  const cab = lineas.findIndex((l) => /^\s*(#{1,4}\s*)?\**\s*(coincidencias|en\s+qu[eé]\s+coinciden|caracter[ií]sticas\s+(comunes|iguales)|lo\s+que\s+(tienen\s+en\s+com[uú]n|comparten))\b[^\n]*$/i.test(l));
+  if (cab >= 0) {
+    const siguiente = lineas.slice(cab + 1).find((l) => l.trim());
+    if (siguiente && /^\s*[-*•]\s+/.test(siguiente)) return texto;
+    lineas.splice(cab + 1, 0, ...iguales);
+    return lineas.join("\n");
+  }
+  const dif = lineas.findIndex((l) => /^\s*(#{1,4}\s*)?\**\s*diferencias\b[^\n]*$/i.test(l));
+  if (dif < 0) return texto;
+  let fin = dif + 1;
+  while (fin < lineas.length && (!lineas[fin].trim() || /^\s*[-*•]\s+/.test(lineas[fin]))) fin++;
+  while (fin > dif + 1 && !lineas[fin - 1].trim()) fin--;
+  lineas.splice(fin, 0, "", "**En qué coinciden:**", ...iguales);
+  return lineas.join("\n");
+}

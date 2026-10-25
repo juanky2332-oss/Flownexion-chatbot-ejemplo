@@ -137,6 +137,10 @@ export function limpiarCierreVacio(texto: string, hayTarjetas = false, productoE
     return `${limpio}\n\n${CIERRE_CONTACTO}`;
   }
 
+  // Con el producto ya delante (tarjeta o conversación), "dime la referencia
+  // que monta" es absurdo: la acaba de dar (visto el 25-10-2026 en "¿me vale
+  // el ZZ en vez del 2RS?"). Basta con quitar la pregunta vacía.
+  if (hayTarjetas || productoEnConversacion) return limpio;
   // Si ya termina ofreciendo el contacto con un técnico, no hace falta añadir
   // nada: esa ya es una salida concreta.
   if (/t[eé]cnico|tel[eé]fono|e-?mail|correo/i.test(limpio.slice(-220))) return limpio;

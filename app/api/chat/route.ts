@@ -5,7 +5,7 @@ import { verifyIdentityToken } from "@/lib/hmac";
 import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
 import { isPromptExtractionAttempt, IDENTITY_DEFLECTION } from "@/lib/guardrails";
 import { fichasParaPdf, pideComparar } from "@/lib/ficha";
-import { piezasAComparar, fichasDeComparativa } from "@/lib/comparar";
+import { piezasAComparar, fichasDeComparativa, rellenarCoincidencias } from "@/lib/comparar";
 import { extractQueryCandidates, sinCantidades } from "@/lib/kb";
 import { MODEL } from "@/lib/llm";
 import { registrarMensaje, registrarError } from "@/lib/registro";
@@ -170,6 +170,7 @@ export async function POST(req: NextRequest) {
       if (deLaComparativa.length >= 2) fichas = deLaComparativa;
     }
     const comparar = fichas.length >= 2 && pideCompararMsg;
+    if (comparar) r.output = rellenarCoincidencias(r.output, fichas);
     const sinRespuesta =
       cortado ||
       (!!r.needsHuman && !ESCALADOS_NORMALES.test(r.motivo ?? "")) ||

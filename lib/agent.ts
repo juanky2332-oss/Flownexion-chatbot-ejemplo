@@ -948,6 +948,33 @@ function sinEnlaces(p: Product): Omit<Product, "link" | "cartLink" | "checkoutLi
   return resto;
 }
 
+// El producto de la página que el cliente PUEDE comprar para una referencia:
+// la misma pieza con otra nomenclatura de sellado cuenta (2RS = EE = LLU, ZZ =
+// 2Z). Visto el 25-10-2026: al comparar se enseñaba el SNR 6205 EE sin stock
+// como "el 2RS", con el TL 6205 2RS (1.660 uds) en la tienda.
+function nombresDeLaMismaPieza(ref: string): string[] {
+  const r = String(ref ?? "").toUpperCase().replace(/\s+/g, "");
+  const out = [r];
+  const sellado = /(2RS1?|EE|LLU|DDU)(?=C\d|\/|$)/;
+  const deflector = /(ZZ|2Z)(?=C\d|\/|$)/;
+  if (sellado.test(r)) for (const a of ["2RS", "EE", "LLU"]) out.push(r.replace(sellado, a));
+  if (deflector.test(r)) for (const a of ["ZZ", "2Z"]) out.push(r.replace(deflector, a));
+  return Array.from(new Set(out));
+}
+
+async function productoComprable(ref: string, groupId?: number, customerId?: number): Promise<Product | undefined> {
+  let primero: Product | undefined;
+  for (const nombre of nombresDeLaMismaPieza(ref).slice(0, 3)) {
+    const ps = await searchProducts(nombre, groupId, customerId).catch(() => [] as Product[]);
+    const familia = ordenarParaTarjetas(nombre, filtrarFueraDeFamilia(nombre, ps));
+    const exactas = analizarVariantes(nombre, familia).exactas.map((v) => v.producto);
+    const conStock = exactas.find((p) => (p.stock ?? 0) > 0);
+    if (conStock) return conStock;
+    primero ??= exactas[0] ?? familia[0];
+  }
+  return primero;
+}
+
 async function runTool(
   name: string,
   args: any,
@@ -992,15 +1019,17 @@ async function runTool(
     // La tarjeta de CADA producto comparado (con precio, stock y carrito): sin
     // esto solo salía la del que se había buscado antes, y el "añadir varios"
     // de la comparativa se quedaba con uno.
-    const enPagina = await Promise.all(
-      refs.slice(0, 4).map((r) =>
-        searchProducts(r, groupId, idCustomer)
-          .then((ps) => ordenarParaTarjetas(r, filtrarFueraDeFamilia(r, ps))[0])
-          .catch(() => undefined)
-      )
-    );
+    const enPagina = await Promise.all(refs.slice(0, 4).map((r) => productoComprable(r, groupId, idCustomer).catch(() => undefined)));
     for (const p of enPagina) if (p && !collected.some((c) => c.id === p.id)) collected.push(p);
-    return JSON.stringify(compararTecnico(refs));
+    // Con el producto de la página de cada una: es el que se presenta (precio
+    // y stock reales), aunque la ficha técnica salga de su equivalente.
+    return JSON.stringify({
+      ...compararTecnico(refs),
+      en_pagina: refs.slice(0, 4).map((r, i) => {
+        const p = enPagina[i];
+        return p ? { pedida: r, producto: p.name, ref: p.reference, precio_eur: p.price, stock: p.stock } : { pedida: r, producto: null };
+      }),
+    });
   }
   if (name === "search_official_source") {
     // No se le pasan las URLs de las fuentes al modelo: el cliente pidió
@@ -1836,13 +1865,7 @@ export async function runAgent(
     const enPagina = await Promise.race([
       Promise.all(
         lista.map((ref) =>
-          searchProducts(ref, groupId, customerId)
-            .then((ps) => {
-              const familia = ordenarParaTarjetas(ref, filtrarFueraDeFamilia(ref, ps));
-              const exactas = analizarVariantes(ref, familia).exactas.map((v) => v.producto);
-              return exactas.find((p) => (p.stock ?? 0) > 0) ?? exactas[0];
-            })
-            .catch(() => undefined)
+          productoComprable(ref, groupId, customerId).catch(() => undefined)
         )
       ),
       new Promise<undefined[]>((r) => setTimeout(() => r([]), 6000)),

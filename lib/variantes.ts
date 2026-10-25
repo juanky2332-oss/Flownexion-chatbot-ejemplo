@@ -861,8 +861,22 @@ export function lineaStock(real: number, qty: number | null): string {
 // en stock", "las 19 disponibles". No toca medidas, pesos ni precios.
 const NUM_STOCK = /\b(\d{1,6})(?=\s*(?:uds?\.?|unidades)?\s*(?:disponibles?\b|en\s+stock\b|uds?\b|unidades\b))/gi;
 
+/**
+ * Precio con el formato del prompt, desde la tarjeta. Visto el 25-10-2026:
+ * "Precio: Consultar en la página" con la tarjeta debajo en 3,19 € (-78 %).
+ */
+export function lineaPrecio(p: Product): string {
+  const orig = p.originalPrice ?? 0;
+  if (orig > p.price + 0.005) {
+    const pct = Math.round(((p.discountPct ?? 1 - p.price / orig) as number) * 100);
+    return `~~${orig.toFixed(2)} EUR~~ → **${p.price.toFixed(2)} EUR** (descuento del ${pct}% de tu cuenta ya aplicado)`;
+  }
+  return `${p.price.toFixed(2)} EUR`;
+}
+
 export function corregirStock(texto: string, productos: Product[], message: string): string {
-  const conStock = productos.filter((p) => typeof p.stock === "number");
+  // Precio y stock de cada producto presentado = los de su tarjeta, siempre.
+  const conStock = productos.filter((p) => typeof p.price === "number");
   if (!conStock.length || !texto) return texto;
   const qty = cantidadPedida(message);
   const porNombre = (t: string) => {
@@ -873,38 +887,94 @@ export function corregirStock(texto: string, productos: Product[], message: stri
     const n = sinTipo(r);
     return conStock.find((p) => n.length >= 3 && (sinTipo(p.reference) === n || sinTipo(p.name).endsWith(n)));
   };
+  const salida: string[] = [];
   let actual: Product | undefined;
-  const lineas = texto.split("\n").map((l) => {
+  let conPrecio = false;
+  let conLineaStock = false;
+  // Producto presentado sin precio ni stock (visto en "20 rodamientos de 5 mm
+  // con tapa": SNR 625 EE / 625 ZZ con tarjeta, pero sin precio ni stock en el
+  // texto): se añaden los de su tarjeta al cerrar su bloque.
+  const cerrar = () => {
+    if (actual && !conLineaStock) {
+      while (salida.length && !salida[salida.length - 1].trim()) salida.pop();
+      if (!conPrecio) salida.push("", `**Precio:** ${lineaPrecio(actual)}`);
+      if (typeof actual.stock === "number") salida.push("", `**Stock:** ${lineaStock(actual.stock, qty)}`);
+      salida.push("");
+    }
+    actual = undefined;
+    conPrecio = false;
+    conLineaStock = false;
+  };
+  for (const l of texto.split("\n")) {
     const t = l.trim();
     if (/^-{3,}$/.test(t)) {
-      actual = undefined;
-      return l;
+      cerrar();
+      salida.push(l);
+      continue;
     }
-    if (/^\*\*[^*]+\*\*$/.test(t) || /^#{1,4}\s+\S/.test(t)) {
-      actual = porNombre(t) ?? actual;
-      return l;
+    const titulo = /^(?:\d{1,2}[.)]\s*)?\*\*([^*]+)\*\*\s*$/.exec(t) ?? /^#{1,4}\s+(\S.*)$/.exec(t);
+    if (titulo && !/:\s*$/.test(titulo[1])) {
+      const p = porNombre(titulo[1]);
+      if (p && p !== actual) {
+        cerrar();
+        actual = p;
+      }
+      salida.push(l);
+      continue;
     }
-    const ref = t.match(/^\**\s*Ref(?:erencia)?\s*:\s*\**\s*([^*]+?)\s*\**$/i);
+    const ref = t.match(/^(?:[-*•]\s+)?\**\s*Ref(?:erencia)?\s*:\s*\**\s*([^*]+?)\s*\**$/i);
     if (ref) {
-      actual = porRef(ref[1]) ?? actual;
-      return l;
+      const p = porRef(ref[1]);
+      if (p && p !== actual) {
+        if (actual) cerrar();
+        actual = p;
+      }
+      salida.push(l);
+      continue;
     }
-    const st = l.match(/^(\s*\**\s*Stock\s*:\s*\**)/i);
-    if (st && actual) return `${st[1].replace(/\s*$/, "")} ${lineaStock(actual.stock as number, qty)}`;
-    return l;
-  });
-  let out = lineas.join("\n");
+    const pr = l.match(/^(\s*(?:[-*•]\s+)?\**\s*Precio\s*:\s*\**)/i);
+    if (pr) {
+      conPrecio = true;
+      if (actual) {
+        salida.push(`${pr[1].replace(/\s*$/, "")} ${lineaPrecio(actual)}`);
+        continue;
+      }
+    }
+    const st = l.match(/^(\s*(?:[-*•]\s+)?\**\s*Stock\s*:\s*\**)/i);
+    if (st && actual && typeof actual.stock === "number") {
+      conLineaStock = true;
+      salida.push(`${st[1].replace(/\s*$/, "")} ${lineaStock(actual.stock, qty)}`);
+      continue;
+    }
+    if (st) conLineaStock = true;
+    salida.push(l);
+  }
+  // El cierre (final de la respuesta) no es parte del último producto: si le
+  // falta la línea de stock, se inserta antes del párrafo de cierre.
+  if (actual && !conLineaStock) {
+    const cola: string[] = [];
+    while (salida.length && !/^\s*([-*•]|\d{1,2}[.)]|\*\*)/.test(salida[salida.length - 1]) ) {
+      const x = salida.pop() as string;
+      if (x.trim() && !/^\s*$/.test(x) && cola.length > 8) break;
+      cola.unshift(x);
+    }
+    cerrar();
+    salida.push(...cola);
+  }
+  let out = salida.join("\n").replace(/\n{3,}/g, "\n\n");
   // Con un solo producto, las cifras de stock en el texto tienen que ser la suya.
   const ids = new Set(conStock.map((p) => p.id));
-  if (ids.size === 1) {
+  if (ids.size === 1 && typeof conStock[0].stock === "number") {
     const real = conStock[0].stock as number;
     out = out
       .split("\n")
-      .map((l) =>
-        /^\s*[-*•]\s+\**[^:]*:/.test(l) || /^\s*\**\s*(Precio|Medidas)\s*:/i.test(l)
-          ? l
-          : l.replace(NUM_STOCK, (n) => (Number(n) === qty || Number(n) === real || real <= 0 ? n : String(real)))
-      )
+      .map((l) => {
+        if (/^\s*[-*•]\s+\**[^:]*:/.test(l) || /^\s*\**\s*(Precio|Medidas)\s*:/i.test(l)) return l;
+        let x = l.replace(NUM_STOCK, (n) => (Number(n) === qty || Number(n) === real || real <= 0 ? n : String(real)));
+        // "no hay unidades en stock" con unidades en la tienda.
+        if (real > 0) x = x.replace(/\bno\s+hay\s+unidades(\s+en\s+stock|\s+disponibles)?/gi, qty && qty > real ? `solo hay ${real} uds` : `hay ${real} uds`);
+        return x;
+      })
       .join("\n");
   }
   return out;
@@ -1078,10 +1148,18 @@ export function corregirFichasConKB(texto: string): string {
   // Nunca un dato "No especificado / no consta" en una ficha: resta fiabilidad
   // (cliente, 25-10-2026). Si el dato no está, la línea no se pone.
   return salida
-    .filter((l) => !DATO_VACIO.test(l))
+    .filter((l) => !DATO_VACIO.test(l) && !SUFIJO_DE_RELLENO.test(l))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
 }
+
+/**
+ * Decodificación de relleno: "- **5K** → Sufijo específico de la serie". No
+ * dice nada y suena a inventado; si el significado no está en el glosario, la
+ * línea no se pone (visto el 25-10-2026 con NTN 6205 LLU CM/5K).
+ */
+export const SUFIJO_DE_RELLENO =
+  /^\s*[-*•]\s+.*→\s*\**\s*(sufijo\s+(espec[ií]fico|propio|particular|interno|adicional)|c[oó]digo\s+(interno|espec[ií]fico|del\s+fabricante)|designaci[oó]n\s+(interna|espec[ií]fica))\b[^\n]*$/i;
 
 /** Viñeta "- **Etiqueta:** No especificada" (o no disponible, no consta, N/D...). */
 export const DATO_VACIO =
