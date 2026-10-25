@@ -130,6 +130,10 @@ export function limpiarCierreVacio(texto: string, hayTarjetas = false, productoE
     const faltaAlgo = /no\s+(est[aá]|hay|tenemos|lo\s+tengo|la\s+tengo|consta|dispon)|sin\s+stock|agotad|no\s+disponible/i.test(limpio);
     if (hayTarjetas || /t[eé]cnico|tel[eé]fono|e-?mail|correo/i.test(limpio.slice(-220))) return limpio;
     if (!faltaAlgo && productoEnConversacion) return limpio;
+    // Una explicación técnica sin producto ("diferencia entre 2RS y 2RZ"): no
+    // hay nada que "conseguir" por teléfono (visto el 25-10-2026).
+    const presentaProducto = /\*\*[^*\n]*\d{3,}[^*\n]*\*\*/.test(limpio);
+    if (!faltaAlgo && !presentaProducto) return limpio;
     return `${limpio}\n\n${CIERRE_CONTACTO}`;
   }
 

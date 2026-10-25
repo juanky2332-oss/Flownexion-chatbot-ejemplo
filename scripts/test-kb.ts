@@ -910,6 +910,22 @@ console.log("\n=== COMPARAR: siempre PDF de cada pieza + comparativa (25-10-2026
   const sinRef = [{ role: "user", content: "quiero el 6205 zz" }, { role: "assistant", content: "El **SNR 6205 ZZ** está sin stock. Tenemos el **SNR 6205 ZZ C3**." }];
   ok(titulos("y en qué se diferencia del 6206 zz?", sinRef).join("|") === "SNR 6205ZZ|SNR 6206ZZ", "seguimiento sin «Ref:»: la pieza anterior con sus sufijos (6205 ZZ, no 6205)", titulos("y en qué se diferencia del 6206 zz?", sinRef).join(" | "));
   ok(cp.piezasDelMensaje("qué diferencia hay entre el 6205 2rs y el 6305 zz?").map((p) => p.ref).join("|") === "62052RS|6305ZZ", "dos referencias del mensaje separadas (no «62052RS6305ZZ»)");
+  const vv2 = require("../lib/variantes") as typeof import("../lib/variantes");
+  const tlSinDatos = "**RODAMIENTO TL 6205 2RS**\n\n**Ref: 3362052RSTL**\n- **2RS** → Sellado de goma\n\n**Información técnica completa:**\n- **Velocidad límite:** No especificada\n- **Peso:** No especificado\n\n**Precio:** 0.69 EUR";
+  const corregida = vv2.corregirFichasConKB(tlSinDatos);
+  ok(!/no especificad/i.test(corregida) && /8700 rpm/.test(corregida) && /equivalente \*\*SNR 6205EE\*\*/.test(corregida), "TL 6205 2RS: ficha oficial de su equivalente SNR 6205 EE, nunca «No especificada»", corregida.slice(0, 300));
+  ok(!fi.extraerFichas(corregida)[0]?.datos.some(([, v]) => /no especificad/i.test(v)), "el PDF del TL 6205 2RS no lleva ningún «No especificado»");
+  ok(cp.fichasDeComparativa(cp.piezasAComparar("6205 zz c3 vs 6205 2rs"), [], [], "", [{ name: "RODAMIENTO TL 6205 2RS" }])[1]?.titulo === "TL 6205 2RS (datos de su equivalente SNR 6205EE)", "en la comparativa, el 2RS con el nombre del producto de la página");
+  const { limpiarCierreVacio: lcv } = require("../lib/guardrails") as typeof import("../lib/guardrails");
+  ok(!/tel[eé]fono/.test(lcv("El 2RS lleva junta con contacto y el 2RZ sin contacto. Si necesitas más información, házmelo saber.")), "explicación técnica sin producto: sin «escríbenos por teléfono para conseguirlo»");
+  const c2 = cp.fichasDeComparativa(cp.piezasAComparar("comparalo con el rodamiento 6205 zz c2", [{ role: "assistant", content: "**RODAMIENTO TL 6201 2RS**\n\n**Ref: 3362012RSTL**" }]), [], [], "", [{ name: "SNR 6205 ZZ C3" }, { name: "RODAMIENTO TL 6201 2RS" }]).map((f) => f.titulo);
+  ok(c2.join("|") === "TL 6201 2RS (datos de su equivalente SNR 6201EE)|SNR 6205ZZC3", "C2 que no existe → la comparativa va con la C3 que se ofrece, y el 2RS con su nombre TL", c2.join(" | "));
+  const vv3 = require("../lib/variantes") as typeof import("../lib/variantes");
+  const p24 = [{ id: 1, name: "SNR 6205 ZZ C3", reference: "SNR 6205 ZZ C3", price: 2.22, stock: 24 }] as any[];
+  const st = vv3.corregirStock("El **SNR 6205 ZZ C3** está, pero solo tenemos 19 unidades en stock.\n\n**SNR 6205 ZZ C3**\n\n**Ref: 6205 ZZ C3**\n- **Velocidad límite:** 17000 rpm\n\n**Stock:** 🔴 19 uds disponibles en la página ahora mismo (has pedido 5000)\n\nPara las 5000 unidades que necesitas, puedes tramitar las 19 disponibles.", p24, "necesito 5000 unidades del 6205 zz c3");
+  ok(!/\b19\b/.test(st) && /\*\*Stock:\*\* 🔴 24 uds disponibles en la página ahora mismo \(has pedido 5000\)/.test(st) && /5000 unidades que necesitas/.test(st) && /17000 rpm/.test(st), "stock inventado (19) → el real de la tarjeta (24), sin tocar la cantidad pedida ni la ficha", st);
+  ok(/🟢 24 uds disponibles/.test(vv3.corregirStock("**SNR 6205 ZZ C3**\n**Ref: 6205 ZZ C3**\n**Stock:** 🔴 Sin stock", p24, "quiero 2 del 6205 zz c3")), "«sin stock» con 24 en la tienda → 🟢 24 uds");
+  ok(!/confirmaci/.test(vv3.quitarDudaDisponibilidad("Opciones: SNR 625 ZZ.\n\nActualmente, no tengo confirmación de que estas referencias estén disponibles en nuestra página. Si necesitas alguna, te recomiendo que nos contactes por teléfono o e-mail para gestionar el pedido.", [{ stock: 30 }] as any[])), "con tarjetas con stock, nada de «no tengo confirmación de que estén disponibles»");
   const filas = fd.filasComparativa(cp.fichasDeComparativa(cp.piezasAComparar("compara el 6205 y el 6305"), [], [], ""));
   ok(filas.some((f) => f.difiere) && filas.some((f) => !f.difiere), "la comparativa separa características diferentes e iguales");
 }

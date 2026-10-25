@@ -34,14 +34,16 @@ export function piezasDelMensaje(mensaje: string): PiezaComparada[] {
   const piezas: PiezaComparada[] = [];
   for (const trozo of sinCantidades(mensaje).split(SEPARADOR)) {
     // extractQueryCandidates también da el trozo entero pegado ("COMPARA62052RS"):
-    // vale el más largo que tenga ficha y, si ninguno la tiene, el que no lleva
-    // una palabra pegada.
-    const cands = extractQueryCandidates(trozo)
+    // vale el más largo SIN una palabra pegada, aunque no tenga ficha ("6205 ZZ
+    // C2" no existe y es justo lo que pidió: quedarse con "6205ZZ" cambiaba la
+    // pieza). Solo si todos llevan palabra pegada, el que tenga ficha.
+    // La marca va aparte (si no, "TL 6201 2RS" daba la referencia "TL62012RS").
+    const cands = extractQueryCandidates(trozo.replace(/\b(NTN|SNR|TL|SKF|FAG|INA|NSK|KOYO|TIMKEN)\b/gi, " "))
       .map((c) => c.replace(/[^A-Z0-9\-/.]/gi, ""))
       .filter((c) => (c.match(/\d/g) ?? []).length >= 2 && c.length <= 20);
     const ref =
-      cands.find((c) => findTechnicalInfo(c).some((t) => t.coincidencia !== "base")) ??
-      cands.find((c) => !/[A-Z]{5,}/i.test(c));
+      cands.find((c) => !/[A-Z]{5,}/i.test(c)) ??
+      cands.find((c) => findTechnicalInfo(c).some((t) => t.coincidencia !== "base"));
     if (!ref) continue;
     const marca = MARCA.exec(trozo)?.[1]?.toUpperCase();
     piezas.push(marca ? { ref, marca } : { ref });
@@ -104,13 +106,14 @@ const marcaDe = (s: string) => normRef(String(s ?? "").replace(/\(.*\)/, "")).re
 /** ¿Esta ficha del texto es la de la pieza? (por referencia y, si la dijo, por marca). */
 function fichaCubre(f: FichaTecnica, refs: string[], marca?: string): boolean {
   const ref = normRef(f.referencia);
-  const titulo = normRef(f.titulo);
+  // "RODAMIENTO TL 6201 2RS" es de marca TL: el tipo de pieza delante no cuenta.
+  const titulo = normRef(f.titulo.replace(/^\s*(RODAMIENTO|SOPORTE|CORREA)S?\s+/i, ""));
   if (marca && !titulo.startsWith(marca)) return false;
   return refs.some((r) => r.length >= 3 && (ref === r || titulo.endsWith(r) || titulo === `${marca ?? ""}${r}`));
 }
 
 /** La ficha verificada de la pieza: la que consultó el bot o, si no, la del KB. */
-function fichaKbDe(p: PiezaComparada, consultadas: FichaKb[], texto: string): FichaKb | null {
+function fichaKbDe(p: PiezaComparada, consultadas: FichaKb[], texto: string, productos: { name?: string }[] = []): FichaKb | null {
   const r = normRef(p.ref);
   // Una pieza TL sin ficha propia usa la de su equivalente NTN/SNR (misma pieza).
   const deMarca = (k: FichaKb) => !p.marca || marcaDe(k.marca) === p.marca || (p.marca === "TL" && k.coincidencia === "equivalente");
@@ -119,6 +122,18 @@ function fichaKbDe(p: PiezaComparada, consultadas: FichaKb[], texto: string): Fi
     normRef(k.referencia) === r || (!!k.pedida && normRef(k.pedida) === r) || (r.length >= 3 && normRef(k.referencia).endsWith(r));
   const consultada = (consultadas ?? []).filter((k) => valida(k) && casa(k));
   const delKb = consultada.length ? consultada : (findTechnicalInfo(p.ref) as FichaKb[]).filter(valida);
+  // La pedida no existe tal cual ("6205 ZZ C2"): la comparativa va con la que
+  // SÍ se le ofrece, la de la tarjeta de la misma base ("SNR 6205 ZZ C3"), no
+  // con otra variante cualquiera del KB (salía el 6205 ZZ, juego normal).
+  if (!delKb.some((k) => k.coincidencia === "exacta" || k.coincidencia === "equivalente")) {
+    const base = /^\d{3,6}/.exec(r)?.[0];
+    for (const prod of productos) {
+      const nombre = String(prod.name ?? "").replace(/^\s*(RODAMIENTO|SOPORTE|CORREA)S?\s+/i, "");
+      if (!base || !normRef(nombre).includes(base)) continue;
+      const hit = (findTechnicalInfo(nombre) as FichaKb[]).find((k) => (k.coincidencia === "exacta" || k.coincidencia === "equivalente") && deMarca(k));
+      if (hit) return hit;
+    }
+  }
   if (!delKb.length) return null;
   // Con varias (NTN y SNR, o variantes 22210 EAKW33 / …C3), la que nombra la respuesta.
   return delKb.find((k) => textoNombraRef(texto, k.referencia, k.marca)) ?? delKb[0];
@@ -133,12 +148,13 @@ export function fichasDeComparativa(
   piezas: PiezaComparada[],
   delTexto: FichaTecnica[],
   consultadas: FichaKb[],
-  texto: string
+  texto: string,
+  productos: { name?: string }[] = []
 ): FichaTecnica[] {
   const out: FichaTecnica[] = [];
   const yaEsta = (f: FichaTecnica) => out.some((o) => normRef(o.titulo) === normRef(f.titulo));
   for (const p of piezas) {
-    const kb = fichaKbDe(p, consultadas, texto);
+    const kb = fichaKbDe(p, consultadas, texto, productos);
     const refs = [normRef(p.ref), ...(kb ? [normRef(kb.referencia)] : [])];
     const delBot = delTexto.find((f) => !yaEsta(f) && fichaCubre(f, refs, p.marca));
     if (delBot) {
@@ -148,7 +164,12 @@ export function fichasDeComparativa(
     if (!kb) continue;
     const f = fichaDesdeKb(kb);
     if (kb.coincidencia === "equivalente") {
-      f.titulo = kb.pedida && /\s/.test(kb.pedida) ? `${kb.pedida} (datos de su equivalente ${f.titulo})` : `${f.titulo} (equivalente)`;
+      // Con el nombre del producto de la página que es esa pieza ("TL 6205
+      // 2RS"), que es el que el cliente ve y compra.
+      const r = normRef(p.ref);
+      const enPagina = productos.find((x) => normRef(String(x.name ?? "")).endsWith(r));
+      const nombre = enPagina ? String(enPagina.name).replace(/^(RODAMIENTO|SOPORTE)S?\s+/i, "") : kb.pedida && /\s/.test(kb.pedida) ? kb.pedida : "";
+      f.titulo = nombre ? `${nombre} (datos de su equivalente ${f.titulo})` : `${f.titulo} (equivalente)`;
     }
     if (f.datos.length < 3 || yaEsta(f)) continue;
     out.push(f);

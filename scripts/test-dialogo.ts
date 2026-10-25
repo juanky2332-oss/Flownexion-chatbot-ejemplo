@@ -57,6 +57,12 @@ const CASOS: Caso[] = [
   { nombre: "variante que no existe (C2) → ofrece la C3", turnos: ["quiero 10 rodamientos 6201 2rs", "comparalo con el rodamiento 6205 zz c2"], debe: [/C3/, /no (la |lo )?(tenemos|est[aá]|aparece|existe)|no disponemos/i], comparativa: true, minPdf: 2 },
   { nombre: "comparativa con PDF de cada uno y conjunto", turnos: ["hola, quiero 20 rodamientos 6205 zz c3", "comparalo con los rodamientos que tengas con el mismo diametro interior"], minPdf: 2, conTarjeta: true },
   { nombre: "sin stock → ofrece la variante que sí hay", turnos: ["quiero 2 del 6205"], conTarjeta: true, debe: [/6205 ?2RS/i] },
+  // Comparar = PDF de CADA pieza + comparativa, siempre (cliente, 25-10-2026).
+  { nombre: "comparar: diferencias entre dos refs del mensaje", turnos: ["qué diferencia hay entre el 6205 2rs y el 6305 zz?"], comparativa: true, minPdf: 2, noDebe: [/no est[aá] disponible/i] },
+  { nombre: "comparar: «vs» con sufijos", turnos: ["6205 zz c3 vs 6205 2rs"], comparativa: true, minPdf: 2 },
+  { nombre: "comparar: soportes", turnos: ["compárame el UCP205 y el UCF205"], comparativa: true, minPdf: 2, debe: [/UCP205/, /UCF205/] },
+  { nombre: "comparar: seguimiento con la pieza anterior", turnos: ["quiero el 6205 zz", "y en qué se diferencia del 6206 zz?"], comparativa: true, minPdf: 2, debe: [/6206/] },
+  { nombre: "comparar: cuál me conviene", turnos: ["cuál me conviene, el 22210 o el 22212?"], comparativa: true, minPdf: 2 },
   { nombre: "venta cruzada al comprar", turnos: ["voy a cambiar el rodamiento de la rueda, quiero 2 del 6205 zz c3"], debe: [/ret[eé]n|grasa|engras/i], conTarjeta: true },
 ];
 
@@ -129,6 +135,15 @@ async function main(): Promise<void> {
     if (problemas.length) fallos++;
     console.log(`${problemas.length ? "FALLA" : "  ok "}  ${(r.ms / 1000).toFixed(1).padStart(5)} s  ${c.nombre}${problemas.length ? "  →  " + problemas.join(" · ") : ""}`);
     if (problemas.length || process.env.VERBOSE) console.log("        " + r.output.replace(/\s+/g, " ").slice(0, 400));
+    // VOLCADO=fichero.md: la conversación entera, para revisar a mano si cuadra.
+    if (process.env.VOLCADO) {
+      require("fs").appendFileSync(
+        process.env.VOLCADO,
+        `\n\n## ${c.nombre}${problemas.length ? "  ❌ " + problemas.join(" · ") : ""}\n> ${c.turnos.join("\n> ")}\n\n${r.output}\n\n` +
+          `Tarjetas: ${(r.products as { name?: string }[]).map((p) => p.name).join(" | ") || "—"}\n` +
+          `PDF: ${(r.fichas as { titulo?: string }[]).map((f) => f.titulo).join(" | ") || "—"}${r.comparar ? " + comparativa" : ""} · contacto: ${r.needsHuman} · ${(r.ms / 1000).toFixed(1)} s\n`
+      );
+    }
   }
   tiempos.sort((a, b) => a - b);
   console.log(`\n${casos.length - fallos}/${casos.length} correctos · tiempo mediano ${(tiempos[Math.floor(tiempos.length / 2)] / 1000).toFixed(1)} s · máximo ${(tiempos[tiempos.length - 1] / 1000).toFixed(1)} s`);

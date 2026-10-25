@@ -166,7 +166,7 @@ export async function POST(req: NextRequest) {
     // la conversación, resueltas contra el KB), aunque el texto solo traiga una:
     // el cliente exige su PDF por separado y el comparativo (lib/comparar.ts).
     if (pideCompararMsg) {
-      const deLaComparativa = fichasDeComparativa(piezasAComparar(message, history), fichas, r.tecnicas ?? [], r.output);
+      const deLaComparativa = fichasDeComparativa(piezasAComparar(message, history), fichas, r.tecnicas ?? [], r.output, r.products);
       if (deLaComparativa.length >= 2) fichas = deLaComparativa;
     }
     const comparar = fichas.length >= 2 && pideCompararMsg;

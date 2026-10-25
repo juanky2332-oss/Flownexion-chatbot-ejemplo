@@ -33,6 +33,9 @@ const CABECERA_TECNICA =
 // la etiqueta ENTERA, para no perder datos como "Stock mínimo de grasa".
 const ETIQUETA_COMERCIAL = /^(precio|stock|disponibilidad|descuento)$/i;
 
+// Valores que no son un dato ("No especificada", "No consta"...): no van al PDF.
+const VALOR_VACIO = /^(no\s+(especificad[oa]s?|disponibles?|consta|indicad[oa]|aplica)|desconocid[oa]|sin\s+datos?|n\/?d|-|—)\.?$/i;
+
 // Mínimo de datos para considerarlo ficha técnica y no una mención de pasada.
 const MIN_DATOS = 3;
 
@@ -170,6 +173,8 @@ export function extraerFichas(texto: string): FichaTecnica[] {
           continue;
         }
         if (par && ETIQUETA_COMERCIAL.test(par[0])) continue;
+        // "No especificada" no es un dato: nunca al PDF.
+        if (par && VALOR_VACIO.test(par[1])) continue;
         const [k, v] = par ?? [contenido, ""];
         a.datos.push([padre ? `${padre.etiqueta} ${k}` : k, v]);
         continue;

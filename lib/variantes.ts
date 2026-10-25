@@ -840,6 +840,96 @@ export function ajustarCantidad(
   return { texto: t, productos: ajustados };
 }
 
+// ── Stock SIEMPRE el real de la tienda ───────────────────────────────────────
+// Visto en producción (25-10-2026): "necesito 5000 unidades del 6205 zz c3"
+// → el bot escribió "solo tenemos 19 unidades" y "Stock: 🔴 19 uds", con 24 en
+// la tienda (las 24 las puso bien ajustarCantidad). El stock no se deja al
+// modelo: la línea "Stock:" de cada producto se reescribe con el de su tarjeta
+// y, si solo hay un producto, cualquier "N uds disponibles" que no cuadre.
+
+const sinTipo = (s: string) =>
+  String(s ?? "").toUpperCase().replace(/\*/g, "").replace(/^\s*#*\s*(RODAMIENTO|SOPORTE|CORREA)S?\s+/, "").replace(/[^A-Z0-9]/g, "");
+
+/** La línea de stock con el formato del prompt, a partir del stock real. */
+export function lineaStock(real: number, qty: number | null): string {
+  if (real <= 0) return "🔴 Sin stock disponible en la página ahora mismo";
+  if (qty && qty > real) return `🔴 ${real} uds disponibles en la página ahora mismo (has pedido ${qty})`;
+  return `🟢 ${real} uds disponibles`;
+}
+
+// Un número de unidades en stock dentro de una frase: "19 uds", "19 unidades
+// en stock", "las 19 disponibles". No toca medidas, pesos ni precios.
+const NUM_STOCK = /\b(\d{1,6})(?=\s*(?:uds?\.?|unidades)?\s*(?:disponibles?\b|en\s+stock\b|uds?\b|unidades\b))/gi;
+
+export function corregirStock(texto: string, productos: Product[], message: string): string {
+  const conStock = productos.filter((p) => typeof p.stock === "number");
+  if (!conStock.length || !texto) return texto;
+  const qty = cantidadPedida(message);
+  const porNombre = (t: string) => {
+    const n = sinTipo(t);
+    return conStock.find((p) => sinTipo(p.name).length >= 4 && n.endsWith(sinTipo(p.name)));
+  };
+  const porRef = (r: string) => {
+    const n = sinTipo(r);
+    return conStock.find((p) => n.length >= 3 && (sinTipo(p.reference) === n || sinTipo(p.name).endsWith(n)));
+  };
+  let actual: Product | undefined;
+  const lineas = texto.split("\n").map((l) => {
+    const t = l.trim();
+    if (/^-{3,}$/.test(t)) {
+      actual = undefined;
+      return l;
+    }
+    if (/^\*\*[^*]+\*\*$/.test(t) || /^#{1,4}\s+\S/.test(t)) {
+      actual = porNombre(t) ?? actual;
+      return l;
+    }
+    const ref = t.match(/^\**\s*Ref(?:erencia)?\s*:\s*\**\s*([^*]+?)\s*\**$/i);
+    if (ref) {
+      actual = porRef(ref[1]) ?? actual;
+      return l;
+    }
+    const st = l.match(/^(\s*\**\s*Stock\s*:\s*\**)/i);
+    if (st && actual) return `${st[1].replace(/\s*$/, "")} ${lineaStock(actual.stock as number, qty)}`;
+    return l;
+  });
+  let out = lineas.join("\n");
+  // Con un solo producto, las cifras de stock en el texto tienen que ser la suya.
+  const ids = new Set(conStock.map((p) => p.id));
+  if (ids.size === 1) {
+    const real = conStock[0].stock as number;
+    out = out
+      .split("\n")
+      .map((l) =>
+        /^\s*[-*•]\s+\**[^:]*:/.test(l) || /^\s*\**\s*(Precio|Medidas)\s*:/i.test(l)
+          ? l
+          : l.replace(NUM_STOCK, (n) => (Number(n) === qty || Number(n) === real || real <= 0 ? n : String(real)))
+      )
+      .join("\n");
+  }
+  return out;
+}
+
+// "No tengo confirmación de que estén disponibles en la página" con las
+// tarjetas (stock real) debajo: visto el 25-10-2026 en "20 rodamientos de 5
+// mm de interior con tapa". Es falso y le quita la confianza al cliente: la
+// tarjeta ES la confirmación. Se quita la frase (y el "contáctanos para
+// gestionar el pedido" que la acompaña) si hay producto con stock.
+const DUDA_DISPONIBILIDAD =
+  /[^.!?\n]*\b(no\s+tengo\s+confirmaci[oó]n|no\s+(puedo|podemos)\s+confirmar\s+(la\s+|su\s+)?disponibilidad|no\s+s[eé]\s+si\s+(est[aá]n?|hay)\s+disponibles?)[^.!?\n]*[.!]?/gi;
+const CONTACTO_TRAS_DUDA = /[^.!?\n]*\bte\s+recomiendo\s+que\s+nos\s+contactes[^.!?\n]*gestionar\s+el\s+pedido[^.!?\n]*[.!]?/gi;
+
+export function quitarDudaDisponibilidad(texto: string, productos: Product[]): string {
+  if (!productos.some((p) => (p.stock ?? 0) > 0) || !DUDA_DISPONIBILIDAD.test(texto)) return texto;
+  DUDA_DISPONIBILIDAD.lastIndex = 0;
+  return texto
+    .replace(DUDA_DISPONIBILIDAD, "")
+    .replace(CONTACTO_TRAS_DUDA, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // ── Fichas técnicas reescritas desde la base de datos ────────────────────────
 // Visto EN PRODUCCIÓN (14-10-2026) con "quiero 25 rodamientos 6205 zz c3": el
 // modelo escribió la ficha de memoria — tolerancia "Normal" (es C3), velocidad
@@ -897,7 +987,15 @@ function fichaExacta(ref: string, titulo: string): TechInfo | null {
     const frSinTL = fr.replace(/^TL/, "");
     return fr === r || fr === sinMarca || frSinTL === sinMarca || frSinTL === pagTL;
   });
-  if (!fichas.length) return null;
+  if (!fichas.length) {
+    // Pieza TL sin ficha propia ("TL 6205 2RS", Ref 3362052RSTL): su ficha es
+    // la de su equivalente NTN/SNR (misma pieza: 2RS = EE/LLU). Visto el
+    // 25-10-2026: sin esto el bot rellenaba "Velocidad límite: No especificada",
+    // "Peso: No especificado"... teniendo el dato oficial del equivalente.
+    if (marcaTitulo !== "TL" && !/^33.*TL$/.test(r)) return null;
+    const equivalente = findTechnicalInfo(ref).find((f) => f.coincidencia === "equivalente");
+    return equivalente ? { ...equivalente, pedida: equivalente.pedida ?? sinMarca } : null;
+  }
   if (marcaTitulo) {
     const deMarca = fichas.find((f) => f.marca.toUpperCase().startsWith(marcaTitulo));
     if (deMarca) return deMarca;
@@ -918,6 +1016,9 @@ export function corregirFichasConKB(texto: string): string {
 
   const insertarFicha = () => {
     if (!ficha || puesta) return;
+    if (ficha.coincidencia === "equivalente") {
+      salida.push(`Datos técnicos oficiales de su equivalente **${ficha.marca.replace(/\s*\(.*\)/, "")} ${ficha.referencia}** (misma pieza):`, "");
+    }
     salida.push("**Información técnica completa:**", ...lineasFichaKB(ficha), "");
     puesta = true;
   };
@@ -974,5 +1075,14 @@ export function corregirFichasConKB(texto: string): string {
     salida.push("");
     insertarFicha();
   }
-  return salida.join("\n").replace(/\n{3,}/g, "\n\n");
+  // Nunca un dato "No especificado / no consta" en una ficha: resta fiabilidad
+  // (cliente, 25-10-2026). Si el dato no está, la línea no se pone.
+  return salida
+    .filter((l) => !DATO_VACIO.test(l))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
 }
+
+/** Viñeta "- **Etiqueta:** No especificada" (o no disponible, no consta, N/D...). */
+export const DATO_VACIO =
+  /^\s*[-*•]\s+\**[^:\n]{1,60}:\**\s*\**\s*(no\s+(especificad[oa]s?|disponibles?|consta|indicad[oa]|aplica)|desconocid[oa]|sin\s+datos?|n\/?d|-|—)\s*\**\.?\s*$/i;

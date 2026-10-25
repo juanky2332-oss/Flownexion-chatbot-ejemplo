@@ -30,6 +30,8 @@ import {
 } from "./kb";
 import {
   analizarVariantes,
+  corregirStock,
+  quitarDudaDisponibilidad,
   bloqueOtraMedida,
   bloqueVariantes,
   compararTecnico,
@@ -1489,7 +1491,14 @@ export async function runAgent(
       ? (() => {
           const prev = String(ultimoCliente.content ?? "");
           const amb = ambiguedadLiLd(prev, findBeltForMessage(prev), findTranslinkBeltForMessage(prev));
-          return amb && !/\b(interior|interna|primitiva|de\s+paso|li|ld|lp)\b/i.test(message) ? amb : null;
+          // Si el cliente ya ha cambiado de tema ("ahora quiero rodamientos,
+          // 6205 zz c3 y 6205 2rs"), la duda de la correa no se arrastra: visto
+          // el 25-10-2026, el aviso A48/A49 y sus tarjetas acababan pegados a
+          // una comparativa de rodamientos.
+          const otroTema =
+            /\b(rodamient\w*|soportes?|ret[eé]n\w*|cadenas?|pi[nñ][oó]n\w*|poleas?)\b/i.test(message) ||
+            extractQueryCandidates(sinCantidades(message)).some((c) => (c.match(/\d/g) ?? []).length >= 3);
+          return amb && !otroTema && !/\b(interior|interna|primitiva|de\s+paso|li|ld|lp)\b/i.test(message) ? amb : null;
         })()
       : null);
   // CORREA SIN DATOS — "quiero 5 correas y 2 rodamientos 6205": no hay perfil
@@ -1820,14 +1829,42 @@ export async function runAgent(
   // garantiza la ruta con lib/comparar.ts aunque el texto se quede corto.
   if (piezasComparadas.length >= 2) {
     const lista = piezasComparadas.map((p) => `${p.marca ? p.marca + " " : ""}${p.ref}`);
+    // El producto REAL de la página para cada pieza, con su stock, resuelto en
+    // código. Visto el 25-10-2026: al comparar "6205 zz c3 con el 6205 2rs" el
+    // bot presentó el SNR 6205 EE sin stock como "el 2RS", teniendo el TL 6205
+    // 2RS con 1.660 uds. El cliente tiene que ver lo que puede comprar.
+    const enPagina = await Promise.race([
+      Promise.all(
+        lista.map((ref) =>
+          searchProducts(ref, groupId, customerId)
+            .then((ps) => {
+              const familia = ordenarParaTarjetas(ref, filtrarFueraDeFamilia(ref, ps));
+              const exactas = analizarVariantes(ref, familia).exactas.map((v) => v.producto);
+              return exactas.find((p) => (p.stock ?? 0) > 0) ?? exactas[0];
+            })
+            .catch(() => undefined)
+        )
+      ),
+      new Promise<undefined[]>((r) => setTimeout(() => r([]), 6000)),
+    ]);
+    const lineas = lista.map((ref, i) => {
+      const p = enPagina[i];
+      if (p && !collected.some((c) => c.id === p.id)) collected.push(p);
+      return p
+        ? `- ${ref} → en la página: ${p.name} (Ref: ${p.reference}) — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`
+        : `- ${ref} → no está en la página con esa referencia exacta`;
+    });
     messages.push({
       role: "system",
       content:
-        `🔒 COMPARATIVA PEDIDA entre: ${lista.join(" | ")}. Llama a compare_products con TODAS ellas en este orden ` +
-        `(${JSON.stringify(lista)}). En la respuesta presenta CADA una con su ficha (formato de producto, con "Ref:" e ` +
-        `"Información técnica completa:") y después la comparativa: primero en qué COINCIDEN y luego en qué se ` +
-        `DIFERENCIAN, con la diferencia exacta. No dejes ninguna fuera ni sustituyas una por otra. Si alguna no tiene ` +
-        `ficha, dilo en una frase y compara con lo que sí consta. El cliente recibirá el PDF de cada ficha y el comparativo.`,
+        `🔒 COMPARATIVA PEDIDA entre: ${lista.join(" | ")}. Comprobado en el catálogo real:\n${lineas.join("\n")}\n\n` +
+        `Llama a compare_products con TODAS ellas en este orden (${JSON.stringify(lista)}). En la respuesta presenta ` +
+        `CADA una con el producto de la página indicado arriba (su nombre, su Ref, su precio y su stock EXACTOS; ` +
+        `NUNCA otro de la misma familia sin stock en su lugar) y su ficha (formato de producto, con "Ref:" e ` +
+        `"Información técnica completa:"). Si la ficha técnica sale de su equivalente NTN/SNR (p.ej. TL 6205 2RS → ` +
+        `datos de SNR 6205 EE), dilo en una línea. Después la comparativa: en qué se DIFERENCIAN, con la diferencia ` +
+        `exacta, y en qué COINCIDEN. Todo dato tiene que salir de las fichas; nada de memoria. No dejes ninguna fuera ` +
+        `ni sustituyas una por otra. Si una pieza no está en la página, dilo claro en una frase.`,
     });
   }
 
@@ -1902,11 +1939,14 @@ export async function runAgent(
       ]);
       for (const p of encontrados) if (p && !collected.some((c) => c.id === p.id)) collected.push(p);
     }
-    const { texto, productos } = ajustarCantidad(
+    const ajustado = ajustarCantidad(
       borrador,
       tarjetasParaRespuesta(borrador, collected, message).slice(0, 4),
       message
     );
+    const productos = ajustado.productos;
+    // Stock y disponibilidad SIEMPRE los reales de las tarjetas (ver variantes.ts).
+    const texto = quitarDudaDisponibilidad(corregirStock(ajustado.texto, productos, message), productos);
     // Al comparar con el producto del turno anterior ("compáralo con..."), su
     // ficha también hace falta para el PDF comparativo.
     if (pideComparar(message)) {
