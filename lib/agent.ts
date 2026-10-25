@@ -1791,6 +1791,7 @@ export async function runAgent(
         .filter((p) => !vistos.has(p.id) && vistos.add(p.id) && encaja(p))
         .sort((a, b) => Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0));
       for (const p of candidatos.slice(0, 3)) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+      console.log("[diag-medidas]", JSON.stringify({ bases, enPagina: enPagina.map((p) => [p.name, p.stock]), candidatos: candidatos.map((p) => p.name) }));
 
       const medidasTxt =
         `dØ${medidas.di} mm` + (medidas.de ? ` × DØ${medidas.de} mm` : "") + (medidas.an ? ` × B${medidas.an} mm` : "");
