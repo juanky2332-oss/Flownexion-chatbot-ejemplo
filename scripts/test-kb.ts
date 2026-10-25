@@ -675,7 +675,7 @@ section("COMPARATIVA EN PDF — filas y diferencias");
   const fila = (e: string) => filas.find((f) => f.etiqueta === e);
   ok(fila("Medidas")?.difiere === false, "mismas medidas -> no resaltada");
   ok(fila("Peso")?.difiere === true && fila("Tolerancia")?.difiere === true, "peso y tolerancia distintos -> resaltadas");
-  ok(JSON.stringify(fila("Junta")?.valores) === JSON.stringify(["—", "ZZ"]), "dato que solo tiene uno -> '—' en el otro y resaltada", JSON.stringify(fila("Junta")));
+  ok(!fila("Junta") && !fila("Velocidad límite"), "dato que solo tiene uno -> fuera de la comparativa (nada de «—» ni «no consta»)", JSON.stringify(fila("Junta")));
   ok(nombreFicheroComparativa([fA, fB]) === "Comparativa-6205-vs-6205ZZC3.pdf", "nombre del fichero", nombreFicheroComparativa([fA, fB]));
 }
 
