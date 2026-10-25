@@ -30,7 +30,7 @@ const MARCA = /\b(NTN|SNR|TL)\b/i;
 const SEPARADOR = /\s*(?:[,;]|\bcon\b|\bfrente\s+a\b|\bvs\b\.?|\bversus\b|\by\b|\be\b|\bo\b|\bu\b|\bentre\b|\brespecto\s+(?:a|al|de)\b)\s*/i;
 
 /** Una pieza por trozo del mensaje: la referencia más completa de ese trozo. */
-function piezasDelMensaje(mensaje: string): PiezaComparada[] {
+export function piezasDelMensaje(mensaje: string): PiezaComparada[] {
   const piezas: PiezaComparada[] = [];
   for (const trozo of sinCantidades(mensaje).split(SEPARADOR)) {
     // extractQueryCandidates también da el trozo entero pegado ("COMPARA62052RS"):
@@ -62,6 +62,23 @@ function piezasDelUltimoTurno(historial: { role?: string; content: string }[]): 
 }
 
 /**
+ * El producto del que se venía hablando ("¿y en qué se diferencia del 6206
+ * zz?"): el primero que el bot puso en negrita con su marca ("**SNR 6205 ZZ**"),
+ * con TODOS sus sufijos. refDeConversacion se queda en "SNR 6205" cuando el
+ * bot no escribe "Ref:" (visto en producción el 25-10-2026), y eso es otra pieza.
+ */
+function piezaDelTurnoAnterior(historial: { role?: string; content: string }[]): PiezaComparada | null {
+  const ultimo = String([...historial].reverse().find((m) => m.role === "assistant")?.content ?? "");
+  for (const m of ultimo.matchAll(/\*\*([^*\n]{3,50})\*\*/g)) {
+    if (!MARCA.test(m[1]) || (m[1].match(/\d/g) ?? []).length < 3) continue;
+    const [p] = piezasDelMensaje(m[1].replace(/^\s*(RODAMIENTO|SOPORTE|CORREA)S?\s+/i, ""));
+    if (p) return p;
+  }
+  const previa = refDeConversacion(historial);
+  return previa ? { ref: previa.referencia, marca: marcaDe(previa.marca) } : null;
+}
+
+/**
  * Las piezas que el cliente quiere comparar, en orden (la del turno anterior
  * primero en "compáralo con…"). Máximo 4.
  */
@@ -76,8 +93,8 @@ export function piezasAComparar(mensaje: string, historial: { role?: string; con
   for (const p of piezasDelMensaje(mensaje)) meter(p);
   if (piezas.length === 0) for (const p of piezasDelUltimoTurno(historial)) meter(p);
   if (piezas.length === 1) {
-    const previa = refDeConversacion(historial);
-    if (previa) meter({ ref: previa.referencia, marca: previa.marca.replace(/\s*\(.*\)/, "").toUpperCase() }, true);
+    const previa = piezaDelTurnoAnterior(historial);
+    if (previa) meter(previa, true);
   }
   return piezas.slice(0, MAX_PIEZAS);
 }
@@ -95,7 +112,8 @@ function fichaCubre(f: FichaTecnica, refs: string[], marca?: string): boolean {
 /** La ficha verificada de la pieza: la que consultó el bot o, si no, la del KB. */
 function fichaKbDe(p: PiezaComparada, consultadas: FichaKb[], texto: string): FichaKb | null {
   const r = normRef(p.ref);
-  const deMarca = (k: FichaKb) => !p.marca || marcaDe(k.marca) === p.marca;
+  // Una pieza TL sin ficha propia usa la de su equivalente NTN/SNR (misma pieza).
+  const deMarca = (k: FichaKb) => !p.marca || marcaDe(k.marca) === p.marca || (p.marca === "TL" && k.coincidencia === "equivalente");
   const valida = (k: FichaKb) => !!k?.referencia && !!k.datos && k.coincidencia !== "base" && deMarca(k);
   const casa = (k: FichaKb) =>
     normRef(k.referencia) === r || (!!k.pedida && normRef(k.pedida) === r) || (r.length >= 3 && normRef(k.referencia).endsWith(r));

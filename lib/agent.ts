@@ -49,7 +49,7 @@ import {
 } from "./variantes";
 import { searchOfficialSource } from "./websearch";
 import { pideComparar } from "./ficha";
-import { piezasAComparar } from "./comparar";
+import { piezasAComparar, piezasDelMensaje } from "./comparar";
 import { limpiarCierreVacio } from "./guardrails";
 import { completar, completarEnStreaming } from "./llm";
 
@@ -1598,13 +1598,19 @@ export async function runAgent(
   // entera pegada ("QUIEROCOMPRAR6205"): una referencia real nunca encadena
   // tantas letras (6205ZZC3, UC205, 32008XU, 6205LLU/C3 como mucho llevan
   // dos o tres seguidas).
-  const refDetectada = extractQueryCandidates(sinCantidades(message)).find(
-    (c) =>
-      (c.match(/\d/g) ?? []).length >= 3 &&
-      c.length >= 4 &&
-      c.length <= 20 &&
-      !/[A-Z]{4,}/.test(c)
-  );
+  // Al comparar dos piezas ("diferencias entre el 6205 2rs y el 6305 zz") el
+  // candidato pegado ("62052RS6305ZZ") no existe y el bot acababa diciendo que
+  // "no está disponible": la búsqueda va con la primera pieza ya separada.
+  const piezasComparadas = pideComparar(message) ? piezasAComparar(message, history) : [];
+  const refDetectada = piezasComparadas.length >= 2 && piezasDelMensaje(message).length >= 2
+    ? piezasComparadas[0].ref
+    : extractQueryCandidates(sinCantidades(message)).find(
+        (c) =>
+          (c.match(/\d/g) ?? []).length >= 3 &&
+          c.length >= 4 &&
+          c.length <= 20 &&
+          !/[A-Z]{4,}/.test(c)
+      );
   if (refDetectada) {
     onEvento?.({ tipo: "estado", texto: "Consultando el catálogo y el stock…" });
     try {
@@ -1812,7 +1818,6 @@ export async function runAgent(
   // 6305?", del turno anterior) para que el modelo presente TODAS y llame a
   // compare_products con todas. Los PDF (uno por pieza + el comparativo) los
   // garantiza la ruta con lib/comparar.ts aunque el texto se quede corto.
-  const piezasComparadas = pideComparar(message) ? piezasAComparar(message, history) : [];
   if (piezasComparadas.length >= 2) {
     const lista = piezasComparadas.map((p) => `${p.marca ? p.marca + " " : ""}${p.ref}`);
     messages.push({

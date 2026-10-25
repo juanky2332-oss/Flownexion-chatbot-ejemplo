@@ -907,6 +907,9 @@ console.log("\n=== COMPARAR: siempre PDF de cada pieza + comparativa (25-10-2026
   const conUna = "**SNR 6205**\nRef: 6205\n\nInformación técnica completa:\n- Peso: 129 g\n- Serie: 6200\n- Junta: abierto\n\nY el otro es más grande.";
   const r = titulos("diferencias entre el 6205 y el 6305", [], conUna, fi.extraerFichas(conUna));
   ok(r.length === 2 && r[0] === "SNR 6205" && r[1] === "SNR 6305", "si el bot solo pone una ficha, la segunda sale del KB (PDF de cada una + comparativa)", r.join(" | "));
+  const sinRef = [{ role: "user", content: "quiero el 6205 zz" }, { role: "assistant", content: "El **SNR 6205 ZZ** está sin stock. Tenemos el **SNR 6205 ZZ C3**." }];
+  ok(titulos("y en qué se diferencia del 6206 zz?", sinRef).join("|") === "SNR 6205ZZ|SNR 6206ZZ", "seguimiento sin «Ref:»: la pieza anterior con sus sufijos (6205 ZZ, no 6205)", titulos("y en qué se diferencia del 6206 zz?", sinRef).join(" | "));
+  ok(cp.piezasDelMensaje("qué diferencia hay entre el 6205 2rs y el 6305 zz?").map((p) => p.ref).join("|") === "62052RS|6305ZZ", "dos referencias del mensaje separadas (no «62052RS6305ZZ»)");
   const filas = fd.filasComparativa(cp.fichasDeComparativa(cp.piezasAComparar("compara el 6205 y el 6305"), [], [], ""));
   ok(filas.some((f) => f.difiere) && filas.some((f) => !f.difiere), "la comparativa separa características diferentes e iguales");
 }
