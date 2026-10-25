@@ -263,7 +263,7 @@ export interface FilaComparativa {
   difiere: boolean;
 }
 
-/** Filas de la comparativa: medidas + unión de todos los datos, en orden de aparición. */
+/** Filas de la comparativa: medidas + los datos que tienen todas las fichas, en orden de aparición. */
 export function filasComparativa(fichas: FichaTecnica[]): FilaComparativa[] {
   const etiquetas: string[] = [];
   const porFicha = fichas.map((f) => {
@@ -274,11 +274,16 @@ export function filasComparativa(fichas: FichaTecnica[]): FilaComparativa[] {
   });
   if (fichas.some((f) => f.medidas)) etiquetas.push("Medidas");
   for (const f of fichas) for (const [k, v] of f.datos) if (v && !etiquetas.includes(k)) etiquetas.push(k);
-  return etiquetas.map((etiqueta) => {
-    const valores = porFicha.map((m) => m.get(etiqueta) ?? "—");
-    const distintos = new Set(valores.map(clave));
-    return { etiqueta, valores, difiere: distintos.size > 1 };
-  });
+  // Solo los datos que traen TODAS las fichas: una celda vacía o "no consta"
+  // en un documento comparativo resta fiabilidad (cliente, 25-10-2026). Cada
+  // dato que solo tiene una pieza sigue en su PDF individual.
+  return etiquetas
+    .filter((etiqueta) => porFicha.every((m) => m.has(etiqueta)))
+    .map((etiqueta) => {
+      const valores = porFicha.map((m) => m.get(etiqueta) as string);
+      const distintos = new Set(valores.map(clave));
+      return { etiqueta, valores, difiere: distintos.size > 1 };
+    });
 }
 
 export function nombreFicheroComparativa(fichas: FichaTecnica[]): string {
@@ -347,12 +352,7 @@ export async function construirComparativaPdf(fichas: FichaTecnica[], logo: stri
       y += lista.length * 11 + 4;
       doc.setFontSize(8);
       doc.setTextColor(90);
-      const nDif = filas.filter((f) => f.difiere).length;
-      doc.text(
-        latin1(`${nDif} características diferentes (resaltadas en azul) y ${filas.length - nDif} iguales. "—" = no consta en esa ficha.`),
-        MARGEN_X,
-        y
-      );
+      doc.text(latin1("Las filas resaltadas en azul son las características en las que los productos se diferencian."), MARGEN_X, y);
       doc.setTextColor(0);
       y += 14;
     }
@@ -408,7 +408,7 @@ export async function construirComparativaPdf(fichas: FichaTecnica[], logo: stri
   ];
   for (const [titulo, grupo] of bloques) {
     if (!grupo.length) continue;
-    seccion(`${titulo} (${grupo.length})`);
+    seccion(titulo);
     for (const f of grupo) {
       const textos = [f.etiqueta, ...f.valores];
       const alto = altoFila(textos, anchos);
