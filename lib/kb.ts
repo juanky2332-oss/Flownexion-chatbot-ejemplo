@@ -28,6 +28,12 @@ function norm(s: unknown): string {
 const QUERY_NOISE =
   /\b(SKF|FAG|INA|NSK|TIMKEN|KOYO|NACHI|ZKL|NKE|NTN|SNR|MARCA|REFERENCIA|REF|RODAMIENTO|RODAMIENTOS|EQUIVALENCIA|EQUIVALENTE|DE|DEL|EN|EL|LA|UN|UNA|Y|O|QUE|HAY|PARA|PUEDES|DECIRME|DIME|DIGA|DIGAME|CUAL|CUALES|TIENES|TIENE|TENEIS)\b/gi;
 
+const PALABRA_NO_SUFIJO = new Set([
+  "DE", "DEL", "EL", "LA", "LOS", "LAS", "EN", "CON", "POR", "SIN", "PARA", "UN", "UNA", "UNO",
+  "Y", "O", "QUE", "MAS", "MUY", "ES", "SE", "SI", "NO", "AL", "LO", "MI", "TU", "SU", "YA", "HAY",
+  "RPM", "MM", "CM", "KG", "UDS", "UD",
+]);
+
 export function extractQueryCandidates(rawQuery: string): string[] {
   const cleaned = String(rawQuery ?? "").replace(QUERY_NOISE, " ");
   // Recortar signos de puntuación pegados en los bordes de cada token
@@ -35,10 +41,11 @@ export function extractQueryCandidates(rawQuery: string): string[] {
   // referencia deja el "?" pegado y rompía el match exacto y el de prefijo.
   // Solo en los bordes — el interior se conserva porque hay referencias
   // reales con "-", "/" y "." dentro (UC205-100D1, 8Q-K95X102X20.8X3).
-  const rawTokens = cleaned
+  const crudos = cleaned
     .split(/\s+/)
-    .map((t) => t.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, ""))
-    .filter(Boolean);
+    .map((t) => ({ orig: t, limpio: t.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, "") }))
+    .filter((t) => t.limpio);
+  const rawTokens = crudos.map((t) => t.limpio);
   const candidates = new Set<string>();
 
   const joined = norm(cleaned);
@@ -55,6 +62,12 @@ export function extractQueryCandidates(rawQuery: string): string[] {
     for (let j = i + 1; j < rawTokens.length; j++) {
       const next = norm(rawTokens[j]);
       if (!next || next.length > 4) break;
+      // Palabras del castellano, no sufijos (visto el 26-10-2026: "6205 2RS a
+      // 12000 rpm" → "62052RSA" y "30205, qué carga" → "30205QU", piezas que
+      // no existen). Una letra suelta solo es sufijo detrás de un número pelado
+      // ("3309 a" → 3309A); "qué/más" llegan aquí sin la tilde ("QU", "M").
+      if (PALABRA_NO_SUFIJO.has(next) || /[^\x00-\x7F]/.test(crudos[j].orig)) break;
+      if (/^[AEOU]$/.test(next) && !/^\d+$/.test(acc)) break;
       acc += next;
       candidates.add(acc);
     }
@@ -1501,6 +1514,32 @@ export function ambiguedadLiLd(message: string, conti: BeltInfo[], tl: TlBeltInf
     const li = [...porLi].filter((x) => !porLd.has(x));
     const ld = [...porLd].filter((x) => !porLi.has(x));
     if (li.length && ld.length) return { largo: n, porLi: li, porLd: ld };
+  }
+  return null;
+}
+
+/**
+ * El cliente YA ha dicho qué longitud es ("correa A 1250 interior"): las
+ * correas que encajan, sin preguntar otra vez. Visto el 26-10-2026: con
+ * "...y una correa A 1250 interior" el bot volvía a preguntar Li o Ld.
+ */
+export function longitudAclarada(
+  message: string,
+  conti: BeltInfo[],
+  tl: TlBeltInfo[]
+): { largo: number; tipo: "Li" | "Ld"; refs: string[] } | null {
+  const plano = String(message ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const tipo = /\b(interior|interna|li)\b/i.test(plano) ? "Li" : /\b(primitiva|de\s+paso|ld|lp)\b/i.test(plano) ? "Ld" : null;
+  if (!tipo) return null;
+  for (const n of (plano.match(/\b\d{3,5}\b/g) ?? []).map(Number)) {
+    const refs = new Set<string>();
+    for (const b of conti) {
+      if ((tipo === "Li" ? b.longitud_interior_Li_mm : b.longitud_primitiva_Ld_mm) === n) refs.add(nombreCorto(b.nombre));
+    }
+    for (const b of tl) {
+      if (b.datos[tipo === "Li" ? "Longitud interior Li (mm)" : "Longitud de paso Ld (mm)"] === n) refs.add(nombreCorto(b.referencia));
+    }
+    if (refs.size) return { largo: n, tipo, refs: [...refs] };
   }
   return null;
 }

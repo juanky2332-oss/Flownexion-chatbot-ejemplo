@@ -431,6 +431,106 @@
       "titulo": "Vida útil de un rodamiento (L10)",
       "texto": "La vida nominal L10 es el número de revoluciones que alcanza el 90% de un lote de rodamientos iguales antes de que aparezca fatiga en las pistas. Es una referencia estadística de diseño, no una garantía de duración de una pieza concreta.\n\nSE CALCULA a partir de la capacidad de carga dinámica del rodamiento (el valor C de la ficha técnica, en kN) y de la carga real de trabajo. La relación no es lineal: es una potencia. En rodamientos de bolas el exponente es 3, lo que significa que DOBLAR la carga divide la vida por ocho. En rodillos el exponente es 10/3, aún más severo. Por eso una sobrecarga aparentemente pequeña se paga tan cara.\n\nEl resultado en revoluciones se pasa a horas dividiendo por las revoluciones por minuto y por 60.\n\nMUY IMPORTANTE: en la práctica, la mayoría de los rodamientos NO llegan a fallar por fatiga. Fallan antes por lubricación deficiente, contaminación, montaje incorrecto, desalineación o sellado inadecuado. Un cálculo de vida impecable no sirve de nada si el rodamiento trabaja sucio o mal engrasado.\n\nPara un cálculo concreto hacen falta la carga real (radial y axial), las rpm y las condiciones de trabajo. Si el cliente lo necesita afinado, lo correcto es pasarle con un técnico en vez de dar un número aproximado.",
       "fuente": "ISO 281 (vida nominal) y catálogos NTN-SNR / SKF"
+    },
+    {
+      "id": "retenes-tipos-materiales",
+      "categoria": "retenes",
+      "prioridad": 7,
+      "terminos": [
+        "reten",
+        "retenes",
+        "muelle",
+        "sin muelle",
+        "labio",
+        "doble labio",
+        "guardapolvo",
+        "nbr",
+        "nitrilo",
+        "viton",
+        "fkm",
+        "reten radial",
+        "junta de eje"
+      ],
+      "titulo": "Retenes radiales: con o sin muelle, labios y material (NBR frente a FKM/Vitón)",
+      "texto": "Un retén radial cierra el hueco entre el eje que gira y el alojamiento: retiene el lubricante dentro y evita que entre suciedad. Se designa por sus medidas: eje × alojamiento × ancho (por ejemplo 35×52×7 = eje de 35 mm, alojamiento de 52 mm, 7 mm de ancho).\n\nCON MUELLE: el muelle de acero que rodea el labio principal mantiene la presión del labio sobre el eje aunque el caucho se desgaste o el eje tenga algo de excentricidad. Es lo normal para retener ACEITE y para trabajo continuo.\nSIN MUELLE: el labio solo aprieta por la elasticidad del caucho. Se usa para retener GRASA o como protección contra polvo, con poca exigencia de estanqueidad.\n\nUN LABIO o DOS: el segundo labio (guardapolvo, sin muelle, mirando hacia fuera) protege el labio principal de la suciedad exterior. Es la opción para ambientes con polvo, barro o agua de salpicadura.\n\nMATERIAL:\n- NBR (nitrilo): el estándar. Buena resistencia a aceites y grasas minerales. Trabaja aproximadamente de −40 °C a +100 °C (picos breves algo superiores).\n- FKM (Vitón): para temperatura alta, aproximadamente de −20 °C a +200 °C, y mejor resistencia química (aceites sintéticos, muchos combustibles y ácidos). Más caro; se elige cuando el NBR se endurece o se agrieta por calor.\n\nAl cambiar un retén: montarlo con el muelle hacia el lado del lubricante, con el labio engrasado, sin pasar por aristas vivas del eje (chaflán o manguito de montaje) y, si el eje tiene surco en la zona del labio antiguo, desplazar el nuevo unos milímetros o recuperar el eje: sobre un surco ningún retén cierra.",
+      "fuente": "Catálogos técnicos de retenes radiales (DIN 3760 / ISO 6194) — Corteco, SKF y fabricantes de elastómeros"
+    },
+    {
+      "id": "cadenas-europea-americana",
+      "categoria": "cadenas",
+      "prioridad": 7,
+      "terminos": [
+        "cadena",
+        "cadenas",
+        "cadena de rodillos",
+        "asa",
+        "ansi",
+        "norma americana",
+        "norma europea",
+        "serie b",
+        "06b",
+        "08b",
+        "10b",
+        "12b",
+        "16b",
+        "asa 40",
+        "asa 50",
+        "asa 60",
+        "asa 80",
+        "paso de cadena",
+        "duplex",
+        "triplex"
+      ],
+      "titulo": "Cadenas de rodillos: serie europea (B, ISO 606) frente a americana (ASA/ANSI)",
+      "texto": "La designación europea (serie B, norma ISO 606 / DIN 8187) es: número de paso en dieciseisavos de pulgada + B + número de hileras. 08B-1 = paso 8/16\" = 1/2\" (12,7 mm), simple; 08B-2 = doble; 08B-3 = triple.\n\nDatos de la serie B (simple), por norma — paso / diámetro de rodillo / ancho interior / carga de rotura mínima:\n- 06B-1: 9,525 mm / 6,35 mm / 5,72 mm / 9 kN\n- 08B-1: 12,7 mm / 8,51 mm / 7,75 mm / 18 kN\n- 10B-1: 15,875 mm / 10,16 mm / 9,65 mm / 22,4 kN\n- 12B-1: 19,05 mm / 12,07 mm / 11,68 mm / 29 kN\n- 16B-1: 25,4 mm / 15,88 mm / 17,02 mm / 60 kN\n\nLa serie americana (ASA / ANSI B29.1, \"serie A\") usa el mismo paso con otro número: ASA 40 = 1/2\", ASA 50 = 5/8\", ASA 60 = 3/4\", ASA 80 = 1\". Por ejemplo la ASA 60 lleva rodillo de 11,91 mm y ancho interior de 12,57 mm, frente a 12,07 mm y 11,68 mm de la 12B.\n\nMUY IMPORTANTE: aunque el paso coincida, una cadena B y una ASA NO son intercambiables. Cambian el diámetro del rodillo y el ancho interior, así que el diente del piñón es distinto: con la cadena de la otra serie engrana mal, se desgasta rápido y puede saltar. Cadena y piñones tienen que ser de la misma serie. Si el cliente no sabe cuál lleva, lo seguro es medir el diámetro del rodillo y el ancho interior entre placas.\n\nAl pedir cadena por metros, conviene confirmar cuántos eslabones necesita y si quiere eslabón de unión (cierre) o eslabón acodado para un número impar de pasos.",
+      "fuente": "ISO 606 (cadenas de rodillos de precisión, series A y B) / DIN 8187 / ANSI B29.1"
+    },
+    {
+      "id": "taper-lock",
+      "categoria": "transmision",
+      "prioridad": 6,
+      "terminos": [
+        "taper",
+        "taper lock",
+        "taperlock",
+        "casquillo",
+        "casquillos",
+        "casquillo conico",
+        "1008",
+        "1108",
+        "1210",
+        "1610",
+        "2012",
+        "2517",
+        "3020",
+        "chavetero"
+      ],
+      "titulo": "Casquillos cónicos Taper Lock: designación, montaje y par de apriete",
+      "texto": "El casquillo Taper Lock fija poleas, piñones y acoplamientos al eje por un cono: al apretar sus tornillos prisioneros el casquillo se cierra sobre el eje y se encaja en el cubo. No hace falta mecanizar el cubo para cada medida de eje: se cambia el casquillo.\n\nDESIGNACIÓN: cuatro cifras. Las dos primeras dan el diámetro exterior aproximado en décimas de pulgada y las dos últimas la longitud en décimas de pulgada: 1610 = unos 1,6\" de exterior y 1,0\" (25,4 mm) de largo. Detrás va el diámetro del eje: \"1610 eje 25\" es el casquillo 1610 taladrado a 25 mm con su chavetero.\n\nEl casquillo tiene que ser de la misma serie que el cubo de la polea o del piñón (un cubo 1610 solo admite casquillos 1610).\n\nTORNILLOS Y PAR DE APRIETE habituales (tornillos BSW): 1008 y 1108: 2 × 1/4\", 5,6 Nm · 1210 y 1610: 2 × 3/8\", 20 Nm · 2012: 2 × 7/16\", 31 Nm · 2517: 2 × 1/2\", 49 Nm · 3020: 2 × 5/8\", 92 Nm.\n\nMONTAJE: limpiar y desengrasar cono y cubo (el aceite o la grasa dan un apriete falso), colocar la chaveta, apretar los tornillos de forma alterna y progresiva hasta el par, golpear suavemente el casquillo con un taco y volver a apretar. Rellenar los agujeros libres con grasa para que no entre suciedad. Para desmontar, se pasa un tornillo al agujero de extracción.\n\nMaterial: lo habitual es fundición gris; también los hay de acero. Si el cliente necesita un material concreto, se confirma con la ficha del fabricante; no se afirma sin ella.",
+      "fuente": "Catálogos de casquillos cónicos tipo Taper Lock (Fenner, Translink y fabricantes de transmisión)"
+    },
+    {
+      "id": "soportes-tipos",
+      "categoria": "soportes",
+      "prioridad": 6,
+      "terminos": [
+        "ucp",
+        "ucf",
+        "ucfl",
+        "ucfc",
+        "uct",
+        "soporte de pie",
+        "soporte de brida",
+        "brida",
+        "brida cuadrada",
+        "brida ovalada",
+        "tensor",
+        "chumacera",
+        "tipos de soporte"
+      ],
+      "titulo": "Tipos de soporte con rodamiento (UCP, UCF, UCFL, UCFC, UCT)",
+      "texto": "Los soportes UC llevan un rodamiento inserto (serie UC2xx, fijado al eje con tornillos prisioneros) dentro de un cuerpo de fundición, chapa, termoplástico o inoxidable. La letra tras \"UC\" dice la forma del cuerpo:\n- UCP — soporte de PIE: se atornilla sobre una superficie horizontal (bancada, chasis) con 2 tornillos; el eje queda paralelo a la base.\n- UCF — BRIDA CUADRADA de 4 agujeros: se atornilla contra una pared o placa vertical; el eje sale perpendicular a ella. Es la brida más robusta.\n- UCFL — BRIDA OVALADA (rombo) de 2 agujeros: también va contra pared, ocupa menos y aguanta algo menos que la cuadrada. Para cargas moderadas o donde no caben 4 tornillos.\n- UCFC — BRIDA REDONDA con resalte de centraje: para montajes que necesitan centrarse en un agujero.\n- UCT — TENSOR: el soporte se desliza en una guía para tensar cintas, correas o cadenas.\n\nLa cifra (205, 206, 208…) es la del rodamiento inserto: las dos últimas cifras × 5 = diámetro del eje (205 = 25 mm, 206 = 30 mm, 208 = 40 mm).\n\nCriterio rápido: base horizontal → UCP; pared o chapa vertical → UCF (o UCFL si la carga es moderada o falta sitio). En alimentaria o ambientes húmedos, cuerpo e inserto inoxidables o termoplásticos con grasa apta para alimentación.",
+      "fuente": "Catálogos de soportes SNR / NTN y Translink (designación de cuerpos e insertos, ISO 3228)"
     }
   ]
 }

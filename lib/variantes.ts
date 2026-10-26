@@ -168,6 +168,39 @@ export interface AnalisisVariantes {
  * Empareja lo que pidió el cliente con lo que devolvió el catálogo y detecta
  * el caso clave: la exacta no se puede servir pero una variante sí.
  */
+// Familias de protección: dentro de una misma familia los sufijos son la misma
+// pieza con otra nomenclatura de fabricante (LLU de NTN = EE de SNR = 2RS).
+const CLASE_PROTECCION: Record<string, string> = {
+  "2RS": "contacto", "2RS1": "contacto", "2RSR": "contacto", "2RSH": "contacto", EE: "contacto",
+  LLU: "contacto", LU: "contacto", DDU: "contacto", E: "contacto",
+  ZZ: "deflector", "2Z": "deflector", Z: "deflector", "2ZR": "deflector",
+  "2RZ": "sin_contacto", LLB: "sin_contacto", LB: "sin_contacto", VV: "sin_contacto",
+};
+
+/**
+ * Cuánto se aleja una variante de la pedida. Visto el 26-10-2026: pidiendo un
+ * NTN 6007 LLU se ofrecía el SNR 6007 C3 ABIERTO, con el SNR 6007 EE C3 (la
+ * misma junta de contacto) en stock; y para un FAG 6305 2RSR, un 6305 C3
+ * abierto "con las mismas capacidades". Quitar la protección que el cliente
+ * pidió es el peor cambio posible: entra agua y suciedad.
+ */
+function distanciaVariante(pedidos: string[], v: { anade: string[]; quita: string[]; producto: Product }): number {
+  const clase = (s: string) => CLASE_PROTECCION[s] ?? s;
+  const anade = v.anade.map(clase);
+  const quita = v.quita.map(clase);
+  let d = 0;
+  for (const q of quita) {
+    const i = anade.indexOf(q);
+    if (i >= 0) anade.splice(i, 1); // misma protección con otro nombre: no cuenta
+    else d += 1;
+  }
+  d += anade.length;
+  // Pierde la protección pedida y no trae ninguna otra.
+  const pierde = v.quita.some((s) => CLASE_PROTECCION[s]) && !v.anade.some((s) => CLASE_PROTECCION[s]);
+  if (pedidos.some((s) => CLASE_PROTECCION[s]) && pierde) d += 10;
+  return d;
+}
+
 export function analizarVariantes(
   refPedida: string,
   productos: Product[]
@@ -194,10 +227,7 @@ export function analizarVariantes(
     .filter((v) => !v.exacta && (v.stock ?? 0) > 0)
     // Menos diferencias primero: la variante más parecida es la mejor
     // propuesta de sustitución.
-    .sort(
-      (a, b) =>
-        a.anade.length + a.quita.length - (b.anade.length + b.quita.length)
-    );
+    .sort((a, b) => distanciaVariante(pedida.sufijos, a) - distanciaVariante(pedida.sufijos, b));
 
   return {
     pedida,
@@ -274,6 +304,36 @@ export function filtrarFueraDeFamilia(refPedida: string, productos: Product[]): 
  * que el producto del que hablaba el texto se quedaba fuera y el cliente veía
  * tres fichas que no eran la suya.
  */
+/** Familia de un artículo por su nombre en la tienda, para repartir tarjetas. */
+function familiaDeTarjeta(p: Product): string {
+  const n = String(p.name ?? "").toUpperCase();
+  const m = n.match(/^(SOPORTE|CORREA|CADENA|RETEN|RETÉN|TAPER|CRUCETA|PI[NÑ]ON|POLEA|RACOR|FILTRO)/);
+  if (m) return m[1];
+  if (/\bU[CK][A-Z]*\s*\d/.test(n)) return "SOPORTE";
+  return "RODAMIENTO";
+}
+
+/**
+ * Máximo 4 tarjetas, pero en un pedido de varias familias ("2 rodamientos
+ * 6205 zz, 2 soportes ucp 205 y una correa A 1250") cada familia conserva la
+ * suya: visto el 26-10-2026, cuatro correas se llevaban las cuatro tarjetas y
+ * el rodamiento y el soporte se quedaban sin botón de compra. Con varias
+ * familias el tope sube a 6.
+ */
+export function repartirTarjetas(productos: Product[]): Product[] {
+  const familias = Array.from(new Set(productos.map(familiaDeTarjeta)));
+  if (familias.length <= 1) return productos.slice(0, 4);
+  const max = 6;
+  const out: Product[] = [];
+  for (const f of familias) {
+    const p = productos.find((x) => familiaDeTarjeta(x) === f);
+    if (p && out.length < max) out.push(p);
+  }
+  for (const p of productos) if (out.length < max && !out.includes(p)) out.push(p);
+  // Mismo orden de llegada que antes, para que el texto y las tarjetas cuadren.
+  return productos.filter((p) => out.includes(p));
+}
+
 export function tarjetasParaRespuesta(respuesta: string, productos: Product[], mensajeCliente = ""): Product[] {
   // El producto que el CLIENTE ha nombrado también es relevante aunque el
   // texto del bot no lo repita: "necesito 40 rodamientos 6205 zz c3" tiene
@@ -783,7 +843,7 @@ export function quitarFichaDeOtraPieza(texto: string): string {
 export function cantidadPedida(message: string): number | null {
   const m = String(message ?? "").match(
     /\b(\d{1,5})\s*(?:uds?\.?|unidades|piezas|pzs?|rodamientos?|correas?|soportes?|retenes|cadenas?)\b/i
-  );
+  ) ?? String(message ?? "").match(/\b(?:cojo|cogemos|coger|quiero|necesito|pido|pedir|compro|comprar|me llevo)\s+(\d{1,2})(?=\s*(?:$|[,;?!]|\.(?!\d)|\s(?:de|del|y)\b))/i);
   const n = m ? Number(m[1]) : NaN;
   return Number.isFinite(n) && n > 0 && n < 100000 ? n : null;
 }
@@ -859,7 +919,10 @@ export function lineaStock(real: number, qty: number | null): string {
 
 // Un número de unidades en stock dentro de una frase: "19 uds", "19 unidades
 // en stock", "las 19 disponibles". No toca medidas, pesos ni precios.
-const NUM_STOCK = /\b(\d{1,6})(?=\s*(?:uds?\.?|unidades)?\s*(?:disponibles?\b|en\s+stock\b|uds?\b|unidades\b))/gi;
+// Solo cifras que hablan de DISPONIBILIDAD ("19 uds disponibles", "19 en stock",
+// "tenemos 19 uds"). Antes bastaba "N unidades": "si coges 10 unidades" pasaba a
+// "si coges 64 unidades" (64 = el stock), visto el 26-10-2026.
+const NUM_STOCK = /\b(\d{1,6})(?=\s*(?:uds?\.?|unidades)?\s*(?:disponibles?\b|en\s+stock\b))|(?<=\b(?:tenemos|hay|quedan|disponemos\s+de)\s+)(\d{1,6})(?=\s*(?:uds?\.?|unidades)\b)/gi;
 
 /**
  * Precio con el formato del prompt, desde la tarjeta. Visto el 25-10-2026:
@@ -970,11 +1033,13 @@ export function corregirStock(texto: string, productos: Product[], message: stri
   const ids = new Set(conStock.map((p) => p.id));
   if (ids.size === 1 && typeof conStock[0].stock === "number") {
     const real = conStock[0].stock as number;
+    // Una cifra que ha escrito el cliente (la cantidad que pide) nunca es el stock.
+    const delCliente = new Set((String(message ?? "").match(/\d+/g) ?? []).map(Number));
     out = out
       .split("\n")
       .map((l) => {
         if (/^\s*[-*•]\s+\**[^:]*:/.test(l) || /^\s*\**\s*(Precio|Medidas)\s*:/i.test(l)) return l;
-        let x = l.replace(NUM_STOCK, (n) => (Number(n) === qty || Number(n) === real || real <= 0 ? n : String(real)));
+        let x = l.replace(NUM_STOCK, (n) => (Number(n) === qty || Number(n) === real || real <= 0 || delCliente.has(Number(n)) ? n : String(real)));
         // "no hay unidades en stock" con unidades en la tienda.
         if (real > 0) x = x.replace(/\bno\s+hay\s+unidades(\s+en\s+stock|\s+disponibles)?/gi, qty && qty > real ? `solo hay ${real} uds` : `hay ${real} uds`);
         return x;

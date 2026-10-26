@@ -992,5 +992,32 @@ section("PRECIO Y STOCK — misma elección que PrestaShop");
   ok(unidadesDisponibles([{ id_product_attribute: 0, quantity: "-3" }]) === 0, "stock negativo (vendido de más) = 0 disponibles");
   ok(unidadesDisponibles([]) === 0, "sin filas = 0");
 }
+
+section("AUDITORÍA 26-10-2026 — fallos vistos en conversaciones reales");
+{
+  const vv = require("../lib/variantes") as typeof import("../lib/variantes");
+  const kb2 = require("../lib/kb") as typeof import("../lib/kb");
+  const cand = (m: string) => kb2.extractQueryCandidates(kb2.sinCantidades(m));
+  ok(!cand("puedo usar un 6205 2RS a 12000 rpm?").includes("62052RSA"), "«6205 2RS a 12000» no inventa el 62052RSA");
+  ok(!cand("rodillos cónicos 30205, qué carga aguanta?").includes("30205QU"), "«30205, qué…» no inventa el 30205QU");
+  ok(cand("equivalencia del 3309 a de skf").includes("3309A"), "«3309 a» sigue dando 3309A");
+  ok(cand("tenéis el 22212 EA K W33 C3?").includes("22212EAKW33C3"), "22212 EA K W33 C3 se une entero");
+  ok(vv.cantidadPedida("y si cojo 10, cuánto sería en total?") === 10, "«si cojo 10» = 10 uds");
+  ok(vv.cantidadPedida("necesito 6206") === null, "«necesito 6206» no es una cantidad");
+  const p64 = [{ id: 1, name: "SNR 6305 ZZ C3", reference: "SNR 6305 ZZ C3", price: 2.89, stock: 64, link: "", cartLink: "", checkoutLink: "" }];
+  const tot = vv.corregirStock("Si decides coger 10 unidades del **SNR 6305 ZZ C3**, el total sería 28,90 EUR.", p64 as any[], "y si cojo 10, cuánto sería en total?");
+  ok(/coger 10 unidades/.test(tot) && !/64 unidades/.test(tot), "la cantidad del cliente no se cambia por el stock", tot);
+  const P = (id: number, name: string, stock: number) => ({ id, name, reference: name, price: 1, stock, link: "", cartLink: "", checkoutLink: "" });
+  const fam = [P(1, "SNR 6007", 0), P(2, "SNR 6007 C3", 17), P(3, "SNR 6007 EE", 0), P(4, "SNR 6007 EE C3", 84)];
+  ok(vv.analizarVariantes("6007 LLU", fam as any[]).alternativasConStock[0]?.producto.name === "SNR 6007 EE C3", "6007 LLU → la alternativa es el EE C3 (misma junta), no el C3 abierto");
+  const muchas = [P(1, "CORREA TL PRO SERIES A48", 4), P(2, "CORREA CONTINENTAL A48", 4), P(3, "CORREA TL PRO SERIES A49", 4), P(4, "CORREA CONTINENTAL A49", 4), P(5, "SNR 6205 ZZ C3", 4), P(6, "SOPORTE FUNDICION TL UCP 205", 4)];
+  const rep = vv.repartirTarjetas(muchas as any[]).map((p) => p.name);
+  ok(rep.includes("SNR 6205 ZZ C3") && rep.includes("SOPORTE FUNDICION TL UCP 205"), "pedido de varias familias: cada una conserva su tarjeta", rep.join(" | "));
+  const m = "necesito 2 rodamientos 6205 zz, 2 soportes ucp 205 y una correa A 1250 interior";
+  const acl = kb2.longitudAclarada(m, kb2.findBeltForMessage(m), kb2.findTranslinkBeltForMessage(m));
+  ok(acl?.tipo === "Li" && acl.refs.includes("A49") && !acl.refs.includes("A48"), "«A 1250 interior» → A49 sin volver a preguntar", JSON.stringify(acl));
+  ok(kb2.findGlossaryForMessage("qué diferencia hay entre un retén con muelle y sin muelle, y entre NBR y vitón?").some((h) => /Retenes/.test(h.titulo)), "glosario: retenes");
+  ok(kb2.findGlossaryForMessage("qué diferencia hay entre una cadena 12B y la ASA 60?").some((h) => /Cadenas/.test(h.titulo)), "glosario: cadenas B frente a ASA");
+}
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);

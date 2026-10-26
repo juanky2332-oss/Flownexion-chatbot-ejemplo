@@ -21,6 +21,7 @@ import {
   findTranslinkBelt,
   findTranslinkBeltForMessage,
   ambiguedadLiLd,
+  longitudAclarada,
   asegurarAmbiguedadLiLd,
   asegurarDatosCorrea,
   extractQueryCandidates,
@@ -46,6 +47,7 @@ import {
   ajustarCantidad,
   corregirFichasConKB,
   tarjetasParaRespuesta,
+  repartirTarjetas,
   normalizarRef,
   partirReferencia,
 } from "./variantes";
@@ -134,6 +136,20 @@ Eres el apoyo técnico de referencia de ESGAS. Que un cliente hable contigo tien
 **Nivel técnico adaptativo:** detecta por cómo escribe el cliente si es un perfil técnico (usa tolerancias, cargas dinámicas, precarga, normativa ISO...) o menos técnico (describe el problema con sus propias palabras, sin jerga). Ajusta tu respuesta a ese nivel: con perfiles técnicos puedes ser denso y preciso; con perfiles menos técnicos explica con ejemplos prácticos y evita jerga innecesaria, sin sonar condescendiente.
 
 **Tono:** directo y profesional, ve al grano. Evita frases de relleno, cortesías excesivas o rodeos antes de dar la información.
+
+# RESPONDE PRIMERO A LO QUE TE HAN PREGUNTADO
+Si el mensaje trae una pregunta concreta (¿aguanta X rpm?, ¿lleva IVA?, ¿qué carga soporta?, ¿sirve para agua?, ¿cuánto sería en total?), la PRIMERA frase de tu respuesta la contesta, con sí/no y el dato que lo justifica. Después, si procede, la ficha y el producto. Visto en pruebas reales: "¿puedo usar un 6205 2RS a 12000 rpm?" recibió una ficha entera sin contestar a la pregunta, y "¿el precio lleva IVA?" igual.
+- **Velocidad:** compara las rpm del cliente con la **velocidad límite** de la ficha. Si las supera, la respuesta es NO, con el dato ("su velocidad límite es 8.700 rpm, por debajo de las 12.000 que necesitas"). Explica que la junta de contacto (2RS/LLU/EE) es lo que más limita la velocidad y busca la alternativa del mismo tamaño que SÍ llega: deflector ZZ, junta sin contacto (2RZ/LLB) o abierto, con su velocidad límite y lo que pierde de estanqueidad. Si las rpm están cerca del límite (más del 80 %), dilo y recomienda margen. Si la ficha no trae velocidad límite, dilo y ofrece la búsqueda oficial; nunca la estimes.
+- **IVA:** los precios de la página son SIEMPRE sin IVA (en España, +21 %). Dilo en la primera frase.
+- **Totales:** precio unitario final de la tarjeta × las unidades que dice el cliente (las suyas, no el stock), y aclara que es sin IVA. Si pide más unidades de las que hay, el total se hace con las que pide y se avisa del stock.
+
+# NUNCA MANDES AL CLIENTE A OTRO PROVEEDOR
+Está PROHIBIDO recomendar "consultar con un proveedor especializado", "otra tienda", "un distribuidor de lubricantes" o similar. Si algo no aparece en la página (grasas, extractores, herramientas, una marca concreta…), di que no lo encuentras en la página ahora mismo y ofrece el contacto de ESGAS por teléfono o e-mail (escalate_to_human): ESGAS trabaja más gama de la que hay en la página.
+
+# BUSCA ANTES DE PREGUNTAR
+Si el cliente nombra una familia o una marca de la página (Bondioli, crucetas, cardanes, Taper Lock, cadenas, retenes, soportes, neumática Aignep…), llama primero a search_products con lo que haya dicho ("cruceta bondioli serie 4", "soporte inox UCP 206") y enséñale lo que hay; después, si hace falta, pregunta UNA sola cosa para afinar. Preguntar tres datos sin haber buscado nada no ayuda.
+- **Cadenas por metros:** cada unidad de cadena de la página es un TRAMO cuya longitud viene en la descripción del producto ("Longitud de la cadena: 5 metros"; las bobinas, 25 o 50 m). Si el cliente pide metros, conviértelo y dilo: "cada unidad es un tramo de 5 m; para 5 m necesitas 1 ud, para 12 m, 3 uds (15 m)". El stock y el precio son por tramo, nunca por metro.
+- **Soportes por diámetro de eje:** en la página el nombre lleva la SERIE, no los milímetros. Pasa el eje a serie (eje ÷ 5: 20 mm → 204, 25 → 205, 30 → 206, 35 → 207, 40 → 208) y busca por forma + serie: "UCP 206", "UCF 206", "UCFL 206" (una búsqueda por forma). Para alimentaria o ambiente húmedo, entre lo que salga elige los INOX y los TERMOPLÁSTICO + ROD INOX. Visto el 26-10-2026: "soportes inoxidables para eje de 30" acabó en "no tenemos", con el SOPORTE TERMOPLASTICO TL UCF 206 + ROD INOX en stock.
 
 # NOTACIÓN DE MEDIDAS — d / D / B (estándar ISO 15, la misma que usan SKF/NTN/FAG en sus catálogos)
 Un rodamiento tiene DOS diámetros distintos y usar el mismo símbolo Ø para ambos genera confusión real al cliente. Usa siempre esta notación, sin excepción, en cualquier ficha, tabla o frase donde menciones medidas:
@@ -959,7 +975,7 @@ function sinEnlaces(p: Product): Omit<Product, "link" | "cartLink" | "checkoutLi
 function nombresDeLaMismaPieza(ref: string): string[] {
   const r = String(ref ?? "").toUpperCase().replace(/\s+/g, "");
   const out = [r];
-  const sellado = /(2RS1?|EE|LLU|DDU)(?=C\d|\/|$)/;
+  const sellado = /(2RS1?|2RSR|2RSH|EE|LLU|DDU)(?=C\d|\/|$)/;
   const deflector = /(ZZ|2Z)(?=C\d|\/|$)/;
   if (sellado.test(r)) for (const a of ["2RS", "EE", "LLU"]) out.push(r.replace(sellado, a));
   if (deflector.test(r)) for (const a of ["ZZ", "2Z"]) out.push(r.replace(deflector, a));
@@ -1579,6 +1595,16 @@ export async function runAgent(
         `${ambLiLd.porLi.join(" / ")}— y deja las dos con su tarjeta para que añada la suya.`,
     });
   }
+  const aclarada = !ambLiLd ? longitudAclarada(message, beltHits, tlBeltHits) : null;
+  if (aclarada) {
+    messages.push({
+      role: "system",
+      content:
+        `🔒 LONGITUD YA ACLARADA POR EL CLIENTE — ha dicho que ${aclarada.largo} mm es la longitud ` +
+        `${aclarada.tipo === "Li" ? "INTERIOR (Li)" : "PRIMITIVA o de paso (Ld)"}. La correa es: ${aclarada.refs.join(" / ")}. ` +
+        `Preséntala directamente citando esa medida. PROHIBIDO volver a preguntar si es Li o Ld y PROHIBIDO ofrecer la otra lectura.`,
+    });
+  }
   // ¿Hay ya un producto presentado en la conversación? (para no mandar al
   // teléfono a quien solo tiene que pulsar el botón de su tarjeta)
   const productoEnConversacion = history.some((m) => m.role === "assistant" && /Ref\s*:/i.test(String(m.content ?? "")));
@@ -1684,6 +1710,15 @@ export async function runAgent(
       // 6205 ZZ C3, solo cambia el juego), no cualquiera de la familia.
       const partida = partirReferencia(refDetectada);
       if (partida.base && partida.base !== normalizarRef(refDetectada) && !analizarVariantes(refDetectada, encontrados).exactas.length) {
+        // Primero la MISMA protección con el nombre de otro fabricante: para un
+        // NTN 6007 LLU, el SNR 6007 EE / EE C3 (visto el 26-10-2026: la familia
+        // "6007" tiene 9 artículos y la búsqueda por base solo trae 5, así que
+        // el EE C3 con 84 uds no llegaba a verse).
+        for (const nombre of nombresDeLaMismaPieza(refDetectada).slice(1)) {
+          const familia = filtrarFueraDeFamilia(partida.base, await searchProducts(nombre, groupId, customerId).catch(() => [] as Product[]));
+          const nuevos = familia.filter((p) => !encontrados.some((e) => e.id === p.id));
+          if (nuevos.length) encontrados = ordenarParaTarjetas(refDetectada, [...encontrados, ...nuevos]);
+        }
         for (let k = partida.sufijos.length - 1; k >= 0; k--) {
           const prefijo = partida.base + partida.sufijos.slice(0, k).join("");
           const familia = filtrarFueraDeFamilia(partida.base, await searchProducts(prefijo, groupId, customerId).catch(() => [] as Product[]));
@@ -1986,7 +2021,7 @@ export async function runAgent(
     }
     const ajustado = ajustarCantidad(
       borrador,
-      tarjetasParaRespuesta(borrador, collected, message).slice(0, 4),
+      repartirTarjetas(tarjetasParaRespuesta(borrador, collected, message)),
       message
     );
     const productos = ajustado.productos;
@@ -2029,7 +2064,9 @@ export async function runAgent(
     const comprando = /\b(\d+\s*(uds?|unidades|piezas)?\s*(del?|de los?)\b|cambiar|sustituir|reponer|recambio)/i.test(message);
     const yaSugerido = history.some((m) => /ret[eé]n/i.test(String(m.content ?? "")));
     const rodamiento = productos.find(
-      (p) => (p.stock ?? 0) > 0 && !/^(SOPORTE|CORREA|CADENA|RET[EÉ]N|PI[NÑ][OÓ]N|POLEA)/i.test(p.name) && /\b\d{4,5}\b/.test(p.name)
+      // Solo rodamientos de verdad: un "TAPER 1610 EJE 25MM TL" (cuatro cifras)
+      // se tomaba por rodamiento y salía la coletilla del retén (26-10-2026).
+      (p) => (p.stock ?? 0) > 0 && /^(SNR|NTN|RODAMIENTO|FAG|INA)\b/i.test(p.name) && !/\bU[CK]\w*\s*\d/i.test(p.name) && /\b\d{3,5}\b/.test(p.name)
     );
     const sellado = !!rodamiento && /(2RS|LLU|LLB|LLH|\bEE\b|DDU|2RZ|\bRS\b|\bVV\b)/i.test(rodamiento.name);
     const conVentaCruzada =

@@ -824,12 +824,39 @@ export async function searchProducts(
     async () => getAllNames(),
   ];
 
+  // Antes de cortar en 5, lo más pertinente primero. Visto el 26-10-2026:
+  // "30205" devolvía cinco filtros Aignep cuya referencia interna contiene
+  // "30205" y el NTN 4T-30205 (17 uds) se quedaba fuera → "no lo tenemos".
+  const qNum = qNorm.match(/\d{3,}/)?.[0];
+  const pertinencia = (p: { name: string; reference: string }): number => {
+    const nn = p.name.toLowerCase().replace(/[\s\-\/\.]/g, "");
+    let s = 0;
+    if (nn.includes(qNorm)) s += 4;
+    if (qNum && new RegExp(`(^|\\D)${qNum}(\\D|$)`).test(p.name)) s += 4;
+    if (p.name.toLowerCase().includes(qLow)) s += 2;
+    return s;
+  };
+
   let matched: Array<{ id: number; name: string; reference: string }> = [];
+  let soloPorReferencia: typeof matched = [];
   for (const intento of intentos) {
     const encontrados = await intento();
-    matched = encontrados.filter(encaja).slice(0, 5);
+    const orden = encontrados
+      .filter(encaja)
+      .map((p, i) => ({ p, i, s: pertinencia(p) }))
+      .sort((a, b) => b.s - a.s || a.i - b.i);
+    matched = orden.map((x) => x.p).slice(0, 5);
+    // Si todo lo encontrado coincide solo por un código interno (ninguno lleva
+    // la referencia en el nombre), se sigue buscando en la capa siguiente y
+    // esto queda de respaldo.
+    if (matched.length > 0 && qNum && orden[0].s === 0) {
+      if (!soloPorReferencia.length) soloPorReferencia = matched;
+      matched = [];
+      continue;
+    }
     if (matched.length > 0) break;
   }
+  if (matched.length === 0) matched = soloPorReferencia;
 
   if (matched.length === 0) return [];
   // Hasta 5 (antes 3): una misma referencia base convive con varias variantes
