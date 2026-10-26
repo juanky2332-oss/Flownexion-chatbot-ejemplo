@@ -971,6 +971,14 @@ function sinEnlaces(p: Product): Omit<Product, "link" | "cartLink" | "checkoutLi
   return resto;
 }
 
+// Lo que es UNA unidad cuando no es una pieza: las cadenas se venden por
+// tramos ("Longitud de la cadena: 5 metros"). Visto el 26-10-2026: con
+// "necesito 5 metros de 08B-1" el bot no decía que 1 ud ya son 5 m.
+function unidadDeVenta(p: Product): string {
+  const m = String(p.description ?? "").match(/longitud[^:]*:\s*([\d.,]+\s*(?:metros|m)\b)/i);
+  return m ? ` · cada unidad = ${m[1]} (el precio y el stock son por unidad)` : "";
+}
+
 // El producto de la página que el cliente PUEDE comprar para una referencia:
 // la misma pieza con otra nomenclatura de sellado cuenta (2RS = EE = LLU, ZZ =
 // 2Z). Visto el 25-10-2026: al comparar se enseñaba el SNR 6205 EE sin stock
@@ -1775,7 +1783,7 @@ export async function runAgent(
       if (encontrados.length) {
         const resumen = encontrados
           .slice(0, 4)
-          .map((p) => `- ${p.name} (Ref: ${p.reference}) — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`)
+          .map((p) => `- ${p.name} (Ref: ${p.reference}) — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}${unidadDeVenta(p)}`)
           .join("\n");
         messages.push({
           role: "system",
@@ -1878,7 +1886,7 @@ export async function runAgent(
         role: "system",
         content: lista.length
           ? `🔒 DISPONIBLE EN NUESTRA PÁGINA — ${familia.descripcion}. Comprobado en el catálogo real:\n` +
-            lista.map((p) => `- ${p.name} — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`).join("\n") +
+            lista.map((p) => `- ${p.name} — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}${unidadDeVenta(p)}`).join("\n") +
             `\nPROHIBIDO decir que no lo tenemos: preséntalos (sus tarjetas ya salen) y, si hace falta afinar, pregunta UNA sola cosa.`
           : `Búsqueda hecha en la página para "${familia.descripcion}": no hay coincidencias. Dilo así y ofrece el contacto.`,
       });
