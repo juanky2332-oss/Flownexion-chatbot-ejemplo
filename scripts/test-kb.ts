@@ -604,7 +604,7 @@ section("SALVAGUARDAS DE CORREAS — sobre respuestas reales que fallaron en la 
   ok(vv.cantidadPedida("rodamiento 6205 zz c3") === null, "sin cantidad no inventa ninguna (6205 no es una cantidad)");
   const aj = vv.ajustarCantidad("**Stock:** 🔴 26 uds (has pedido 40)", [{ reference: "SNR 6205 ZZ C3", stock: 26 }] as any[], "necesito 40 rodamientos 6205 zz c3");
   ok(aj.productos[0].qty === 40, "la tarjeta recibe la cantidad (el selector la limita a las 26 de stock)");
-  ok(/¿Quieres que te deje las \*\*26 uds\*\* en el carrito\?/.test(aj.texto), "y se pregunta si se dejan las 26 en el carrito", aj.texto.slice(-120));
+  ok(/puedes pedir ya las \*\*26 uds\*\* disponibles/.test(aj.texto), "y se ofrece pedir ya las 26 disponibles", aj.texto.slice(-120));
 }
 
 section("SEGUIMIENTO SIN REFERENCIA — la ficha del producto de la conversacion");
@@ -1018,6 +1018,16 @@ section("AUDITORÍA 26-10-2026 — fallos vistos en conversaciones reales");
   ok(acl?.tipo === "Li" && acl.refs.includes("A49") && !acl.refs.includes("A48"), "«A 1250 interior» → A49 sin volver a preguntar", JSON.stringify(acl));
   ok(kb2.findGlossaryForMessage("qué diferencia hay entre un retén con muelle y sin muelle, y entre NBR y vitón?").some((h) => /Retenes/.test(h.titulo)), "glosario: retenes");
   ok(kb2.findGlossaryForMessage("qué diferencia hay entre una cadena 12B y la ASA 60?").some((h) => /Cadenas/.test(h.titulo)), "glosario: cadenas B frente a ASA");
+
+  const fa = require("../lib/familias") as typeof import("../lib/familias");
+  const sop = fa.busquedaDeFamilia("tenéis soportes de acero inoxidable para industria alimentaria con eje de 30?");
+  ok(!!sop && sop.consultas.includes("UCF 206") && !!sop.filtro?.test("SOPORTE TERMOPLASTICO TL UCF 206 BLANCO + ROD INOX") && !sop.filtro?.test("SNR UCP 206"), "soporte inox eje 30 → series 206, solo inox/termoplástico", JSON.stringify(sop?.consultas));
+  ok(fa.busquedaDeFamilia("necesito un soporte de pared para eje de 25")?.consultas.join() === "UCF 205,UCFL 205", "soporte de pared eje 25 → UCF/UCFL 205");
+  const bo = fa.busquedaDeFamilia("tenéis transmisiones cardan bondioli para un tractor? busco una de serie 4");
+  ok(bo?.consultas[0] === "BONDIOLI G4" && !!bo.preferir?.test("TRANSMISION BONDIOLI G4 3/8 Z6"), "Bondioli serie 4 → «BONDIOLI G4», delante las transmisiones");
+  ok(fa.rpmDelMensaje("puedo usar un 6205 2RS a 12000 rpm?") === 12000 && fa.rpmDelMensaje("a 12.000 r.p.m.") === 12000, "rpm del mensaje");
+  ok(fa.asegurarRespuestaIva("El SNR 6204 ZZ no tiene stock…", "el precio del 6204 zz lleva IVA?").startsWith("Los precios de la página son **sin IVA**"), "¿lleva IVA? → se contesta en la primera línea");
+  ok(fa.asegurarRespuestaIva("Texto", "quiero el 6204 zz") === "Texto", "sin pregunta de IVA no se añade nada");
 }
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);

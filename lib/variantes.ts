@@ -184,7 +184,7 @@ const CLASE_PROTECCION: Record<string, string> = {
  * abierto "con las mismas capacidades". Quitar la protección que el cliente
  * pidió es el peor cambio posible: entra agua y suciedad.
  */
-function distanciaVariante(pedidos: string[], v: { anade: string[]; quita: string[]; producto: Product }): number {
+export function distanciaVariante(pedidos: string[], v: { anade: string[]; quita: string[]; producto: Product }): number {
   const clase = (s: string) => CLASE_PROTECCION[s] ?? s;
   const anade = v.anade.map(clase);
   const quita = v.quita.map(clase);
@@ -892,10 +892,11 @@ export function ajustarCantidad(
   const qty = p.qty ?? general;
   const stock = p.stock ?? 0;
   let t = texto;
-  if (stock > 0 && stock < qty && !/¿\s*quieres que te deje/i.test(t)) {
+  if (stock > 0 && stock < qty && !/quieres que te deje|puedes pedir ya/i.test(t)) {
+    const uds = stock === 1 ? "la **unidad** disponible" : `las **${stock} uds** disponibles`;
     t =
-      `${t.trimEnd()}\n\n¿Quieres que te deje las **${stock} uds** en el carrito? En la tarjeta ya tienes ` +
-      `seleccionadas las ${stock} uds: solo tienes que pulsar "Añadir al carrito".`;
+      `${t.trimEnd()}\n\nSi quieres, puedes pedir ya ${uds} por la página: la tarjeta las lleva ` +
+      `seleccionadas, solo tienes que pulsar "Añadir al carrito".`;
   }
   return { texto: t, productos: ajustados };
 }

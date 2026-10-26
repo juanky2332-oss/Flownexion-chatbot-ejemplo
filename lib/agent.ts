@@ -50,11 +50,14 @@ import {
   repartirTarjetas,
   normalizarRef,
   partirReferencia,
+  cantidadPedida,
+  distanciaVariante,
 } from "./variantes";
 import { searchOfficialSource } from "./websearch";
 import { pideComparar } from "./ficha";
 import { piezasAComparar, piezasDelMensaje } from "./comparar";
 import { limpiarCierreVacio } from "./guardrails";
+import { busquedaDeFamilia, rpmDelMensaje, variantesMasRapidas, asegurarRespuestaIva } from "./familias";
 import { completar, completarEnStreaming } from "./llm";
 
 // Bajada de 0.2 a 0 tras detectar en pruebas reales que, con la misma
@@ -1731,7 +1734,36 @@ export async function runAgent(
       // nada más: pidió un 6201 2RS, no también el 6201 2RS INOX.
       const analisisPedida = analizarVariantes(refDetectada, encontrados);
       const exactasConStock = analisisPedida.exactas.filter((v) => (v.stock ?? 0) > 0).map((v) => v.producto);
-      if (exactasConStock.length) {
+      // Pide más de lo que hay de la exacta: se buscan también las de la MISMA
+      // protección (otra nomenclatura, o con C3) que tengan unidades. Visto el
+      // 26-10-2026: 300 uds del 6204 2RS → solo el TL con 1 ud, con el SNR
+      // 6204 EE C3 (127 uds) en la tienda.
+      const qtyPedida = cantidadPedida(message);
+      const udsExactas = exactasConStock.reduce((s, p) => s + (p.stock ?? 0), 0);
+      if (exactasConStock.length && qtyPedida && udsExactas < qtyPedida) {
+        let todos = encontrados;
+        for (const nombre of nombresDeLaMismaPieza(refDetectada).slice(1)) {
+          const ps = filtrarFueraDeFamilia(partida.base, await searchProducts(nombre, groupId, customerId).catch(() => [] as Product[]));
+          todos = [...todos, ...ps.filter((p) => !todos.some((e) => e.id === p.id))];
+        }
+        const mas = analizarVariantes(refDetectada, todos)
+          .alternativasConStock.filter((v) => distanciaVariante(analisisPedida.pedida.sufijos, v) <= 1)
+          .slice(0, 2);
+        if (mas.length) {
+          messages.push({
+            role: "system",
+            content:
+              `🔒 PARA COMPLETAR LA CANTIDAD — el cliente pide ${qtyPedida} uds y de la referencia exacta solo hay ${udsExactas}. ` +
+              `En la página también están estas, con la MISMA protección:\n` +
+              mas.map((v) => `- ${v.producto.name} — ${v.stock} uds · ${v.producto.price.toFixed(2)} EUR` + (v.anade.length ? ` (añade ${v.anade.join(" ")})` : "") + (v.quita.length ? ` (en lugar de ${v.quita.join(" ")})` : "")).join("\n") +
+              `\nPreséntalas después de la exacta, explica en una frase en qué se diferencian (p.ej. C3 = juego radial mayor; EE = LLU = 2RS, la misma junta de contacto) ` +
+              `y que con ellas puede llegar a las ${qtyPedida} uds por la página. Si ni sumándolas llega, ofrece el contacto para el resto.`,
+          });
+          encontrados = [...exactasConStock, ...mas.map((v) => v.producto)];
+        } else {
+          encontrados = exactasConStock;
+        }
+      } else if (exactasConStock.length) {
         encontrados = exactasConStock;
       } else if (!analisisPedida.exactas.length && analisisPedida.alternativasConStock.length) {
         // No existe la pedida: solo la variante que la sustituye (la más parecida).
@@ -1790,6 +1822,68 @@ export async function runAgent(
     } catch {
       // Si la tienda falla, el modelo siempre puede llamar a search_products
       // por su cuenta; esto es un refuerzo, no la única vía.
+    }
+  }
+
+  // VELOCIDAD — "¿puedo usar un 6205 2RS a 12000 rpm?": si la ficha no llega,
+  // se buscan en código las variantes del mismo tamaño que SÍ llegan y están
+  // en la página (ver lib/familias.ts).
+  const rpm = refDetectada ? rpmDelMensaje(message) : null;
+  if (refDetectada && rpm) {
+    try {
+      const vl = (t?: TechInfo) => Number(t?.datos["Velocidad límite (rpm)"] ?? NaN);
+      const ficha = findTechnicalInfo(refDetectada).find((t) => t.coincidencia === "exacta" || t.coincidencia === "equivalente");
+      if (ficha && vl(ficha) < rpm) {
+        const base = partirReferencia(refDetectada).base;
+        const rapidas = variantesMasRapidas(base)
+          .map((r) => ({ r, t: findTechnicalInfo(r).find((t) => t.coincidencia === "exacta") }))
+          .filter((x) => x.t && vl(x.t) >= rpm);
+        const enPagina = (
+          await Promise.all(rapidas.slice(0, 4).map(async (x) => ({ ...x, p: await productoComprable(x.r, groupId, customerId) })))
+        ).filter((x) => x.p && (x.p.stock ?? 0) > 0).slice(0, 2);
+        for (const x of enPagina) if (x.p && !collected.some((c) => c.id === x.p!.id)) collected.push(x.p);
+        messages.push({
+          role: "system",
+          content:
+            `🔒 VELOCIDAD — la velocidad límite de ${ficha.marca} ${ficha.referencia} es ${vl(ficha)} rpm, por DEBAJO de las ${rpm} rpm que pide: la respuesta es NO. ` +
+            (enPagina.length
+              ? `Del mismo tamaño y en la página, SÍ llegan:\n` +
+                enPagina.map((x) => `- ${x.p!.name}: velocidad límite ${vl(x.t)} rpm — ${x.p!.stock} uds · ${x.p!.price.toFixed(2)} EUR`).join("\n") +
+                `\nPreséntalas (su tarjeta ya sale) y explica qué pierde en estanqueidad frente a la junta de contacto. Nada de "busca uno ZZ": ya está buscado.`
+              : `Ninguna variante del mismo tamaño que llegue a esas rpm está en la página: dilo y ofrece el contacto.`),
+        });
+      }
+    } catch {
+      /* refuerzo, no la única vía */
+    }
+  }
+
+  // FAMILIAS que el modelo no sabe buscar (soportes por eje, Bondioli por serie).
+  const familia = !refDetectada ? busquedaDeFamilia(message) : null;
+  if (familia) {
+    try {
+      const listas = await Promise.all(familia.consultas.map((q) => searchProducts(q, groupId, customerId).catch(() => [] as Product[])));
+      const vistos = new Set<number>();
+      const lista = listas
+        .flat()
+        .filter((p) => !vistos.has(p.id) && vistos.add(p.id) && (!familia.filtro || familia.filtro.test(p.name)))
+        .sort(
+          (a, b) =>
+            Number(!!familia.preferir?.test(b.name)) - Number(!!familia.preferir?.test(a.name)) ||
+            Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0)
+        )
+        .slice(0, 4);
+      for (const p of lista) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+      messages.push({
+        role: "system",
+        content: lista.length
+          ? `🔒 DISPONIBLE EN NUESTRA PÁGINA — ${familia.descripcion}. Comprobado en el catálogo real:\n` +
+            lista.map((p) => `- ${p.name} — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`).join("\n") +
+            `\nPROHIBIDO decir que no lo tenemos: preséntalos (sus tarjetas ya salen) y, si hace falta afinar, pregunta UNA sola cosa.`
+          : `Búsqueda hecha en la página para "${familia.descripcion}": no hay coincidencias. Dilo así y ofrece el contacto.`,
+      });
+    } catch {
+      /* refuerzo */
     }
   }
 
@@ -2026,7 +2120,7 @@ export async function runAgent(
     );
     const productos = ajustado.productos;
     // Stock y disponibilidad SIEMPRE los reales de las tarjetas (ver variantes.ts).
-    const texto = quitarDudaDisponibilidad(corregirStock(ajustado.texto, productos, message), productos);
+    const texto = asegurarRespuestaIva(quitarDudaDisponibilidad(corregirStock(ajustado.texto, productos, message), productos), message);
     // Al comparar con el producto del turno anterior ("compáralo con..."), su
     // ficha también hace falta para el PDF comparativo.
     if (pideComparar(message)) {
