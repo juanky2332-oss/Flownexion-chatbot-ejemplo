@@ -51,7 +51,10 @@ export default function ProductCard({
   // por completo el flujo de compra B2B y muestra el aviso de pedido
   // ordinario en su lugar.
   const stockKnown = product.stock !== undefined;
-  const outOfStockForB2B = stockKnown && (product.stock as number) <= 0;
+  // Precio 0 en la tienda = artículo sin tarifa cargada (visto en una
+  // electroválvula Aignep el 26-10-2026): ni se enseña "0,00 €" ni se vende.
+  const sinPrecio = !(product.price > 0);
+  const outOfStockForB2B = sinPrecio || (stockKnown && (product.stock as number) <= 0);
   const maxQty = stockKnown ? Math.max(product.stock as number, 1) : undefined;
 
   const [qty, setQty] = useState(() => {
@@ -208,7 +211,7 @@ export default function ProductCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
-            {product.isEquivalent ? "Equivalente" : "NTN / SNR"}
+            {product.isEquivalent ? "Equivalente" : product.brand ?? "ESGAS"}
           </p>
           <p className="mt-0.5 text-sm font-bold leading-snug text-gray-900">
             {product.name}
@@ -226,14 +229,16 @@ export default function ProductCard({
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-0.5">
-          {hasDiscount && product.originalPrice != null ? (
+          {sinPrecio ? (
+            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600">Precio a consultar</span>
+          ) : hasDiscount && product.originalPrice != null ? (
             <>
               <span className="text-[10px] text-gray-400 line-through">
                 {product.originalPrice.toFixed(2)} €
               </span>
               <div className="flex items-center gap-1">
                 <span className="rounded-full bg-green-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                  -{Math.round(product.discountPct! * 100)}%
+                  -{(Math.round(product.discountPct! * 1000) / 10).toLocaleString("es-ES")}%
                 </span>
                 <span
                   className="rounded-full px-2.5 py-1 text-sm font-bold text-white"
@@ -251,6 +256,8 @@ export default function ProductCard({
               {product.price.toFixed(2)} €
             </span>
           )}
+          {/* Los grupos de cliente de la tienda muestran precios sin IVA. */}
+          {!sinPrecio && <span className="text-[10px] text-gray-400">sin IVA</span>}
         </div>
       </div>
 
@@ -280,7 +287,9 @@ export default function ProductCard({
           mensaje que ya da el chat. */}
       {outOfStockForB2B && (
         <p className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800">
-          Sin stock en la página ahora mismo. Para pedirlo, contacta por {contactLinks} y te lo gestionan al momento.
+          {sinPrecio
+            ? <>Precio no disponible en la página. Para pedirlo, contacta por {contactLinks} y te lo gestionan al momento.</>
+            : <>Sin stock en la página ahora mismo. Para pedirlo, contacta por {contactLinks} y te lo gestionan al momento.</>}
         </p>
       )}
 

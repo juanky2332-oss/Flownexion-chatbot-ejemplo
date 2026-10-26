@@ -37,6 +37,8 @@ export interface Product {
   isEquivalent?: boolean;
   /** Marca original solicitada por el cliente (para mostrar equivalencia). */
   originalBrand?: string;
+  /** Marca del artículo según la tienda (fabricante), para la etiqueta de la tarjeta. */
+  brand?: string;
 }
 
 /** Artículo en el carrito virtual del chatbot. */

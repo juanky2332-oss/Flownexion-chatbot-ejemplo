@@ -153,6 +153,23 @@ function buildLinks(id: number, idProductAttribute = 0) {
   };
 }
 
+// Marcas de la página (ver MARCAS DE LA PÁGINA en el prompt). La tarjeta
+// ponía "NTN / SNR" a todo, también a correas Continental o cardanes Bondioli.
+const MARCAS_NOMBRE: Array<[RegExp, string]> = [
+  [/\bNTN\b/i, "NTN"], [/\bSNR\b/i, "SNR"], [/\bCONTINENTAL\b/i, "Continental"],
+  [/\bTL\s+PRO\b/i, "TL Pro Series"], [/\bTL\b/i, "Translink (TL)"], [/\bINA\b/i, "INA"],
+  [/\bFAG\b/i, "FAG"], [/\bBONDIOLI\b/i, "Bondioli"], [/\bCORTECO\b/i, "Corteco"],
+  [/\bSEDIS\b/i, "Sedis"], [/\bROLMOR\b/i, "Rolmor"],
+];
+
+/** Marca para la tarjeta: la del fabricante en la tienda o, si no, la que lleva el nombre. */
+export function marcaDe(fabricante: string, nombre: string): string | undefined {
+  const f = fabricante.trim();
+  if (f) return /^tl$/i.test(f) ? "Translink (TL)" : f;
+  for (const [re, marca] of MARCAS_NOMBRE) if (re.test(nombre)) return marca;
+  return undefined;
+}
+
 function normalizeProduct(raw: any, basePrice?: number): Product {
   const id = Number(raw?.id ?? 0);
   const price = basePrice ?? (Number.parseFloat(raw?.price ?? "0") || 0);
@@ -167,9 +184,11 @@ function normalizeProduct(raw: any, basePrice?: number): Product {
     ? rawRef
     : (plainText(raw?.supplier_reference) || plainText(raw?.name));
 
+  const name = plainText(raw?.name) || `Producto ${id}`;
   return {
     id,
-    name: plainText(raw?.name) || `Producto ${id}`,
+    name,
+    brand: marcaDe(plainText(raw?.manufacturer_name), name),
     reference,
     price: Math.round(price * 100) / 100,
     description: plainText(raw?.description_short).replace(/<[^>]*>/g, "").trim(),
@@ -603,7 +622,9 @@ export function precioSegunTienda(
     // reduction_tax = 1: el importe incluye IVA y la tienda B2B muestra sin IVA.
     precio = precio - (fila.reduction_tax === 1 ? fila.reduction / (1 + IVA) : fila.reduction);
   }
-  precio = Math.max(0, Math.round(precio * 100) / 100);
+  // Redondeo "mitad hacia arriba" como la tienda: 275 × (1 − 0,749) = 69,025
+  // sale en coma flotante como 69,02499… y daba 69,02 en vez de 69,03.
+  precio = Math.max(0, Math.round(precio * 100 + 1e-6) / 100);
   // Con un porcentaje sobre la tarifa se da el de la regla tal cual (83,7 %, no
   // el 83,69 % que saldría de dividir precios ya redondeados).
   const pct =

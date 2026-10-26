@@ -926,7 +926,7 @@ console.log("\n=== COMPARAR: siempre PDF de cada pieza + comparativa (25-10-2026
   ok(!/\b19\b/.test(st) && /\*\*Stock:\*\* 🔴 24 uds disponibles en la página ahora mismo \(has pedido 5000\)/.test(st) && /5000 unidades que necesitas/.test(st) && /17000 rpm/.test(st), "stock inventado (19) → el real de la tarjeta (24), sin tocar la cantidad pedida ni la ficha", st);
   const ntn = [{ id: 2, name: "NTN 6205 LLU CM/5K", reference: "NTN 6205 LLU CM/5K", price: 3.19, originalPrice: 14.32, discountPct: 0.777, stock: 15 }] as any[];
   const conPrecio = vv3.corregirStock("**NTN 6205 LLU CM/5K**\n\n**Ref: NTN 6205 LLU CM/5K**\n- **Peso:** 128 g\n\n**Precio:** Consultar en la página\n\n**Stock:** 🟢 15 uds disponibles", ntn, "¿Tenéis el 6205 LLU en stock?");
-  ok(/\*\*Precio:\*\* ~~14\.32 EUR~~ → \*\*3\.19 EUR\*\* \(descuento del 78% de tu cuenta ya aplicado\)/.test(conPrecio) && !/consultar/i.test(conPrecio), "«Precio: Consultar en la página» → el precio real de la tarjeta (3,19 € con -78 %)", conPrecio);
+  ok(/\*\*Precio:\*\* ~~14\.32 EUR~~ → \*\*3\.19 EUR\*\* sin IVA \(descuento del 77,7 % de tu cuenta ya aplicado\)/.test(conPrecio) && !/consultar/i.test(conPrecio), "«Precio: Consultar en la página» → el precio real de la tarjeta (3,19 € con -78 %)", conPrecio);
   const sinLineas = vv3.corregirStock("1. **SNR 625 EE**\n- **Ref: 625 EE**\n- **Medidas:** dØ5 × DØ16 × B5 mm\n\n2. **SNR 625 ZZ**\n- **Ref: 625 ZZ**\n\nSi me confirmas el exterior te digo más.", [{ id: 3, name: "SNR 625 EE", reference: "SNR 625 EE", price: 1.5, stock: 40 }, { id: 4, name: "SNR 625 ZZ", reference: "SNR 625 ZZ", price: 1.2, stock: 0 }] as any[], "necesito 20 rodamientos de 5 mm");
   ok(/625 EE[\s\S]*1\.50 EUR[\s\S]*🟢 40 uds[\s\S]*625 ZZ[\s\S]*1\.20 EUR[\s\S]*Sin stock[\s\S]*Si me confirmas/.test(sinLineas), "producto presentado sin precio ni stock → se añaden los de su tarjeta", sinLineas);
   ok(!/Sufijo específico/.test(vv3.corregirFichasConKB("**NTN 6205 LLU CM/5K**\n\n**Ref: NTN 6205 LLU CM/5K**\n- **LLU** → Sellado de goma\n- **5K** → Sufijo específico de la serie\n")), "decodificación de relleno («Sufijo específico de la serie») fuera");
@@ -935,7 +935,7 @@ console.log("\n=== COMPARAR: siempre PDF de cada pieza + comparativa (25-10-2026
   ok(/\*\*Coincidencias:\*\*\n- \*\*Clase de producto:\*\*/.test(vacio) && /Diámetro interior dØ:\*\* 25 mm/.test(vacio), "«Coincidencias:» vacío → se rellena con los datos iguales de las fichas", vacio);
   ok(/En qué coinciden/.test(cp.rellenarCoincidencias("**Diferencias frente al 6205:**\n- **Peso:** 125 g → 225 g\n\nCierre.", fc)), "sin apartado de coincidencias → se añade tras las diferencias");
   const lista = vv3.corregirStock("1. **SNR 625 EE**\n- **Medidas:** dØ5\n\n2. **SNR 625 ZZ**\n- **Medidas:** dØ5\n\n3. **NTN 625 LLB/1K**\n- **Medidas:** dØ5\n\n4. **SNR 635 ZZ**\n- **Medidas:** dØ5\n\nCierre.", [{ id: 3, name: "SNR 625 EE", reference: "SNR 625 EE", price: 1.35, stock: 0 }, { id: 4, name: "SNR 625 ZZ", reference: "SNR 625 ZZ", price: 1.2, stock: 30 }] as any[], "necesito 20 rodamientos de 5 mm");
-  ok(/625 ZZ\*\*\n- \*\*Medidas:\*\* dØ5\n\n\*\*Precio:\*\* 1\.20 EUR\n\n\*\*Stock:\*\* 🟢 30 uds/.test(lista) && !/635 ZZ[\s\S]*Precio/.test(lista), "precio y stock en SU producto, no pegados al siguiente de la lista", lista);
+  ok(/625 ZZ\*\*\n- \*\*Medidas:\*\* dØ5\n\n\*\*Precio:\*\* 1\.20 EUR sin IVA\n\n\*\*Stock:\*\* 🟢 30 uds/.test(lista) && !/635 ZZ[\s\S]*Precio/.test(lista), "precio y stock en SU producto, no pegados al siguiente de la lista", lista);
   ok(!/no tengo stock/.test(vv3.quitarDudaDisponibilidad("Opciones.\n\nEn nuestra página, no tengo stock disponible para estas referencias exactas ahora mismo. Sin embargo, puedes consultarnos por teléfono o e-mail para gestionar el pedido de las 20 unidades.", [{ stock: 30 }] as any[])), "«no tengo stock disponible para estas referencias» con stock en tarjeta → fuera");
   const llu = vv3.corregirFichasConKB("**NTN 6205 LLU CM/5K**\n\n**Ref: NTN 6205 LLU CM/5K**\n- **LLU** → Sellado de goma\n- **CM** → Juego radial para motores eléctricos\n- **5K** → Especificación de embalaje y calidad\n");
   ok(!/embalaje/.test(llu) && /CM\*\* →/.test(llu), "código del fabricante sin significado oficial (5K) fuera; CM (en el glosario) se queda", llu);
@@ -982,6 +982,8 @@ section("PRECIO Y STOCK — misma elección que PrestaShop");
   ok(fijo.price === 4.5, "precio fijo con reducción encima", String(fijo.price));
   const importe = precioSegunTienda([fila({ id_group: 4, reduction: 1.21, reduction_type: "amount", reduction_tax: 1 })], 10, 4);
   ok(importe.price === 9, "reducción en importe con IVA → se resta sin IVA", String(importe.price));
+
+  ok(precioSegunTienda([fila({ id_group: 5, reduction: 0.749 })], 275, 5).price === 69.03, "redondeo mitad hacia arriba: 275 × 0,251 = 69,025 → 69,03 (cadena 08B inox)");
 
   ok(unidadesDisponibles([{ id_product_attribute: 0, quantity: "12" }]) === 12, "producto simple: su fila");
   ok(unidadesDisponibles([{ id_product_attribute: 0, quantity: "30" }, { id_product_attribute: 5, quantity: "10" }, { id_product_attribute: 6, quantity: "20" }]) === 30,

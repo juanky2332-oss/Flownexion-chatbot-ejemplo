@@ -336,7 +336,7 @@ function AnadirVarios({
   cliente?: string | null;
   identityToken?: string | null;
 }) {
-  const comprables = products.filter((p) => p.stock === undefined || p.stock > 0);
+  const comprables = products.filter((p) => p.price > 0 && (p.stock === undefined || p.stock > 0));
   const carrito = useCarritoChat();
   const [abierto, setAbierto] = useState(false);
   const [sel, setSel] = useState<Record<number, number>>({});

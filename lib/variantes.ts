@@ -866,12 +866,13 @@ const NUM_STOCK = /\b(\d{1,6})(?=\s*(?:uds?\.?|unidades)?\s*(?:disponibles?\b|en
  * "Precio: Consultar en la página" con la tarjeta debajo en 3,19 € (-78 %).
  */
 export function lineaPrecio(p: Product): string {
+  if (!(p.price > 0)) return "no disponible en la página (consúltalo por teléfono o e-mail)";
   const orig = p.originalPrice ?? 0;
   if (orig > p.price + 0.005) {
-    const pct = Math.round(((p.discountPct ?? 1 - p.price / orig) as number) * 100);
-    return `~~${orig.toFixed(2)} EUR~~ → **${p.price.toFixed(2)} EUR** (descuento del ${pct}% de tu cuenta ya aplicado)`;
+    const pct = (Math.round(((p.discountPct ?? 1 - p.price / orig) as number) * 1000) / 10).toLocaleString("es-ES");
+    return `~~${orig.toFixed(2)} EUR~~ → **${p.price.toFixed(2)} EUR** sin IVA (descuento del ${pct} % de tu cuenta ya aplicado)`;
   }
-  return `${p.price.toFixed(2)} EUR`;
+  return `${p.price.toFixed(2)} EUR sin IVA`;
 }
 
 export function corregirStock(texto: string, productos: Product[], message: string): string {

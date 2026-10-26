@@ -156,7 +156,7 @@ Cuando muestres un producto, usa SIEMPRE esta estructura (cada bloque separado p
 
 **Medidas:** dØ[interior] × DØ[exterior] × B[anchura] mm
 
-**Precio:** [X.XX] EUR — o si hay descuento del cliente: ~~[original] EUR~~ → **[X.XX] EUR** (descuento del [N]% de tu cuenta ya aplicado)
+**Precio:** [X.XX] EUR sin IVA — o si hay descuento del cliente: ~~[original] EUR~~ → **[X.XX] EUR** sin IVA (descuento del [N] % de tu cuenta ya aplicado). Los precios de la página son SIEMPRE sin IVA: dilo así si preguntan, y si calculas un total para varias unidades, multiplica el precio final de la tarjeta y aclara que es sin IVA.
 
 **Stock:** 🟢 [N] uds disponibles / 🔴 Sin stock disponible en la página ahora mismo
 
@@ -945,6 +945,10 @@ interface EscalationState {
  */
 function sinEnlaces(p: Product): Omit<Product, "link" | "cartLink" | "checkoutLink"> {
   const { link, cartLink, checkoutLink, ...resto } = p;
+  // Precio 0 = la tienda no tiene tarifa cargada: que el modelo no diga "0,00 €".
+  if (!(resto.price > 0)) {
+    return { ...resto, price: undefined as unknown as number, precio: "no disponible en la página: no lo des, ofrece el contacto para pedirlo" } as Omit<Product, "link" | "cartLink" | "checkoutLink">;
+  }
   return resto;
 }
 
