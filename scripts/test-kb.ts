@@ -948,5 +948,47 @@ console.log("\n=== COMPARAR: siempre PDF de cada pieza + comparativa (25-10-2026
   const filas = fd.filasComparativa(cp.fichasDeComparativa(cp.piezasAComparar("compara el 6205 y el 6305"), [], [], ""));
   ok(filas.some((f) => f.difiere) && filas.some((f) => !f.difiere), "la comparativa separa características diferentes e iguales");
 }
+
+section("PRECIO Y STOCK — misma elección que PrestaShop");
+{
+  const { precioSegunTienda, unidadesDisponibles } = require("../lib/prestashop") as typeof import("../lib/prestashop");
+  type Fila = import("../lib/prestashop").FilaPrecioEspecifico;
+  const fila = (o: Partial<Fila>): Fila => ({
+    id_product: 8848, id_product_attribute: 0, id_shop: 1, id_currency: 0, id_country: 0, id_group: 0,
+    id_customer: 0, id_cart: 0, id_specific_price_rule: 0, price: -1, from_quantity: 1, reduction: 0,
+    reduction_type: "percentage", reduction_tax: 0, from: "0000-00-00 00:00:00", to: "0000-00-00 00:00:00", ...o,
+  });
+  // Filas reales del SNR 6205 (id 8848, tarifa 10,96 €) leídas de b2b.esgas.es el 26-10-2026.
+  const reales = [
+    fila({ id_group: 4, id_specific_price_rule: 47, reduction: 0.837 }),
+    fila({ id_group: 5, id_specific_price_rule: 48, reduction: 0.83 }),
+    fila({ id_group: 6, id_specific_price_rule: 49, reduction: 0.824 }),
+    fila({ id_group: 22, id_specific_price_rule: 91, reduction: 0.837 }),
+  ];
+  const gr = precioSegunTienda(reales, 10.96, 4);
+  ok(gr.price === 1.79 && gr.discountPct === 0.837, "Cliente GR: 10,96 € −83,7 % = 1,79 €", `${gr.price} ${gr.discountPct}`);
+  ok(precioSegunTienda(reales, 10.96, 6).price === 1.93, "Cliente PQ: −82,4 % = 1,93 €", String(precioSegunTienda(reales, 10.96, 6).price));
+  ok(precioSegunTienda(reales, 10.96, 22).price === 1.79, "Cliente GA (grupo que precios.json no conoce) también lleva su descuento");
+  const sin = precioSegunTienda(reales, 10.96, 3);
+  ok(sin.price === 10.96 && sin.discountPct === null, "grupo sin regla → tarifa, sin descuento");
+  ok(precioSegunTienda(reales, 10.96, undefined).price === 10.96, "sin cliente identificado → tarifa");
+  ok(precioSegunTienda([fila({ id_group: 4, reduction: 0.5, to: "2020-01-01 00:00:00" })], 10, 4).price === 10, "una oferta caducada no se aplica");
+  ok(precioSegunTienda([fila({ id_group: 4, reduction: 0.5, from: "2099-01-01 00:00:00" })], 10, 4).price === 10, "una oferta que aún no ha empezado no se aplica");
+  ok(precioSegunTienda([fila({ id_group: 4, reduction: 0.5, from_quantity: 10 })], 10, 4).price === 10, "un descuento desde 10 uds no se aplica al precio unitario");
+  ok(precioSegunTienda([fila({ id_group: 4, id_customer: 99, reduction: 0.5 })], 10, 4, 38).price === 10, "el precio especial de OTRO cliente no se aplica");
+  const propio = precioSegunTienda([fila({ id_group: 4, reduction: 0.8, id_specific_price_rule: 47 }), fila({ id_customer: 38, reduction: 0.9 })], 10, 4, 38);
+  ok(propio.price === 1, "un precio manual (sin regla) va antes que la regla, como en PrestaShop", String(propio.price));
+  const fijo = precioSegunTienda([fila({ id_group: 4, price: 5, reduction: 0.1 })], 10, 4);
+  ok(fijo.price === 4.5, "precio fijo con reducción encima", String(fijo.price));
+  const importe = precioSegunTienda([fila({ id_group: 4, reduction: 1.21, reduction_type: "amount", reduction_tax: 1 })], 10, 4);
+  ok(importe.price === 9, "reducción en importe con IVA → se resta sin IVA", String(importe.price));
+
+  ok(unidadesDisponibles([{ id_product_attribute: 0, quantity: "12" }]) === 12, "producto simple: su fila");
+  ok(unidadesDisponibles([{ id_product_attribute: 0, quantity: "30" }, { id_product_attribute: 5, quantity: "10" }, { id_product_attribute: 6, quantity: "20" }]) === 30,
+    "con combinaciones NO se suma la fila total con las de cada combinación (antes daba 60)");
+  ok(unidadesDisponibles([{ id_product_attribute: 0, quantity: "30" }, { id_product_attribute: 5, quantity: "10" }], 5) === 10, "combinación concreta: su fila");
+  ok(unidadesDisponibles([{ id_product_attribute: 0, quantity: "-3" }]) === 0, "stock negativo (vendido de más) = 0 disponibles");
+  ok(unidadesDisponibles([]) === 0, "sin filas = 0");
+}
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);

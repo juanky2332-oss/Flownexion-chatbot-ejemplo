@@ -452,6 +452,167 @@ async function psGetBestSpecificPrice(
   }
 }
 
+// ─── Precio EXACTO de la tienda: filas de specific_prices ───────────────────
+// PrestaShop "materializa" cada regla de catálogo (las "GRUPO XX CLIENTE GR")
+// en filas de specific_price por producto y grupo, con id_specific_price_rule
+// relleno. Comprobado contra b2b.esgas.es el 26-10-2026: el SNR 6205 trae una
+// fila por cada grupo con descuento (GR 83,7 %, MD 83,0 %, PQ 82,4 %, GA 83,7 %).
+// Esas filas son lo que PrestaShop aplica de verdad, así que son la fuente
+// principal: siguen al día solas cuando ESGAS crea o cambia una regla (la tienda
+// ya tiene 76 reglas y el grupo "Cliente GA", que la tabla fija precios.json de
+// 54 no conoce). precios.json queda solo como respaldo si la Webservice falla.
+
+export interface FilaPrecioEspecifico {
+  id_product: number;
+  id_product_attribute: number;
+  id_shop: number;
+  id_currency: number;
+  id_country: number;
+  id_group: number;
+  id_customer: number;
+  id_cart: number;
+  id_specific_price_rule: number;
+  price: number;
+  from_quantity: number;
+  reduction: number;
+  reduction_type: string;
+  reduction_tax: number;
+  from: string;
+  to: string;
+}
+
+const FECHA_VACIA = "0000-00-00 00:00:00";
+// Valores por defecto de una tienda PrestaShop en España: EUR = 1, España = 6.
+const ID_MONEDA = Number(process.env.PRESTASHOP_ID_CURRENCY ?? 1);
+const ID_PAIS = Number(process.env.PRESTASHOP_ID_COUNTRY ?? 6);
+const ID_TIENDA = 1;
+const IVA = 0.21;
+
+/**
+ * Filas de specific_prices de varios productos en UNA consulta (más las de
+ * id_product = 0, que valen para todo el catálogo). null = la Webservice no
+ * respondió: el llamante debe usar el respaldo, NUNCA tomarlo por "sin descuento".
+ */
+export async function filasPrecioEspecifico(ids: number[]): Promise<Map<number, FilaPrecioEspecifico[]> | null> {
+  const unicos = Array.from(new Set(ids.filter((id) => id > 0)));
+  if (unicos.length === 0) return new Map();
+  try {
+    const url = buildUrl("specific_prices", {
+      display: "full",
+      filters: { "filter[id_product]": `[0|${unicos.join("|")}]` },
+    });
+    const res = await psFetchOrThrow(url);
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (!data) return null;
+    // Sin filas, PrestaShop devuelve [] (o {}) en vez de { specific_prices: [] }.
+    const lista: any[] = Array.isArray(data?.specific_prices) ? data.specific_prices : [];
+    const out = new Map<number, FilaPrecioEspecifico[]>();
+    for (const r of lista) {
+      const fila: FilaPrecioEspecifico = {
+        id_product: Number(r.id_product ?? 0),
+        id_product_attribute: Number(r.id_product_attribute ?? 0),
+        id_shop: Number(r.id_shop ?? 0),
+        id_currency: Number(r.id_currency ?? 0),
+        id_country: Number(r.id_country ?? 0),
+        id_group: Number(r.id_group ?? 0),
+        id_customer: Number(r.id_customer ?? 0),
+        id_cart: Number(r.id_cart ?? 0),
+        id_specific_price_rule: Number(r.id_specific_price_rule ?? 0),
+        price: Number.parseFloat(r.price ?? "-1"),
+        from_quantity: Number(r.from_quantity ?? 1),
+        reduction: Number.parseFloat(r.reduction ?? "0") || 0,
+        reduction_type: String(r.reduction_type ?? "percentage"),
+        reduction_tax: Number(r.reduction_tax ?? 0),
+        from: String(r.from ?? FECHA_VACIA),
+        to: String(r.to ?? FECHA_VACIA),
+      };
+      const lista = out.get(fila.id_product) ?? [];
+      lista.push(fila);
+      out.set(fila.id_product, lista);
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** "2026-10-26 12:00:00" en hora de Madrid, que es como guarda las fechas la tienda. */
+function ahoraTienda(): string {
+  const p = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Madrid",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).format(new Date());
+  return p.replace("T", " ");
+}
+
+/**
+ * Elige la fila que aplicaría PrestaShop 1.7 (SpecificPrice::getSpecificPrice)
+ * y calcula el precio sin IVA para 1 unidad. Mismo filtro y mismo orden que la
+ * consulta SQL del núcleo: atributo DESC, carrito DESC, cantidad DESC, regla
+ * ASC, puntuación DESC (cliente 32, tienda 16, moneda 8, país 4, grupo 2).
+ */
+export function precioSegunTienda(
+  filas: FilaPrecioEspecifico[],
+  basePrice: number,
+  groupId?: number,
+  idCustomer?: number,
+  idProductAttribute = 0
+): { price: number; discountPct: number | null; fila: FilaPrecioEspecifico | null } {
+  const ahora = ahoraTienda();
+  const vale = (v: number, propio: number | undefined) => v === 0 || (propio !== undefined && v === propio);
+  const candidatas = filas.filter(
+    (f) =>
+      vale(f.id_shop, ID_TIENDA) &&
+      vale(f.id_currency, ID_MONEDA) &&
+      vale(f.id_country, ID_PAIS) &&
+      vale(f.id_group, groupId) &&
+      vale(f.id_customer, idCustomer) &&
+      vale(f.id_product_attribute, idProductAttribute) &&
+      f.id_cart === 0 &&
+      (f.from_quantity > 1 ? f.from_quantity : 0) <= 1 &&
+      (f.from === FECHA_VACIA || f.from <= ahora) &&
+      (f.to === FECHA_VACIA || f.to >= ahora)
+  );
+  if (candidatas.length === 0) return { price: basePrice, discountPct: null, fila: null };
+
+  const puntos = (f: FilaPrecioEspecifico) =>
+    (idCustomer && f.id_customer === idCustomer ? 32 : 0) +
+    (f.id_shop === ID_TIENDA ? 16 : 0) +
+    (f.id_currency === ID_MONEDA ? 8 : 0) +
+    (f.id_country === ID_PAIS ? 4 : 0) +
+    (groupId !== undefined && f.id_group === groupId ? 2 : 0);
+  candidatas.sort(
+    (a, b) =>
+      b.id_product_attribute - a.id_product_attribute ||
+      b.id_cart - a.id_cart ||
+      b.from_quantity - a.from_quantity ||
+      a.id_specific_price_rule - b.id_specific_price_rule ||
+      puntos(b) - puntos(a) ||
+      (b.to > a.to ? 1 : b.to < a.to ? -1 : 0) ||
+      (b.from > a.from ? 1 : b.from < a.from ? -1 : 0)
+  );
+  const fila = candidatas[0];
+
+  // Precio fijo (price >= 0) sustituye a la tarifa; la reducción se aplica encima.
+  let precio = fila.price >= 0 ? fila.price : basePrice;
+  if (fila.reduction_type === "percentage") {
+    precio = precio * (1 - fila.reduction);
+  } else if (fila.reduction_type === "amount") {
+    // reduction_tax = 1: el importe incluye IVA y la tienda B2B muestra sin IVA.
+    precio = precio - (fila.reduction_tax === 1 ? fila.reduction / (1 + IVA) : fila.reduction);
+  }
+  precio = Math.max(0, Math.round(precio * 100) / 100);
+  // Con un porcentaje sobre la tarifa se da el de la regla tal cual (83,7 %, no
+  // el 83,69 % que saldría de dividir precios ya redondeados).
+  const pct =
+    fila.price < 0 && fila.reduction_type === "percentage"
+      ? fila.reduction
+      : basePrice > 0 ? 1 - precio / basePrice : 0;
+  return { price: precio, discountPct: pct > 0.00001 ? pct : null, fila };
+}
+
 // ─── Precio real vía priceinfo.php (Product::getPriceStatic) ────────────────
 // Fuente primaria de precio: usa la misma función que PrestaShop usa para
 // pintar la ficha del producto (specific_prices + reglas de precios de
@@ -693,10 +854,11 @@ async function hydrateProducts(
   } catch { /* ignorar */ }
 
   const rawList = rawProducts.length > 0 ? rawProducts : matched.map((p) => ({ id: p.id, name: p.name }));
-  const realPrices = await psGetRealPrices(
-    rawList.map((raw: any) => Number(raw?.id ?? 0)).filter((id: number) => id > 0),
-    idCustomer
-  );
+  const idsRaw = rawList.map((raw: any) => Number(raw?.id ?? 0)).filter((id: number) => id > 0);
+  const [realPrices, filasPrecio] = await Promise.all([
+    psGetRealPrices(idsRaw, idCustomer),
+    filasPrecioEspecifico(idsRaw),
+  ]);
 
   const products = await Promise.all(
     rawList.map(
@@ -710,7 +872,20 @@ async function hydrateProducts(
           return { ...product, ...real };
         }
 
-        // Vía correcta: cruce con la regla de catálogo real del producto
+        // Fuente principal: las filas de precio que la propia tienda aplica.
+        if (filasPrecio) {
+          const filas = [...(filasPrecio.get(product.id) ?? []), ...(filasPrecio.get(0) ?? [])];
+          const t = precioSegunTienda(filas, basePrice, groupId, idCustomer, product.idProductAttribute ?? 0);
+          return {
+            ...product,
+            price: t.price,
+            originalPrice: basePrice,
+            discountPct: t.discountPct,
+          };
+        }
+
+        // Respaldo (la Webservice no ha respondido a specific_prices): cruce con
+        // la regla de catálogo real del producto
         // (proveedor real × grupo real del cliente) contra precios.json.
         const supplierId = Number(raw?.id_supplier ?? 0);
         const catalogDiscount = await psGetCatalogDiscount(supplierId, groupId, basePrice);
@@ -738,7 +913,10 @@ async function hydrateProducts(
   );
 
   const finalProducts = products.filter((p) => p.id > 0).slice(0, limit);
-  const stockMap = await getStockBulk(finalProducts.map((p) => p.id));
+  const stockMap = await getStockBulk(
+    finalProducts.map((p) => p.id),
+    Object.fromEntries(finalProducts.map((p) => [p.id, p.idProductAttribute ?? 0]))
+  );
   return finalProducts.map((p) =>
     p.id in stockMap ? { ...p, stock: stockMap[p.id] } : p
   );
@@ -834,7 +1012,26 @@ export async function searchByBore(
  * falla, devuelve {} y los productos se quedan sin campo stock (sin
  * indicador) en vez de mostrar "sin stock" de forma incorrecta.
  */
-async function getStockBulk(ids: number[]): Promise<Record<number, number>> {
+/**
+ * Unidades de UNA ficha a partir de sus filas de stock_availables.
+ *
+ * PrestaShop guarda una fila por combinación y, además, una con
+ * id_product_attribute = 0 que ya es la SUMA de todas. Sumar todas las filas
+ * (lo que se hacía antes) contaba dos veces el stock de cualquier producto con
+ * combinaciones. Se toma la fila de la combinación pedida; si no la hay, la del
+ * producto (attr 0); y una cantidad negativa (vendido de más) es 0 disponible.
+ */
+export function unidadesDisponibles(filas: Array<{ id_product_attribute?: unknown; quantity?: unknown }>, idProductAttribute = 0): number {
+  const deAttr = (a: number) => filas.filter((f) => Number(f.id_product_attribute ?? 0) === a);
+  let elegidas = idProductAttribute > 0 ? deAttr(idProductAttribute) : [];
+  if (elegidas.length === 0) elegidas = deAttr(0);
+  if (elegidas.length === 0) elegidas = filas;
+  // Varias filas de la misma combinación = varias tiendas: se queda la mayor.
+  const q = elegidas.reduce((m, f) => Math.max(m, Number(f.quantity) || 0), Number.NEGATIVE_INFINITY);
+  return Number.isFinite(q) ? Math.max(0, q) : 0;
+}
+
+async function getStockBulk(ids: number[], attrPorId: Record<number, number> = {}): Promise<Record<number, number>> {
   if (ids.length === 0) return {};
   try {
     const url = buildUrl("stock_availables", {
@@ -845,19 +1042,21 @@ async function getStockBulk(ids: number[]): Promise<Record<number, number>> {
     if (!res.ok) return {};
     const data = await res.json().catch(() => ({}));
     const list = Array.isArray(data?.stock_availables) ? data.stock_availables : [];
-    const out: Record<number, number> = {};
+    const porProducto = new Map<number, any[]>();
     for (const row of list) {
       const pid = Number(row?.id_product ?? 0);
       if (!pid) continue;
-      out[pid] = (out[pid] ?? 0) + (Number(row?.quantity) || 0);
+      porProducto.set(pid, [...(porProducto.get(pid) ?? []), row]);
     }
+    const out: Record<number, number> = {};
+    for (const [pid, filas] of Array.from(porProducto)) out[pid] = unidadesDisponibles(filas, attrPorId[pid] ?? 0);
     return out;
   } catch {
     return {};
   }
 }
 
-export async function getStock(idProduct: number): Promise<StockInfo> {
+export async function getStock(idProduct: number, idProductAttribute = 0): Promise<StockInfo> {
   if (DEMO_MODE) {
     const found = DEMO_CATALOG.find((p) => p.id === idProduct);
     const quantity = found?.stock ?? 0;
@@ -874,10 +1073,8 @@ export async function getStock(idProduct: number): Promise<StockInfo> {
   if (!res.ok) throw new Error(`stock_availables respondio ${res.status}`);
 
   const data = await res.json().catch(() => ({}));
-  const list = data?.stock_availables;
-  const quantity = Array.isArray(list)
-    ? list.reduce((s: number, x: any) => s + (Number(x?.quantity) || 0), 0)
-    : 0;
+  const list = Array.isArray(data?.stock_availables) ? data.stock_availables : [];
+  const quantity = unidadesDisponibles(list, idProductAttribute);
 
   return { id_product: idProduct, quantity, available: quantity > 0 };
 }
@@ -1103,4 +1300,65 @@ export async function psResumenCarrito(customerId: number, groupId?: number): Pr
   } catch {
     return null;
   }
+}
+
+// ─── Auditoría de precio y stock (solo diagnóstico, /api/auditoria) ─────────
+// Recorre un tramo del catálogo y, para cada producto y grupo de cliente,
+// compara el precio que enseña el bot con el que aplica la tienda (sus filas
+// de specific_prices) y el que saldría de la tabla fija precios.json; y el
+// stock que enseña el bot con la fila de stock de la ficha.
+export async function auditarPrecioYStock(desde: number, cuantos: number, grupos: number[]) {
+  assertConfig();
+  const url = buildUrl("products", {
+    display: "[id,name,reference,price,id_supplier,active,quantity]",
+    limit: `${desde},${cuantos}`,
+  });
+  const res = await psFetchOrThrow(url, 20000);
+  const data = await res.json().catch(() => ({}));
+  const prods: any[] = Array.isArray(data?.products) ? data.products : [];
+  const ids = prods.map((p) => Number(p.id));
+
+  const [filasPrecio, stockRes, combRes] = await Promise.all([
+    filasPrecioEspecifico(ids),
+    psFetchOrThrow(buildUrl("stock_availables", { display: "full", filters: { "filter[id_product]": `[${ids.join("|")}]` } }), 20000),
+    psFetchOrThrow(buildUrl("combinations", { display: "[id,id_product]", filters: { "filter[id_product]": `[${ids.join("|")}]` } }), 20000),
+  ]);
+  const stockData = await stockRes.json().catch(() => ({}));
+  const combData = await combRes.json().catch(() => ({}));
+  const filasStock = new Map<number, any[]>();
+  for (const r of Array.isArray(stockData?.stock_availables) ? stockData.stock_availables : []) {
+    const pid = Number(r.id_product);
+    filasStock.set(pid, [...(filasStock.get(pid) ?? []), r]);
+  }
+  const combos = new Map<number, number[]>();
+  for (const c of Array.isArray(combData?.combinations) ? combData.combinations : []) {
+    const pid = Number(c.id_product);
+    combos.set(pid, [...(combos.get(pid) ?? []), Number(c.id)]);
+  }
+
+  const filas: any[] = [];
+  for (const p of prods) {
+    const id = Number(p.id);
+    const base = Number.parseFloat(p.price ?? "0") || 0;
+    const sp = [...(filasPrecio?.get(id) ?? []), ...(filasPrecio?.get(0) ?? [])];
+    const comb = combos.get(id) ?? [];
+    const st = filasStock.get(id) ?? [];
+    const stockAntes = st.reduce((s, x) => s + (Number(x.quantity) || 0), 0);
+    const stockAhora = unidadesDisponibles(st, comb[0] ?? 0);
+    const supplier = await getSupplierName(Number(p.id_supplier ?? 0));
+    const porGrupo: Record<string, any> = {};
+    for (const g of grupos) {
+      const tienda = precioSegunTienda(sp, base, g);
+      const pctTabla = matchDescuento(supplier, await getGroupName(g));
+      const tabla = pctTabla === null ? null : Math.round(base * (1 - pctTabla / 100) * 100) / 100;
+      porGrupo[g] = { tienda: tienda.price, regla: tienda.fila?.id_specific_price_rule ?? null, tabla };
+    }
+    filas.push({
+      id, name: plainText(p.name), ref: plainText(p.reference), activo: p.active, base, supplier,
+      combinaciones: comb.length, stockFilas: st.map((x) => [Number(x.id_product_attribute), Number(x.quantity)]),
+      stockAntes, stockAhora, quantityProducto: Number(p.quantity ?? NaN), filasPrecio: sp.length,
+      porGrupo,
+    });
+  }
+  return { desde, cuantos, devueltos: prods.length, filasPrecioOk: filasPrecio !== null, filas };
 }
