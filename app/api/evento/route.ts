@@ -36,11 +36,27 @@ export async function POST(req: NextRequest) {
   // panel, se reenvían al aviso que se configure (n8n, Zapier, Make...) para
   // que ESGAS se entere en el momento.
   if (tipo === "contacto_datos" && process.env.AVISO_CONTACTO_WEBHOOK) {
+    // Cada aviso acaba en un e-mail a ESGAS: límite propio y estricto para que
+    // nadie pueda usar el formulario para llenarles el buzón.
+    if (isRateLimited(getClientIp(req), "aviso-contacto", 3)) {
+      return NextResponse.json({ ok: false }, { status: 429, headers });
+    }
+    const d = datos as Record<string, unknown>;
+    const texto = (v: unknown, max: number) => String(v ?? "").replace(/[<>]/g, "").trim().slice(0, max);
     try {
       await fetch(process.env.AVISO_CONTACTO_WEBHOOK, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, ...datos }),
+        headers: {
+          "Content-Type": "application/json",
+          // Clave compartida con el flujo de n8n: sin ella el flujo no envía nada.
+          "x-aviso-clave": process.env.AVISO_CONTACTO_CLAVE ?? "",
+        },
+        body: JSON.stringify({
+          sessionId,
+          contacto: texto(d.contacto, 120),
+          consulta: texto(d.consulta, 300),
+          fecha: new Date().toLocaleString("es-ES", { timeZone: "Europe/Madrid" }),
+        }),
         signal: AbortSignal.timeout(5000),
       });
     } catch (err) {
