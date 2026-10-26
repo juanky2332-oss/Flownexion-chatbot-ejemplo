@@ -56,7 +56,9 @@ const CASOS: Caso[] = [
   { nombre: "pide UNO → una ficha, sin comparativa", turnos: ["quiero 10 rodamientos 6201 2rs"], conTarjeta: true, maxPdf: 1, comparativa: false, noDebe: [/38\.?000/] },
   { nombre: "variante que no existe (C2) → ofrece la C3", turnos: ["quiero 10 rodamientos 6201 2rs", "comparalo con el rodamiento 6205 zz c2"], debe: [/C3/, /no (la |lo )?(tenemos|est[aá]|aparece|existe)|no disponemos/i], comparativa: true, minPdf: 2 },
   { nombre: "comparativa con PDF de cada uno y conjunto", turnos: ["hola, quiero 20 rodamientos 6205 zz c3", "comparalo con los rodamientos que tengas con el mismo diametro interior"], minPdf: 2, conTarjeta: true },
-  { nombre: "sin stock → ofrece la variante que sí hay", turnos: ["quiero 2 del 6205"], conTarjeta: true, debe: [/6205 ?2RS/i] },
+  // Desde el 26-10-2026 la alternativa es la más parecida a lo pedido: para un
+  // 6205 abierto, el 6205 C3 abierto (si tiene unidades) antes que el 2RS sellado.
+  { nombre: "sin stock → ofrece la variante que sí hay", turnos: ["quiero 2 del 6205"], conTarjeta: true, debe: [/6205 ?(2RS|C3)/i], noDebe: [/no (lo )?tenemos|no est[aá] disponible en (nuestra|la) p[aá]gina/i] },
   // Comparar = PDF de CADA pieza + comparativa, siempre (cliente, 25-10-2026).
   { nombre: "comparar: diferencias entre dos refs del mensaje", turnos: ["qué diferencia hay entre el 6205 2rs y el 6305 zz?"], comparativa: true, minPdf: 2, noDebe: [/no est[aá] disponible/i] },
   { nombre: "comparar: «vs» con sufijos", turnos: ["6205 zz c3 vs 6205 2rs"], comparativa: true, minPdf: 2 },
