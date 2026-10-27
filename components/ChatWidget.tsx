@@ -6,7 +6,7 @@ import type { FichaTecnica } from "@/lib/ficha";
 import ChatBubble, { type ChatMessage } from "./ChatBubble";
 import RealisticRobot from "./RealisticRobot";
 import { CarritoChatProvider, MiniCarrito } from "./CarritoChat";
-import { configurarEventos, enTienda, PS_BASE } from "@/lib/carritoTienda";
+import { configurarEventos, enTienda, enviarEvento, PS_BASE } from "@/lib/carritoTienda";
 
 export interface ChatWidgetProps {
   logoUrl?: string;
@@ -430,7 +430,21 @@ export default function ChatWidget({
                 <p className="mt-1.5 text-center text-[10px] text-gray-400">
                   {companyName} · Distribuidor oficial NTN/SNR
                   <br />
-                  📞 {SUPPORT_PHONE} · ✉️ {SUPPORT_EMAIL}
+                  <a
+                    href={`tel:${SUPPORT_PHONE.replace(/\s+/g, "")}`}
+                    onClick={() => enviarEvento("contacto_tel", { desde: "pie" })}
+                    className="hover:text-gray-600 hover:underline"
+                  >
+                    📞 {SUPPORT_PHONE}
+                  </a>{" "}
+                  ·{" "}
+                  <a
+                    href={`mailto:${SUPPORT_EMAIL}`}
+                    onClick={() => enviarEvento("contacto_email", { desde: "pie" })}
+                    className="hover:text-gray-600 hover:underline"
+                  >
+                    ✉️ {SUPPORT_EMAIL}
+                  </a>
                 </p>
               </div>
             </>

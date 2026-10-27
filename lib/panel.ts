@@ -80,8 +80,10 @@ export async function datosPanel(dias: number): Promise<DatosPanel | null> {
         from chat_mensajes where sin_respuesta and ts >= ${desde} order by ts desc limit 100`,
     sql`select ts, session_id, coalesce(datos->>'pregunta','') pregunta, coalesce(datos->>'comentario','') comentario
         from chat_eventos where tipo='valoracion' and datos->>'voto'='no' and ts >= ${desde} order by ts desc limit 50`,
-    sql`select ts, session_id, coalesce(datos->>'contacto','') contacto, coalesce(datos->>'consulta','') consulta
-        from chat_eventos where tipo='contacto_datos' and ts >= ${desde} order by ts desc limit 50`,
+    sql`select ts, session_id,
+               case tipo when 'contacto_tel' then '📞 Llamar' when 'contacto_email' then '✉️ E-mail' else coalesce(datos->>'contacto','') end contacto,
+               coalesce(datos->>'consulta','') consulta
+        from chat_eventos where tipo in ('contacto_tel','contacto_email','contacto_datos') and ts >= ${desde} order by ts desc limit 100`,
     sql`select ts, ruta, categoria, left(coalesce(detalle,''), 300) detalle
         from chat_errores where ts >= ${desde} order by ts desc limit 50`,
     sql`select m.session_id, min(m.ts) inicio, count(*) turnos,
@@ -153,8 +155,10 @@ export async function exportar(tipo: "mensajes" | "sin_respuesta" | "contactos",
   await asegurarEsquema();
   const desde = new Date(Date.now() - dias * 86_400_000).toISOString();
   if (tipo === "contactos") {
-    return sql`select ts, session_id, datos->>'contacto' contacto, datos->>'consulta' consulta
-               from chat_eventos where tipo='contacto_datos' and ts >= ${desde} order by ts desc`;
+    return sql`select ts, session_id,
+                      case tipo when 'contacto_tel' then 'teléfono' when 'contacto_email' then 'e-mail' else datos->>'contacto' end contacto,
+                      datos->>'desde' desde, datos->>'consulta' consulta
+               from chat_eventos where tipo in ('contacto_tel','contacto_email','contacto_datos') and ts >= ${desde} order by ts desc`;
   }
   if (tipo === "sin_respuesta") {
     return sql`select ts, session_id, cliente, pregunta, respuesta, motivo from chat_mensajes

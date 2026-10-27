@@ -132,23 +132,7 @@ export type TipoEventoChat =
   | "pdf"
   | "contacto_email"
   | "contacto_tel"
-  | "contacto_datos"
   | "valoracion";
-
-/** Como enviarEvento, pero diciendo si los datos le han llegado a alguien en el momento. */
-export async function enviarContacto(datos: Record<string, unknown>): Promise<{ ok: boolean; avisado: boolean }> {
-  try {
-    const r = await fetch(destino, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: sesion, tipo: "contacto_datos", datos }),
-    });
-    const d = await r.json().catch(() => ({}));
-    return { ok: r.ok, avisado: !!d?.avisado };
-  } catch {
-    return { ok: false, avisado: false };
-  }
-}
 
 export function enviarEvento(tipo: TipoEventoChat, datos: Record<string, unknown> = {}): Promise<boolean> {
   try {

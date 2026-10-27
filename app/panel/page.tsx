@@ -195,7 +195,7 @@ export default async function Panel({ searchParams }: { searchParams: { dias?: s
 
             <div className="grid gap-4 md:grid-cols-2">
               <Seccion
-                titulo="Clientes que han dejado sus datos"
+                titulo="Clientes que han pulsado llamar o escribir"
                 extra={<a href={`/api/panel/export?tipo=contactos&dias=${dias}`} className="text-xs font-semibold text-[#0066cc] hover:underline">CSV</a>}
               >
                 {d.contactos.length ? (

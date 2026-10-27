@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import type { Product } from "@/lib/types";
 import type { FichaTecnica } from "@/lib/ficha";
 import ProductCard from "./ProductCard";
-import { abrirVentanaCarrito, anadirConVentana, anadirEnTienda, enTienda, enviarContacto, enviarEvento, type LineaCarrito } from "@/lib/carritoTienda";
+import { abrirVentanaCarrito, anadirConVentana, anadirEnTienda, enTienda, enviarEvento, type LineaCarrito } from "@/lib/carritoTienda";
 import { useCarritoChat } from "./CarritoChat";
 
 export interface ChatMessage {
@@ -210,22 +210,13 @@ export default function ChatBubble({
             )}
             {supportEmail && (
               <a
-                href={
-                  message.humanContext
-                    ? `mailto:${supportEmail}?subject=${encodeURIComponent(
-                        `Consulta: ${message.humanContext}`
-                      )}&body=${encodeURIComponent(
-                        `Hola,\n\nOs escribo desde el chat de la página sobre: ${message.humanContext}.\n\n¿Me podéis confirmar disponibilidad y plazo?\n\nGracias.`
-                      )}`
-                    : `mailto:${supportEmail}`
-                }
+                href={`mailto:${supportEmail}`}
                 onClick={() => enviarEvento("contacto_email", { desde: "boton", consulta: message.humanContext })}
                 className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-sm ring-1 ring-amber-300 transition hover:bg-amber-100"
               >
-                ✉️ {message.humanContext ? "Enviar consulta por e-mail" : supportEmail}
+                ✉️ Escribir · {supportEmail}
               </a>
             )}
-            <DejarContacto consulta={message.humanContext || pregunta || ""} clienteEmail={clienteEmail} />
           </div>
         )}
 
@@ -480,51 +471,6 @@ function AnadirVarios({
       )}
       {aviso && <p className={`mt-1.5 font-medium ${aviso.ok ? "text-green-700" : "text-red-600"}`}>{aviso.texto}</p>}
     </div>
-  );
-}
-
-/** El cliente deja su teléfono o e-mail y ESGAS le contacta (queda en el panel). */
-function DejarContacto({ consulta, clienteEmail }: { consulta: string; clienteEmail?: string | null }) {
-  const [valor, setValor] = useState(clienteEmail ?? "");
-  const [estado, setEstado] = useState<"idle" | "enviando" | "ok" | "guardado" | "error">("idle");
-  const limpio = valor.trim();
-  const valido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(limpio) || limpio.replace(/\D/g, "").length >= 9;
-
-  if (estado === "ok") {
-    return <p className="w-full text-xs font-semibold text-green-700">✓ Recibido. Un técnico de ESGAS te contactará lo antes posible.</p>;
-  }
-  if (estado === "guardado") {
-    // Sin aviso inmediato configurado no se promete una llamada: se dice lo
-    // que es verdad y se deja la vía rápida.
-    return <p className="w-full text-xs font-semibold text-green-700">✓ Datos guardados. Si te corre prisa, llámanos o escríbenos con los botones de arriba.</p>;
-  }
-  return (
-    <form
-      className="flex w-full flex-wrap gap-1.5"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (!valido || estado === "enviando") return;
-        setEstado("enviando");
-        const r = await enviarContacto({ contacto: limpio, consulta: consulta.slice(0, 300) });
-        setEstado(!r.ok ? "error" : r.avisado ? "ok" : "guardado");
-      }}
-    >
-      <input
-        value={valor}
-        onChange={(e) => setValor(e.target.value)}
-        placeholder="O déjanos tu teléfono o e-mail y te contactamos"
-        className="min-w-0 flex-1 rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-amber-400"
-        aria-label="Teléfono o e-mail de contacto"
-      />
-      <button
-        type="submit"
-        disabled={!valido || estado === "enviando"}
-        className="shrink-0 rounded-full bg-amber-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-amber-700 disabled:opacity-50"
-      >
-        {estado === "enviando" ? "…" : "Enviar"}
-      </button>
-      {estado === "error" && <span className="w-full text-[11px] text-red-600">No se ha enviado. Inténtalo otra vez.</span>}
-    </form>
   );
 }
 

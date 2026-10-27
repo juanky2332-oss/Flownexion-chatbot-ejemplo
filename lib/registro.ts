@@ -99,7 +99,6 @@ export const TIPOS_EVENTO = [
   "pdf",
   "contacto_email",
   "contacto_tel",
-  "contacto_datos",
   "valoracion",
 ] as const;
 export type TipoEvento = (typeof TIPOS_EVENTO)[number];

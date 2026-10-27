@@ -4,7 +4,8 @@ import { registrarEvento, TIPOS_EVENTO, type TipoEvento } from "@/lib/registro";
 
 // Lo que pasa en el chat después de la respuesta: productos añadidos al
 // carrito, "tramitar pedido", PDF descargado, contacto pulsado, valoraciones
-// 👍/👎 y datos de contacto que deja el cliente al escalar. Es lo que permite
+// 👍/👎. El chat NO envía correos a nadie:
+// el cliente contacta él mismo con los botones de teléfono/e-mail. Es lo que permite
 // medir en el panel cuántas consultas acaban en carrito.
 
 export const runtime = "nodejs";
@@ -32,38 +33,5 @@ export async function POST(req: NextRequest) {
 
   if (!sessionId.startsWith("prueba-")) await registrarEvento(sessionId, tipo, datos);
 
-  // Datos de contacto que deja el cliente al escalar: además de quedar en el
-  // panel, se reenvían al aviso que se configure (n8n, Zapier, Make...) para
-  // que ESGAS se entere en el momento.
-  if (tipo === "contacto_datos" && process.env.AVISO_CONTACTO_WEBHOOK) {
-    // Cada aviso acaba en un e-mail a ESGAS: límite propio y estricto para que
-    // nadie pueda usar el formulario para llenarles el buzón.
-    if (isRateLimited(getClientIp(req), "aviso-contacto", 3)) {
-      return NextResponse.json({ ok: false }, { status: 429, headers });
-    }
-    const d = datos as Record<string, unknown>;
-    const texto = (v: unknown, max: number) => String(v ?? "").replace(/[<>]/g, "").trim().slice(0, max);
-    try {
-      await fetch(process.env.AVISO_CONTACTO_WEBHOOK, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // Clave compartida con el flujo de n8n: sin ella el flujo no envía nada.
-          "x-aviso-clave": process.env.AVISO_CONTACTO_CLAVE ?? "",
-        },
-        body: JSON.stringify({
-          sessionId,
-          contacto: texto(d.contacto, 120),
-          consulta: texto(d.consulta, 300),
-          fecha: new Date().toLocaleString("es-ES", { timeZone: "Europe/Madrid" }),
-        }),
-        signal: AbortSignal.timeout(5000),
-      });
-    } catch (err) {
-      console.error("[evento] aviso de contacto no enviado:", (err as Error).message);
-    }
-  }
-  // "avisado": si los datos de contacto le llegan a alguien en el momento. Sin
-  // aviso configurado el chat no puede prometer que le van a llamar.
-  return NextResponse.json({ ok: true, avisado: tipo === "contacto_datos" && !!process.env.AVISO_CONTACTO_WEBHOOK }, { headers });
+  return NextResponse.json({ ok: true }, { headers });
 }
