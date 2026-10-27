@@ -25,7 +25,7 @@ class Nexionchat extends Module
     {
         $this->name                   = 'nexionchat';
         $this->tab                    = 'front_office_features';
-        $this->version                = '2.0.0';
+        $this->version                = '2.1.0';
         $this->author                 = 'Flownexion';
         $this->need_instance          = 0;
         $this->ps_versions_compliancy = ['min' => '1.7.0.0', 'max' => _PS_VERSION_];
@@ -41,8 +41,26 @@ class Nexionchat extends Module
     {
         return parent::install()
             && $this->registerHook('displayBeforeBodyClosingTag')
-            && Configuration::updateValue('NEXIONCHAT_HMAC_SECRET', '')
+            && $this->registerHook('displayFooter')
+            && Configuration::updateValue('NEXIONCHAT_HMAC_SECRET', $this->clavePrecargada())
             && Configuration::updateValue('NEXIONCHAT_CHAT_URL', self::DEFAULT_CHAT_URL);
+    }
+
+    /**
+     * El zip que se entrega a ESGAS lleva la clave en clave.php para que el
+     * módulo quede configurado al instalarlo. Se lee una vez y se borra del
+     * servidor; el zip público de descargas no la lleva.
+     */
+    private function clavePrecargada()
+    {
+        $fichero = dirname(__FILE__) . '/clave.php';
+        if (!is_file($fichero)) {
+            return '';
+        }
+        $clave = include $fichero;
+        $clave = trim((string) $clave);
+        @unlink($fichero);
+        return preg_match('/^[a-f0-9]{64}$/', $clave) ? $clave : '';
     }
 
     public function uninstall()
@@ -111,9 +129,23 @@ class Nexionchat extends Module
     }
 
     // ─── Inserta el chat justo antes de </body> ──────────────────────────────
+    // displayFooter es el respaldo por si el tema no llama al hook de </body>;
+    // el chat se inserta solo una vez, en el primero de los dos que se ejecute.
+
+    private static $insertado = false;
+
+    public function hookDisplayFooter($params)
+    {
+        return $this->hookDisplayBeforeBodyClosingTag($params);
+    }
 
     public function hookDisplayBeforeBodyClosingTag($params)
     {
+        if (self::$insertado) {
+            return '';
+        }
+        self::$insertado = true;
+
         $chatUrl = rtrim((string) (Configuration::get('NEXIONCHAT_CHAT_URL') ?: self::DEFAULT_CHAT_URL), '/');
         $secret  = (string) Configuration::get('NEXIONCHAT_HMAC_SECRET');
 

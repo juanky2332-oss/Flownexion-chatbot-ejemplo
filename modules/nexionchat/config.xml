@@ -2,7 +2,7 @@
 <module>
     <name>nexionchat</name>
     <displayName><![CDATA[NexionChat — Asistente técnico ESGAS]]></displayName>
-    <version><![CDATA[2.0.0]]></version>
+    <version><![CDATA[2.1.0]]></version>
     <description><![CDATA[Chat técnico de ESGAS con precios del cliente y añadir al carrito.]]></description>
     <author><![CDATA[Flownexion]]></author>
     <tab>front_office_features</tab>
