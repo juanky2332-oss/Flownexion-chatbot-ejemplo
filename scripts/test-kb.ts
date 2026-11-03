@@ -1029,5 +1029,43 @@ section("AUDITORÍA 26-10-2026 — fallos vistos en conversaciones reales");
   ok(fa.asegurarRespuestaIva("El SNR 6204 ZZ no tiene stock…", "el precio del 6204 zz lleva IVA?").startsWith("Los precios de la página son **sin IVA**"), "¿lleva IVA? → se contesta en la primera línea");
   ok(fa.asegurarRespuestaIva("Texto", "quiero el 6204 zz") === "Texto", "sin pregunta de IVA no se añade nada");
 }
+{
+  section("Catálogo por familias (03-11-2026: «¿tenéis soportes de fundición?» → «no tenemos»)");
+  const cat = require("../lib/catalogo") as typeof import("../lib/catalogo");
+  const indice = (require("../lib/kb") as typeof import("../lib/kb")).indiceCatalogoGuardado();
+  ok(indice.length > 6000, "el índice guardado del catálogo se carga", String(indice.length));
+  const sinFamilia = indice.filter((p) => !cat.clasificarProducto(p.name));
+  ok(sinFamilia.length === 0, "TODOS los artículos de la página tienen familia", sinFamilia.slice(0, 5).map((p) => p.name).join(" | "));
+  const fam = (n: string) => cat.clasificarProducto(n);
+  ok(fam("SNR UCP 205")?.familia === "soportes" && fam("SNR UCP 205")?.tipo === "fundicion", "«SNR UCP 205» (sin la palabra soporte) = soporte de fundición");
+  ok(fam("SOPORTE TERMOPLASTICO TL UCF 205 AZUL + ROD INOX")?.tipo === "termoplastico", "termoplástico con rodamiento inox ≠ inox");
+  ok(fam("NTN SSN 206  LL/LP09 ( 6206 2RS INOX GRASA SOLIDA ALIMENTARIA )")?.familia === "rodamientos", "SSN 206 es rodamiento, no soporte");
+  ok(fam("SOPORTE CILINDRO CHARNELA HEMBRA 32")?.familia === "neumatica", "soporte de cilindro Aignep = neumática, no chumacera");
+  ok(fam("NTN NJ 2308 EAT2X")?.tipo === "cilindricos" && fam("SNR 4203 A")?.tipo === "rigido-bolas" && fam("NTN 4T-30205")?.tipo === "conicos", "tipos de rodamiento (NJ, 42xx, 4T-)");
+  ok(fam("SNR SC 210 DS")?.tipo === "tapa" && fam("SNR F 204")?.tipo === "cuerpo", "juntas de soporte partido y cuerpos sin rodamiento, aparte");
+
+  const q1 = cat.consultaDeFamilia("¿Tienes soportes de fundición?");
+  const r1 = q1 ? cat.resumirFamilia(indice, q1) : null;
+  ok(q1?.familia.id === "soportes" && q1.tipos.includes("fundicion") && (r1?.total ?? 0) > 200, "«¿tienes soportes de fundición?» → >200 soportes de fundición", String(r1?.total));
+  ok(!!r1?.coincidentes.some((p) => p.name === "SNR UCP 205") && !!r1?.coincidentes.some((p) => /SOPORTE FUNDICION TL UCF 204/.test(p.name)), "… incluye SNR UCP 205 y TL UCF 204");
+  const q2 = cat.consultaDeFamilia("¿Qué soportes tenéis?");
+  ok(q2?.familia.id === "soportes" && !q2.tipos.length && cat.pideProductos("¿Qué soportes tenéis?") && cat.convieneMuestra(q2), "«¿qué soportes tenéis?» → toda la familia, con tarjetas de muestra");
+  ok(cat.consultaDeFamilia("¿y de inox?", ["¿Qué soportes tenéis?"])?.tipos.join() === "inox", "seguimiento «¿y de inox?» hereda la familia");
+  const q3 = cat.consultaDeFamilia("necesito un soporte de pie para eje de 30")!;
+  const r3 = cat.resumirFamilia(indice, q3).coincidentes;
+  ok(r3.length >= 3 && r3.every((p) => /\b206\b/.test(p.name) && cat.formaDeSoporte(p.name) === "pie"), "soporte de pie eje 30 → solo UCP 206", r3.map((p) => p.name).join(" | "));
+  ok(cat.buscarEnIndice(indice, "soportes partidos").length >= 20, "«soportes partidos» (search_products) encuentra los SNL/SNC");
+  ok(cat.buscarEnIndice(indice, "soportes de fundición").some((p) => p.name === "SNR UCP 205"), "search_products «soportes de fundición» encuentra también los SNR");
+  ok(cat.buscarEnIndice(indice, "taper 1610 eje 25").some((p) => /TAPER 1610 EJE 25MM/.test(p.name)), "taper 1610 eje 25");
+  ok(cat.buscarEnIndice(indice, "racor codo 8")[0]?.name.includes("CODO"), "«racor codo 8» → delante los codos");
+  ok(cat.buscarEnIndice(indice, "correas dentadas").length >= 10, "correas dentadas");
+  ok(cat.buscarEnIndice(indice, "retenes de viton").length > 100, "retenes de Vitón");
+  ok(cat.buscarEnIndice(indice, "cadenas dobles").every((p) => /B2/.test(p.name)), "cadenas dobles = B2");
+  ok(JSON.stringify(cat.preguntaPorTipoDeProducto("¿tenéis poleas?")) === '["polea"]' && cat.buscarEnIndice(indice, "polea").length === 0, "«¿tenéis poleas?» → no hay en la página (respuesta honesta)");
+  ok(cat.consultaDeFamilia("quiero comprar el 6205 2rs") === null, "una referencia suelta no se trata como familia");
+  ok(!cat.pideProductos("¿cómo se monta un soporte?"), "pregunta de montaje: sin bloque de catálogo");
+  ok(cat.preguntaGeneralCatalogo("¿qué productos tenéis?") && cat.preguntaGeneralCatalogo("qué vendéis?"), "«¿qué vendéis?» → resumen de todo el catálogo");
+  ok(cat.resumenGeneral(indice).length === cat.FAMILIAS.length, "el resumen general tiene todas las familias");
+}
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);

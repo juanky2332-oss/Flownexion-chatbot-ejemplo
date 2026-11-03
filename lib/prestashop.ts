@@ -3,7 +3,8 @@
 
 import "server-only";
 import type { Product, StockInfo, PSCustomer } from "./types";
-import { matchDescuento } from "./kb";
+import { matchDescuento, indiceCatalogoGuardado } from "./kb";
+import { buscarEnIndice, elegirMuestra } from "./catalogo";
 import { boreCodeFor, seriesPrefixesForBoreCode } from "./bearingSizes";
 
 const BASE_URL = (process.env.PRESTASHOP_BASE_URL ?? "")
@@ -858,12 +859,60 @@ export async function searchProducts(
   }
   if (matched.length === 0) matched = soloPorReferencia;
 
+  // 5. EN LENGUAJE NATURAL ("soportes de fundición", "racor codo 8"): la
+  //    familia y el tipo se resuelven clasificando el catálogo (lib/catalogo.ts).
+  //    Visto el 03-11-2026: "¿tenéis soportes de fundición?" → "no tenemos",
+  //    porque se buscaba el texto literal y en la tienda se llaman "SOPORTE
+  //    FUNDICION TL UCF 204" o "SNR UCP 205" (sin la palabra "soporte").
+  if (matched.length === 0) {
+    const candidatos = buscarEnIndice(await indiceCatalogo(), safeQuery).slice(0, 80);
+    if (candidatos.length) {
+      const stock = await stockDeVarios(candidatos.map((p) => p.id));
+      matched = elegirMuestra(candidatos, stock, 5).map((p) => ({ id: p.id, name: p.name, reference: p.reference ?? "" }));
+    }
+  }
+
   if (matched.length === 0) return [];
   // Hasta 5 (antes 3): una misma referencia base convive con varias variantes
   // de sufijo (6205, 6205 ZZ, 6205 LLU, 6205 C3...) y con el corte en 3 la
   // única que tenía unidades podía no llegar a verse. El coste es una consulta
   // de stock por lotes algo mayor; el precio ya se resolvía para todas.
   return hydrateProducts(matched, groupId, idCustomer, 5);
+}
+
+/**
+ * Índice del catálogo para buscar por familias: el de la tienda (vivo, se
+ * cachea 30 min) y, si la tienda no lo sirve a tiempo, la copia guardada en
+ * data/kb/catalogo-indice.json. Nunca devuelve vacío por un timeout.
+ */
+export async function indiceCatalogo(): Promise<Array<{ id: number; name: string; reference: string }>> {
+  if (DEMO_MODE) return DEMO_CATALOG.map((p) => ({ id: p.id, name: p.name, reference: p.reference }));
+  const vivo = await Promise.race([
+    getAllNames().catch(() => [] as Array<{ id: number; name: string; reference: string }>),
+    new Promise<Array<{ id: number; name: string; reference: string }>>((r) => setTimeout(() => r([]), 6000)),
+  ]);
+  return vivo.length ? vivo : indiceCatalogoGuardado();
+}
+
+/** Stock de muchos productos a la vez (en tandas, para no hacer URLs enormes). */
+export async function stockDeVarios(ids: number[]): Promise<Record<number, number>> {
+  if (DEMO_MODE) return Object.fromEntries(DEMO_CATALOG.filter((p) => ids.includes(p.id)).map((p) => [p.id, p.stock]));
+  const unicos = Array.from(new Set(ids.filter((i) => i > 0)));
+  const tandas: number[][] = [];
+  for (let i = 0; i < unicos.length; i += 100) tandas.push(unicos.slice(i, i + 100));
+  const partes = await Promise.all(tandas.map((t) => getStockBulk(t)));
+  return Object.assign({}, ...partes);
+}
+
+/** Producto completo (precio del cliente + stock) para una lista ya elegida. */
+export async function hidratarProductos(
+  lista: Array<{ id: number; name: string }>,
+  groupId?: number,
+  idCustomer?: number,
+  limite = 4
+): Promise<Product[]> {
+  if (DEMO_MODE) return DEMO_CATALOG.filter((p) => lista.some((x) => x.id === p.id)).slice(0, limite);
+  return hydrateProducts(lista, groupId, idCustomer, limite);
 }
 
 /**

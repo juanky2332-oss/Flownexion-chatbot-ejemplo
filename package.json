@@ -16,7 +16,8 @@
     "audit:fichas": "node scripts/audit-fichas.js",
     "test:dialogo": "ts-node --project tsconfig.scripts.json scripts/test-dialogo.ts",
     "errores:excel": "node scripts/listado-errores-excel.js",
-    "zip:modulo": "node scripts/zip-modulo.js"
+    "zip:modulo": "node scripts/zip-modulo.js",
+    "build:catalogo": "ts-node --project tsconfig.scripts.json scripts/build-catalogo.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",

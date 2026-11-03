@@ -113,6 +113,7 @@ const KB_READERS: Record<string, () => string> = {
   "data/kb/belts-7.json": () => readFileSync(join(process.cwd(), "data/kb/belts-7.json"), "utf-8"),
   "data/kb/belts-8.json": () => readFileSync(join(process.cwd(), "data/kb/belts-8.json"), "utf-8"),
   "data/kb/belts-perfiles.json": () => readFileSync(join(process.cwd(), "data/kb/belts-perfiles.json"), "utf-8"),
+  "data/kb/catalogo-indice.json": () => readFileSync(join(process.cwd(), "data/kb/catalogo-indice.json"), "utf-8"),
   "data/kb/eq-1.json": () => readFileSync(join(process.cwd(), "data/kb/eq-1.json"), "utf-8"),
   "data/kb/eq-2.json": () => readFileSync(join(process.cwd(), "data/kb/eq-2.json"), "utf-8"),
   "data/kb/eq-3.json": () => readFileSync(join(process.cwd(), "data/kb/eq-3.json"), "utf-8"),
@@ -143,6 +144,22 @@ function loadJson<T>(rel: string): T[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * Copia del índice del catálogo de la página ([id, nombre, referencia]), que
+ * genera `npm run build:catalogo`. Es el RESPALDO de la búsqueda por familias
+ * cuando la tienda tarda en servir su índice completo: así "¿tenéis soportes?"
+ * nunca acaba en "no tenemos" por un timeout. Precio y stock siguen saliendo
+ * siempre de la tienda en el momento.
+ */
+let _indiceGuardado: Array<{ id: number; name: string; reference: string }> | null = null;
+export function indiceCatalogoGuardado(): Array<{ id: number; name: string; reference: string }> {
+  if (_indiceGuardado) return _indiceGuardado;
+  _indiceGuardado = loadJson<[number, string, string]>("data/kb/catalogo-indice.json")
+    .filter((r) => Array.isArray(r) && Number(r[0]) > 0)
+    .map((r) => ({ id: Number(r[0]), name: String(r[1] ?? ""), reference: String(r[2] ?? "") }));
+  return _indiceGuardado;
 }
 
 // ── Lazy caches ──

@@ -531,6 +531,33 @@
       "titulo": "Tipos de soporte con rodamiento (UCP, UCF, UCFL, UCFC, UCT)",
       "texto": "Los soportes UC llevan un rodamiento inserto (serie UC2xx, fijado al eje con tornillos prisioneros) dentro de un cuerpo de fundición, chapa, termoplástico o inoxidable. La letra tras \"UC\" dice la forma del cuerpo:\n- UCP — soporte de PIE: se atornilla sobre una superficie horizontal (bancada, chasis) con 2 tornillos; el eje queda paralelo a la base.\n- UCF — BRIDA CUADRADA de 4 agujeros: se atornilla contra una pared o placa vertical; el eje sale perpendicular a ella. Es la brida más robusta.\n- UCFL — BRIDA OVALADA (rombo) de 2 agujeros: también va contra pared, ocupa menos y aguanta algo menos que la cuadrada. Para cargas moderadas o donde no caben 4 tornillos.\n- UCFC — BRIDA REDONDA con resalte de centraje: para montajes que necesitan centrarse en un agujero.\n- UCT — TENSOR: el soporte se desliza en una guía para tensar cintas, correas o cadenas.\n\nLa cifra (205, 206, 208…) es la del rodamiento inserto: las dos últimas cifras × 5 = diámetro del eje (205 = 25 mm, 206 = 30 mm, 208 = 40 mm).\n\nCriterio rápido: base horizontal → UCP; pared o chapa vertical → UCF (o UCFL si la carga es moderada o falta sitio). En alimentaria o ambientes húmedos, cuerpo e inserto inoxidables o termoplásticos con grasa apta para alimentación.",
       "fuente": "Catálogos de soportes SNR / NTN y Translink (designación de cuerpos e insertos, ISO 3228)"
+    },
+    {
+      "id": "soportes-materiales",
+      "categoria": "soportes",
+      "prioridad": 6,
+      "terminos": [
+        "soporte de fundicion",
+        "soportes de fundicion",
+        "fundicion",
+        "soporte inox",
+        "soportes inox",
+        "soporte inoxidable",
+        "soportes inoxidables",
+        "soporte termoplastico",
+        "soportes termoplasticos",
+        "termoplastico",
+        "soporte partido",
+        "soportes partidos",
+        "snl",
+        "snc",
+        "material del soporte",
+        "cuerpo del soporte",
+        "alojamiento"
+      ],
+      "titulo": "Soportes por material y construcción: fundición, inoxidable, termoplástico, partido y cuerpo suelto",
+      "texto": "Además de la FORMA (pie, brida…), un soporte se elige por el MATERIAL del cuerpo y del rodamiento inserto:\n\n- FUNDICIÓN — cuerpo de fundición gris con rodamiento de acero al cromo. Es el soporte estándar: robusto y económico, para la mayoría de máquinas en ambiente seco. Con agua o lavados frecuentes se oxida.\n- INOXIDABLE — cuerpo y rodamiento de acero inoxidable. Para industria alimentaria, ambientes húmedos y lavados frecuentes. Es más caro y el rodamiento inox admite algo menos de carga que el de acero al cromo del mismo tamaño.\n- TERMOPLÁSTICO — cuerpo de plástico técnico, ligero y que no se oxida, normalmente con rodamiento inoxidable (también los hay con rodamiento de acero al cromo, que sí se oxida si se moja). Muy usado en alimentaria y lavados; aguanta menos carga y temperatura que la fundición.\n- PARTIDO (SNL / SNC) — cuerpo de fundición en dos mitades atornilladas, para rodamientos de rótula o autoalineables montados con manguito de fijación (H). Se usa en ejes grandes y cargas altas; las juntas y las tapas se piden aparte.\n- CUERPO SIN RODAMIENTO (F, FL, P, T…) — solo el alojamiento, para reponer el cuerpo y conservar el rodamiento, o al revés.\n\nCriterio rápido: ambiente seco y carga normal → fundición; agua, lavados o alimentaria → inoxidable o termoplástico con rodamiento inox; eje grande o carga alta → partido.",
+      "fuente": "Catálogos de soportes SNR / NTN y Translink; clase «Alojamiento del soporte autoalineante» y «Soporte de fundición en dos partes» en la ficha técnica NTN/SNR del KB"
     }
   ]
 }
