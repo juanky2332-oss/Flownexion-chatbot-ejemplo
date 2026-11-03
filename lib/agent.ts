@@ -1962,7 +1962,7 @@ export async function runAgent(
             );
           }
           partes.push(
-            `CÓMO RESPONDER: corto y natural. Empieza por "Sí", di qué tipos tenemos (con algún ejemplo) y pregunta UNA sola cosa para afinar: ${consultaCat.familia.afinar}. ` +
+            `CÓMO RESPONDER: corto y natural. Empieza por "Sí", di qué tipos tenemos (con algún ejemplo) y pregunta UNA sola cosa para afinar: ${consultaCat.familia.afinar} (sin volver a pedir lo que el cliente ya ha dicho${consultaCat.eje ? `: el eje de ${consultaCat.eje} mm ya lo ha dado` : ""}${consultaCat.serie ? `; la serie ${consultaCat.serie} también` : ""}). ` +
               sinCifras +
               ` PROHIBIDO decir que no tenemos ${nombreFam} o cualquiera de los tipos listados: es un hecho comprobado en el catálogo. ` +
               `Si el cliente pregunta además otra cosa (montaje, diferencias, una duda técnica), contéstala también.`
