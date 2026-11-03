@@ -254,7 +254,7 @@ export function textoComparativa(fichas: FichaTecnica[], diferencias: Diferencia
     if (d.cambios.length) lineas.push(`- **Cambia:** ${d.cambios.join("; ")}.`);
     if (d.ventajas.length) lineas.push(`- **A favor:** ${d.ventajas.join("; ")}.`);
     if (d.inconvenientes.length) lineas.push(`- **En contra:** ${d.inconvenientes.join("; ")}.`);
-    if (!d.cambios.length && !d.ventajas.length && !d.inconvenientes.length) lineas.push("- En su ficha no hay diferencias técnicas relevantes.");
+    if (!d.cambios.length && !d.ventajas.length && !d.inconvenientes.length) lineas.push("- Es la misma pieza con otra nomenclatura: en su ficha no hay diferencias técnicas.");
     lineas.push("");
   }
   if (hayPdf) lineas.push("Tienes la comparativa completa y la ficha de cada una en los PDF de aquí abajo.");

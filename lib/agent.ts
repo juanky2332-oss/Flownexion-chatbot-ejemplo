@@ -1778,9 +1778,11 @@ export async function runAgent(
   const piezasComparadas = pideComparar(message) ? piezasAComparar(message, history) : [];
   let tarjetasFijas: Product[] = [];
   let alternativa: AlternativaOfrecida | null = null;
+  let textoFijo: string | null = null;
   const refDetectada = piezasComparadas.length >= 2 && piezasDelMensaje(message).length >= 2
     ? piezasComparadas[0].ref
-    : extractQueryCandidates(sinCantidades(message)).find(
+    // Sin las medidas ("c3 con 23 mms" se leía como la referencia C323MMS).
+    : extractQueryCandidates(sinCantidades(message).replace(/\b\d+(?:[.,]\d+)?\s*(?:mm|mms|mil[ií]metros)\b/gi, " ")).find(
         (c) =>
           (c.match(/\d/g) ?? []).length >= 3 &&
           c.length >= 4 &&
@@ -1913,7 +1915,8 @@ export async function runAgent(
           };
           // Un agujero cónico (K) se monta distinto: no se propone por uno cilíndrico si hay otra.
           const conStock = analisisPedida.alternativasConStock.map((v) => v.producto);
-          const noCambiaAgujero = (p: Product) => /\bK\b/.test(refDetectada) || !/\bK\b/.test(p.name);
+          const noCambiaAgujero = (p: Product) =>
+            (/\bK\b/.test(refDetectada) || !/\bK\b/.test(p.name)) && (/inox/i.test(message) || !/\bINOX\b/i.test(p.name));
           const propuestas = (conStock.some(noCambiaAgujero) ? conStock.filter(noCambiaAgujero) : conStock).slice(0, 2);
           tarjetasFijas = [...propuestas, ...(exacta ? [exacta] : [])];
           for (const p of tarjetasFijas) if (!collected.some((c) => c.id === p.id)) collected.push(p);
@@ -2313,13 +2316,11 @@ export async function runAgent(
             escalation.reason ??= "alternativa_ofrecida";
             escalation.context ??= message.slice(0, 150);
             notaConfirmar = cerca.nota;
-            messages.push({
-              role: "system",
-              content:
-                `🔒 MEDIDA NO DISPONIBLE — ${cerca.pedido} no está a la venta con stock en la página. Lo más cercano, comprobado en el catálogo real:\n` +
-                tarjetasFijas.map((p) => `- ${p.name} — ${p.stock} uds`).join("\n") +
-                `\n\nDi en una frase que ${cerca.pedido} no lo tenemos ahora en la página y que lo más cercano es lo de arriba, nombrando cada pieza con sus unidades. PROHIBIDO decir que son equivalentes o que le valen: es otra medida. ${MODO_BREVE}`,
-            });
+            // Texto escrito aquí, sin pasar por el modelo: visto el 03-11-2026,
+            // repetía antes los datos de otras correas (C136, C236) que le
+            // llegaban del KB.
+            const lista = tarjetasFijas.map((p) => `**${p.name}** (${p.stock} uds)`).join(" y ");
+            textoFijo = `${cerca.pedido.charAt(0).toUpperCase()}${cerca.pedido.slice(1)} no está disponible en la página ahora mismo. Lo más cercano que tenemos es ${lista}.`;
           }
         }
       } catch {
@@ -2747,6 +2748,8 @@ export async function runAgent(
         : {}),
     };
   };
+
+  if (textoFijo) return cerrar(textoFijo);
 
   // Menos vueltas que antes (6): cada ronda puede costar varios segundos y en
   // la práctica con 4 se resuelve cualquier consulta real.
