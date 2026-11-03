@@ -9,12 +9,13 @@ Un soporte lleva un rodamiento inserto (serie UC2xx) dentro de un cuerpo. Se eli
 
 | Tipo | Artículos | Ejemplos |
 |---|---:|---|
-| de fundición | 246 | SNR UCF 210 AGR · SNR UCT 212N AGR · SOPORTE FUNDICION TL UCF 204 |
+| de fundición | 226 | SNR UCF 210 AGR · SNR UCT 212N AGR · SOPORTE FUNDICION TL UCF 204 |
 | termoplásticos (con rodamiento inox o cromo) | 34 | SOPORTE TERMOPLASTICO TL UCF 205 AZUL + ROD INOX · SOPORTE TERMOPLASTICO TL UCF 205 BLANCO + ROD CROMO · SOPORTE TERMOPLASTICO TL UCF 205 BLANCO + ROD INOX |
-| inoxidables | 25 | SOPORTE INOX TL UCF 204 · SOPORTE INOX TL UCF 205 · SOPORTE INOX TL UCF 206 |
+| cuerpos de soporte sin rodamiento (F, FL, P, T, SP inox…) | 33 | SNR F 204 · SNR F 208 · SNR F 209 |
 | partidos (SNL / SNC) | 23 | SNR SNC 217-314 · SNR SNC 218-315 · SNR SNC 512-610 |
-| tapas para soporte partido | 13 | SNR SC 210 DS · SNR SC 212 DS · SNR SC 217 DS |
-| de chapa de acero | 4 | SNR USPF 209 · SNR PF 209 · SNR USPFL 203 |
+| inoxidables | 14 | SOPORTE INOX TL UCF 204 · SOPORTE INOX TL UCF 205 · SOPORTE INOX TL UCF 206 |
+| accesorios para soporte partido (juntas y tapas) | 13 | SNR SC 210 DS · SNR SC 212 DS · SNR SC 217 DS |
+| de chapa de acero | 2 | SNR USPF 209 · SNR USPFL 203 |
 
 **Por forma del cuerpo:** de brida oval, 2 agujeros (UCFL) 65 · de brida cuadrada, 4 agujeros (UCF) 55 · de pie (UCP) 53 · de brida redonda con centraje (UCFC) 40 · de brida de 3 agujeros (UCFB / UCFA) 36 · de pie con base roscada / alto (UCPA) 29 · partidos (SNL / SNC) 23 · tensores (UCT) 22 · tapas 13 · colgantes 5 · de chapa 4
 
@@ -26,7 +27,10 @@ Piezas para montar rodamientos en el eje y cerrar soportes: manguitos de fijaci�
 
 | Tipo | Artículos | Ejemplos |
 |---|---:|---|
-| otros | 42 | SNR ANILLO FR 110X4X3 · SNR ANILLO FR 130X5X4 · SNR AOH 2356 G MANGUITO DESMONTAJE |
+| manguitos de fijación (H) y de desmontaje (AOH) | 27 | SNR AOH 2356 G MANGUITO DESMONTAJE · MANGUITO MONTAJE TL H307 · MANGUITO MONTAJE TL H309 |
+| tapas ciegas para soporte | 9 | TAPA CIEGA TL AZUL 204 · TAPA CIEGA TL BLANCA 204 · TAPA CIEGA TL BLANCA 206 |
+| tuercas y arandelas de fijación | 4 | SNR HM 3064 TUERCA FIJ. 320MM · SNR HM 52 T TUERCA FIJ. 260MM · SNR MB 52 ARANDELA 260MM |
+| anillos de fijación | 2 | SNR ANILLO FR 110X4X3 · SNR ANILLO FR 130X5X4 |
 
 **Marcas:** TL (Translink) 35 · SNR 7
 
@@ -36,7 +40,7 @@ Los rodamientos se eligen por el TIPO (según la carga y el montaje) y por las M
 
 | Tipo | Artículos | Ejemplos |
 |---|---:|---|
-| rígidos de bolas (60xx, 62xx, 63xx, 68xx, 69xx…) | 722 | SNR 6000 · SNR 6000 C3 · SNR 6000 EE |
+| rígidos de bolas (60xx, 62xx, 63xx, 68xx, 69xx…) | 731 | SNR 6000 · SNR 6000 C3 · SNR 6000 EE |
 | de rodillos cónicos (302xx, 303xx, 320xx, 322xx, 330xx, 4T-…) | 434 | NTN 302/32 · NTN 30201C · NTN 30202 |
 | oscilantes de rodillos a rótula (222xx, 223xx, 230xx, 231xx, 240xx…) | 311 | NTN 21307 EA K W33 C3 · NTN 21307 EA W33 · NTN 21307 EA W33 C3 |
 | axiales (511xx, 512xx, 513xx, 811xx, 29xxx, AXK) | 119 | NTN 81103T2 · NTN 81110 T2 · NTN 81211T2 |
@@ -44,7 +48,7 @@ Los rodamientos se eligen por el TIPO (según la carga y el montaje) y por las M
 | de agujas (NK, HK, NA, RNA, casquillos) | 79 | NTN 1R 17X20X20 ( IR 17X20X20 ) · NTN 1R 25X32X22 ( IR 25X32X22 ) · NTN 1R 80X90X30 ( IR 80X90X30 ) |
 | autoalineables de bolas (12xx, 13xx, 22xx, 23xx) | 63 | NTN 1201 S · NTN 1201 S C3 · NTN 1202 S C3 |
 | de rodillos cilíndricos (NU, NJ, NUP, N) | 61 | NTN NJ 2308 EAT2X · NTN NU307 EAT2X C3 · NTN NJ 214 EAT2X |
-| de contacto angular (72xx B, 73xx B, 32xx/33xx, 52xx/53xx) | 55 | NTN 3202 S · NTN 3203 S · NTN 3203 S C3 |
+| de contacto angular (72xx B, 73xx B, 32xx/33xx, 52xx/53xx) | 46 | NTN 3202 S · NTN 3203 S · NTN 3203 S C3 |
 | rodillos de leva y seguidores (KR, NATR, NATV, NUTR, NUKR) | 25 | NTN KR16 FLLD0H/L588 · NTN KR19 FLLD0H/L588 · NTN KR35 LLH/3AS |
 | lineales (BBE, BBER, LSE, KH) | 24 | NTN BBE 20 UU (KB20PP) · NTN BBE 25 LUU · NTN BBE 25 UU (KB25PP) |
 | otros | 4 | NTN 2AS09-1.1/4 D1 · RODAMIENTO INA SL 182944 B XL · RODAMIENTO INA RCSMF 25 XL |
@@ -99,7 +103,7 @@ El casquillo Taper Lock se designa por su tamaño (1008, 1108, 1210, 1610, 1615,
 
 | Tipo | Artículos | Ejemplos |
 |---|---:|---|
-| otros | 65 | TAPER 1008 EJE 12MM TL · TAPER 1008 EJE 14MM TL · TAPER 1008 EJE 16MM TL |
+| casquillos cónicos Taper Lock | 65 | TAPER 1008 EJE 12MM TL · TAPER 1008 EJE 14MM TL · TAPER 1008 EJE 16MM TL |
 
 **Marcas:** TL (Translink) 65
 

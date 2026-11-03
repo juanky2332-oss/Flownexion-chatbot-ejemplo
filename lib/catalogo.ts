@@ -111,7 +111,12 @@ export const FAMILIAS: Familia[] = [
     explicacion:
       "Piezas para montar rodamientos en el eje y cerrar soportes: manguitos de fijación (H) y de desmontaje (AOH), tuercas (KM/HM) y arandelas de seguridad (MB/MS), anillos de fijación (FR) y tapas ciegas para soportes.",
     afinar: "la referencia del rodamiento o del soporte en el que va",
-    tipos: [],
+    tipos: [
+      { id: "manguito", nombre: "manguitos de fijación (H) y de desmontaje (AOH)", re: /MANGUITO/, pide: /manguito/ },
+      { id: "tuerca", nombre: "tuercas y arandelas de fijación", re: /TUERCA|ARANDELA|^SNR (HM|MB|MS)\b/, pide: /tuerca|arandela/ },
+      { id: "anillo", nombre: "anillos de fijación", re: /ANILLO/, pide: /anillo/ },
+      { id: "tapa-ciega", nombre: "tapas ciegas para soporte", re: /TAPA CIEGA/, pide: /tapas?\b/ },
+    ],
   },
 
   // ──────────────────────────── RODAMIENTOS ───────────────────────────
@@ -336,6 +341,8 @@ export interface ConsultaFamilia {
   /** Forma de soporte pedida. */
   forma?: string;
   marca?: string;
+  /** Pide acero inoxidable (en soportes va por tipo; en el resto, por el nombre). */
+  inox?: boolean;
   /** Diámetro de eje en mm (soportes, taper, retenes). */
   eje?: number;
   /** Serie numérica pedida (205, 1610, 08B…). */
@@ -405,9 +412,11 @@ export function consultaDeFamilia(message: string, anterioresDelCliente: string[
   if (tipos.length) partes.push(tipos.map((t) => familia!.tipos.find((x) => x.id === t)?.nombre).join(" o "));
   if (forma) partes.push(NOMBRE_FORMA[forma]);
   if (marca) partes.push(`marca ${marca}`);
+  const inox = familia.id !== "soportes" && /\binox|inoxidable/.test(plano) ? true : undefined;
+  if (inox) partes.push("inoxidables");
   if (eje) partes.push(`eje de ${eje} mm`);
   if (serie) partes.push(`serie ${serie}`);
-  return { familia, tipos, forma, marca, eje, serie, descripcion: partes.join(", ") };
+  return { familia, tipos, forma, marca, eje, serie, inox, descripcion: partes.join(", ") };
 }
 
 export interface ArticuloIndice {
@@ -435,6 +444,7 @@ export function cumpleConsulta(p: ArticuloIndice, c: ConsultaFamilia): boolean {
   // completa: el cuerpo suelto (SNR P 206, SP 205 INOX…) solo si lo pide.
   if (clase.tipo === "cuerpo" && !c.tipos.includes("cuerpo") && (c.tipos.length || c.forma || c.serie || c.eje)) return false;
   if (c.marca && marcaDeNombre(p.name) !== c.marca) return false;
+  if (c.inox && !/INOX/.test(n)) return false;
   if (c.serie) {
     if (c.familia.id === "cadenas") {
       if (!new RegExp(`\\b${c.serie}B`).test(n)) return false;
@@ -603,6 +613,7 @@ export function buscarEnIndice(indice: ArticuloIndice[], query: string): Articul
       /\b\d+\s*(mm|milimetros)\s+de\s+eje/,
       ...(c.serie ? [new RegExp(`\\b${c.serie.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s?b?\\b`)] : []),
       /\b(rodillos?|bolas?|tipo|serie|marca|de|con|para)\b/,
+      /\binox\w*/,
     ])
   );
   return ordenarPorPalabras(
@@ -683,6 +694,6 @@ export function resumenGeneral(indice: ArticuloIndice[]): Array<{ familia: Famil
  */
 export function convieneMuestra(c: ConsultaFamilia): boolean {
   if (c.familia.id === "correas") return false;
-  if (c.tipos.length || c.forma || c.serie || c.eje) return true;
+  if (c.tipos.length || c.forma || c.serie || c.eje || c.inox) return true;
   return ["soportes", "cadenas", "taper", "bondioli", "accesorios-montaje"].includes(c.familia.id) || (!!c.marca && c.familia.id !== "rodamientos");
 }

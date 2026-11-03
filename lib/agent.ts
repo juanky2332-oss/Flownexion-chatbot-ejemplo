@@ -1892,14 +1892,14 @@ export async function runAgent(
     const anterioresCliente = history.filter((m) => m.role === "user").map((m) => String(m.content ?? ""));
     const consultaCat = consultaDeFamilia(message, anterioresCliente);
     const medidasAqui = medidasDelMensaje(message);
-    const acotada = (c: ConsultaFamilia) => !!(c.tipos.length || c.forma || c.serie || c.eje || c.marca);
+    const acotada = (c: ConsultaFamilia) => !!(c.tipos.length || c.forma || c.serie || c.eje || c.marca || c.inox);
     try {
       if (consultaCat && !(consultaCat.familia.id === "rodamientos" && medidasAqui) && (pideProductos(message) || acotada(consultaCat))) {
         onEvento?.({ tipo: "estado", texto: "Revisando el catálogo…" });
         const indice = await indiceCatalogo();
         const pedido = resumirFamilia(indice, consultaCat);
         const entera = acotada(consultaCat)
-          ? resumirFamilia(indice, { ...consultaCat, tipos: [], forma: undefined, serie: undefined, eje: undefined, marca: undefined })
+          ? resumirFamilia(indice, { ...consultaCat, tipos: [], forma: undefined, serie: undefined, eje: undefined, marca: undefined, inox: undefined })
           : pedido;
         let muestra: Product[] = [];
         let conStock: number | null = null;
