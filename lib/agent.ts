@@ -12,7 +12,6 @@ import {
   consultaDeFamilia,
   resumirFamilia,
   elegirMuestra,
-  convieneMuestra,
   pideProductos,
   preguntaGeneralCatalogo,
   resumenGeneral,
@@ -659,6 +658,8 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 - Responder a una consulta con medidas (eje, exterior, ancho) solo con un escalado: con las medidas siempre hay referencias estándar que proponer (bloque 🔒 BÚSQUEDA POR MEDIDAS o search_by_bore).
 - **Decir que un producto no está en la página cuando el bloque 🔒 DISPONIBLE EN NUESTRA PÁGINA lo lista** — ese bloque sale de una consulta al catálogo real hecha en el momento, así que es un hecho comprobado. Negarlo es mentirle al cliente y hacerle perder una compra que sí podíamos servir: es el error MÁS GRAVE que puedes cometer. Lo mismo si el cliente insiste en una referencia y tú aún no has buscado: busca antes de negar nada
 - **Decir que no tenemos un TIPO de producto (soportes, soportes de fundición, rodamientos de rodillos, retenes de Vitón, cadenas dobles, racores…) cuando el bloque 🔒 CATÁLOGO DE LA PÁGINA dice que sí hay**, o decirlo sin que ese bloque ni search_products lo hayan confirmado. Caso real (03-11-2026): "¿tenéis soportes de fundición?" → "no tenemos", con más de 200 en la página. Si no hay bloque y dudas, busca con search_products por el tipo ("soportes de fundición", "rodamientos de rodillos cónicos"): entiende lenguaje natural. Y si un tipo concreto de verdad no está, se dice "en la tienda online no aparece", nunca "no trabajamos eso"
+- Decir cuántos artículos hay en la página ("226 artículos", "más de 600 racores", "una gama de 434 referencias"): no le aporta nada al cliente. Se dicen los tipos que hay y algún ejemplo real
+- Presentar productos para comprar (con precio y tarjeta) cuando el cliente solo pregunta si tenemos una familia o qué tipos hay: primero se averigua qué pieza necesita
 - Dar por no disponible una referencia por el hecho de que la ficha técnica venga del KB y no del catálogo: son dos fuentes distintas. Tener la ficha técnica NO significa que no esté a la venta — para saber si está en la página hay que mirar el resultado de search_products (o el bloque 🔒 de disponibilidad), nunca suponerlo
 - Explicar de memoria un concepto de sellado, juego interno, jaula, precisión, sufijo o perfil de correa sin haber llamado antes a explain_technical_term (o sin usar el bloque 🔒 GLOSARIO TÉCNICO VERIFICADO si ya aparece en la conversación) — es la causa de errores técnicos que llevan al cliente a montar una pieza equivocada (ver CONCEPTOS TÉCNICOS)
 - Contradecir, matizar o "completar" el contenido del glosario con datos que no vengan de él: si lo que recuerdas no coincide con lo que devuelve explain_technical_term, el glosario tiene razón
@@ -1885,14 +1886,25 @@ export async function runAgent(
   // Visto el 03-11-2026 (cliente real): contestaba "no tenemos soportes de
   // ningún tipo" con más de 300 en la página. Se resuelve en código sobre el
   // catálogo entero clasificado por familias (lib/catalogo.ts) y se le pasa al
-  // modelo como dato verificado, con tarjetas de muestra cuando la consulta
-  // está acotada. 5º uso del patrón de pre-inyección.
+  // modelo como dato verificado. 5º uso del patrón de pre-inyección.
+  //
+  // Criterio del cliente (03-11-2026): NUNCA cifras de cuántos artículos hay
+  // ("226 artículos" no le interesa a nadie), solo qué tipos hay con algún
+  // ejemplo real; y tarjetas de compra SOLO cuando pide una pieza concreta
+  // (p. ej. "soporte de pie para eje de 30" → UCP 206). Preguntar "¿vendéis
+  // soportes?" y recibir tres botones de carrito al azar no tiene sentido.
   let catalogoResuelto = false;
+  let catalogoSinTarjetas = false;
   if (!refDetectada) {
     const anterioresCliente = history.filter((m) => m.role === "user").map((m) => String(m.content ?? ""));
     const consultaCat = consultaDeFamilia(message, anterioresCliente);
     const medidasAqui = medidasDelMensaje(message);
     const acotada = (c: ConsultaFamilia) => !!(c.tipos.length || c.forma || c.serie || c.eje || c.marca || c.inox);
+    // Pieza concreta = sale de la serie o del eje (soporte UCP 206, taper 1610 eje 25…).
+    const piezaConcreta = (c: ConsultaFamilia) => !!(c.serie || c.eje);
+    const sinCifras =
+      `NO digas cuántos artículos hay de nada (ni totales, ni por tipo, ni "más de X", ni "una amplia gama de N"): al cliente no le aporta. ` +
+      `Nombra los tipos y, como mucho, uno o dos ejemplos reales de los de arriba, sin precio.`;
     try {
       if (consultaCat && !(consultaCat.familia.id === "rodamientos" && medidasAqui) && (pideProductos(message) || acotada(consultaCat))) {
         onEvento?.({ tipo: "estado", texto: "Revisando el catálogo…" });
@@ -1901,64 +1913,74 @@ export async function runAgent(
         const entera = acotada(consultaCat)
           ? resumirFamilia(indice, { ...consultaCat, tipos: [], forma: undefined, serie: undefined, eje: undefined, marca: undefined, inox: undefined })
           : pedido;
-        let muestra: Product[] = [];
-        let conStock: number | null = null;
-        if (entera.total > 0 && pedido.total > 0 && convieneMuestra(consultaCat)) {
+        const concreta = piezaConcreta(consultaCat) && pedido.total > 0 && pedido.total <= 40;
+        // Ejemplos reales CON stock (uno por tipo) para nombrarlos en el texto.
+        let ejemplos: string[] = [];
+        let tarjetas: Product[] = [];
+        if (pedido.total > 0) {
           const pool = (consultaCat.familia.id === "neumatica" ? mejoresPorPalabras(pedido.coincidentes, message) : pedido.coincidentes).slice(0, 400);
           const stock = await stockDeVarios(pool.map((p) => p.id));
-          conStock = pool.filter((p) => (stock[p.id] ?? 0) > 0).length;
-          const elegidos = elegirMuestra(pool, stock, 3).map((p) => ({ id: p.id, name: p.name }));
-          muestra = elegidos.length ? await hidratarProductos(elegidos, groupId, customerId, 3) : [];
-          for (const p of muestra) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+          const elegidos = elegirMuestra(pool, stock, concreta ? 3 : 4);
+          ejemplos = elegidos.map((p) => p.name.replace(/\s+/g, " ").trim());
+          if (concreta) {
+            tarjetas = await hidratarProductos(elegidos.map((p) => ({ id: p.id, name: p.name })), groupId, customerId, 3);
+            for (const p of tarjetas) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+          }
         }
-        const lineaTipo = (t: { nombre: string; cuantos: number; ejemplos: string[] }) =>
-          `- ${t.nombre}: ${t.cuantos} artículos (p. ej. ${t.ejemplos.slice(0, 2).join("; ")})`;
         const nombreFam = consultaCat.familia.nombre;
         const partes: string[] = [];
         partes.push(`🔒 CATÁLOGO DE LA PÁGINA — comprobado ahora sobre el catálogo completo de la tienda, para: «${consultaCat.descripcion}».`);
         if (entera.total === 0) {
           partes.push(`En la página no hay ningún artículo de ${nombreFam}. Dilo con honestidad (en la tienda online no aparece) y ofrece el contacto.`);
         } else {
-          partes.push(`SÍ TENEMOS ${nombreFam.toUpperCase()}: ${entera.total} artículos en la página.`);
-          if (acotada(consultaCat)) {
+          partes.push(`SÍ TENEMOS ${nombreFam.toUpperCase()} en la página.`);
+          if (acotada(consultaCat) && pedido.total === 0) {
+            partes.push(`De exactamente eso (${consultaCat.descripcion}) NO hay nada en la página: dilo así, SIN negar la familia (que sí la tenemos), y ofrece lo más cercano de los tipos de abajo o el contacto.`);
+          }
+          const tiposPedido = pedido.porTipo.filter((t) => t.id !== "otros").map((t) => t.nombre);
+          if (tiposPedido.length) partes.push(`Tipos que hay de lo que pide: ${tiposPedido.join("; ")}.`);
+          if (acotada(consultaCat) && entera.porTipo.length > 1) {
+            partes.push(`En la familia también hay: ${entera.porTipo.map((t) => t.nombre).join("; ")}.`);
+          }
+          const formas = (pedido.total ? pedido : entera).porForma.map((f) => f.nombre);
+          if (formas.length) partes.push(`Formas de cuerpo disponibles: ${formas.join(", ")}.`);
+          const marcas = (pedido.total ? pedido : entera).marcas.map((m) => m.marca);
+          if (marcas.length) partes.push(`Marcas: ${marcas.join(", ")}.`);
+          if (ejemplos.length) partes.push(`Ejemplos reales con stock (para nombrar, sin precio): ${ejemplos.join(" · ")}.`);
+          partes.push(`Cómo se elige (explícaselo en 1-2 frases): ${consultaCat.familia.explicacion}`);
+          if (tarjetas.length) {
             partes.push(
-              pedido.total > 0
-                ? `De lo que pide en concreto (${consultaCat.descripcion}) hay ${pedido.total} artículos${conStock !== null ? `, ${conStock} con stock ahora mismo` : ""}.`
-                : `De exactamente eso (${consultaCat.descripcion}) NO hay ningún artículo en la página: dilo así, SIN negar la familia (que sí la tenemos), y ofrece lo más cercano de la lista de abajo o el contacto.`
+              `Es una pieza concreta: estas son las opciones reales, con su tarjeta de compra debajo de tu respuesta:\n` +
+                tarjetas.map((p) => `- ${p.name} — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}${unidadDeVenta(p)}`).join("\n") +
+                `\nPreséntalas nombrando cada una con su nombre EXACTO (si no la nombras, su tarjeta no sale).`
+            );
+          } else {
+            catalogoSinTarjetas = true;
+            partes.push(
+              `Aún NO es una pieza concreta: en esta respuesta NO presentes productos para comprar, NO des precios ni stock y NO llames a search_products. ` +
+                `Primero hay que saber qué pieza necesita.`
             );
           }
-          if (pedido.total > 0 && pedido.porTipo.length) partes.push(`Lo que hay de lo que pide, por tipo:\n${pedido.porTipo.map(lineaTipo).join("\n")}`);
-          if (acotada(consultaCat) && entera.porTipo.length > 1) {
-            partes.push(`Toda la familia en la página, por tipo:\n${entera.porTipo.map((t) => `- ${t.nombre}: ${t.cuantos}`).join("\n")}`);
-          }
-          const formas = (pedido.total ? pedido : entera).porForma;
-          if (formas.length) partes.push(`Por forma del cuerpo: ${formas.map((f) => `${f.nombre} ${f.cuantos}`).join(" · ")}.`);
-          const marcas = (pedido.total ? pedido : entera).marcas;
-          if (marcas.length) partes.push(`Marcas: ${marcas.map((m) => m.marca).join(", ")}.`);
-          partes.push(`Cómo se elige (explícaselo en 2-3 líneas, con estas palabras técnicas): ${consultaCat.familia.explicacion}`);
           partes.push(
-            muestra.length
-              ? `Tarjetas de muestra que YA salen bajo tu respuesta (artículos reales con stock):\n${muestra
-                  .map((p) => `- ${p.name} — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}${unidadDeVenta(p)}`)
-                  .join("\n")}\nPreséntalas como ejemplos de la gama, no como las únicas que hay, nombrando cada una con su nombre EXACTO tal como aparece aquí (si no la nombras, su tarjeta no sale).`
-              : `No se enseñan tarjetas todavía: hace falta afinar antes de proponer una pieza concreta.`
-          );
-          partes.push(
-            `CÓMO RESPONDER: empieza por "Sí". Resume la gama por tipos (con sus cantidades aproximadas, sin inventar tipos que no estén aquí) y pregunta UNA sola cosa para afinar: ${consultaCat.familia.afinar}. ` +
-              `PROHIBIDO decir que no tenemos ${nombreFam} o cualquiera de los tipos listados: es un hecho comprobado en el catálogo. ` +
-              `Si el cliente pregunta además otra cosa (montaje, diferencias, una duda técnica), contéstala también: este bloque solo garantiza que no niegues lo que sí hay.`
+            `CÓMO RESPONDER: corto y natural. Empieza por "Sí", di qué tipos tenemos (con algún ejemplo) y pregunta UNA sola cosa para afinar: ${consultaCat.familia.afinar}. ` +
+              sinCifras +
+              ` PROHIBIDO decir que no tenemos ${nombreFam} o cualquiera de los tipos listados: es un hecho comprobado en el catálogo. ` +
+              `Si el cliente pregunta además otra cosa (montaje, diferencias, una duda técnica), contéstala también.`
           );
         }
         messages.push({ role: "system", content: partes.join("\n\n") });
         catalogoResuelto = true;
       } else if (!consultaCat && preguntaGeneralCatalogo(message)) {
         const general = resumenGeneral(await indiceCatalogo());
+        catalogoSinTarjetas = true;
         messages.push({
           role: "system",
           content:
-            `🔒 CATÁLOGO DE LA PÁGINA — resumen de todo lo que se vende en b2b.esgas.es (comprobado ahora):\n` +
-            general.map((g) => `- ${g.familia.nombre}: ${g.cuantos} artículos${g.tipos.length ? ` — ${g.tipos.slice(0, 6).join(", ")}` : ""}`).join("\n") +
-            `\n\nPreséntalo ordenado por familias (breve, una línea por familia) y pregunta qué necesita. No añadas familias que no estén aquí.`,
+            `🔒 CATÁLOGO DE LA PÁGINA — lo que se vende en b2b.esgas.es (comprobado ahora):\n` +
+            general.map((g) => `- ${g.familia.nombre}${g.tipos.length ? `: ${g.tipos.slice(0, 5).join(", ")}` : ""}`).join("\n") +
+            `\n\nPreséntalo ordenado por familias (una línea por familia) y pregunta qué necesita. No añadas familias que no estén aquí. ` +
+            sinCifras +
+            ` Sin productos para comprar en esta respuesta.`,
         });
         catalogoResuelto = true;
       } else if (!consultaCat) {
@@ -1968,16 +1990,13 @@ export async function runAgent(
           if (hallados.length) {
             const pool = hallados.slice(0, 120);
             const stock = await stockDeVarios(pool.map((p) => p.id));
-            const elegidos = elegirMuestra(pool, stock, 3).map((p) => ({ id: p.id, name: p.name }));
-            const muestra = await hidratarProductos(elegidos, groupId, customerId, 3);
-            for (const p of muestra) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+            const ejemplos = elegirMuestra(pool, stock, 3).map((p) => p.name);
             messages.push({
               role: "system",
               content:
-                `🔒 CATÁLOGO DE LA PÁGINA — SÍ hay ${hallados.length} artículos que encajan con «${palabras.join(" ")}» (comprobado ahora). Ejemplos:\n` +
-                hallados.slice(0, 6).map((p) => `- ${p.name}`).join("\n") +
-                (muestra.length ? `\nTarjetas que ya salen: ${muestra.map((p) => `${p.name} (stock ${p.stock ?? "?"})`).join("; ")}.` : "") +
-                `\nPROHIBIDO decir que no lo tenemos. Preséntalo (nombra las tarjetas con su nombre exacto) y pregunta UNA cosa para afinar (medida o modelo).`,
+                `🔒 CATÁLOGO DE LA PÁGINA — SÍ hay artículos que encajan con «${palabras.join(" ")}» (comprobado ahora). Ejemplos reales: ${ejemplos.join(" · ")}.\n` +
+                `PROHIBIDO decir que no lo tenemos. Dilo, nombra algún ejemplo y pregunta UNA cosa para afinar (medida o modelo). ` +
+                sinCifras,
             });
             catalogoResuelto = true;
           } else {
@@ -1990,6 +2009,7 @@ export async function runAgent(
             });
             catalogoResuelto = true;
           }
+          catalogoSinTarjetas = true;
         }
       }
     } catch {
@@ -2254,7 +2274,9 @@ export async function runAgent(
     }
     const ajustado = ajustarCantidad(
       borrador,
-      repartirTarjetas(tarjetasParaRespuesta(borrador, collected, message)),
+      // Pregunta general por una familia ("¿vendéis soportes?"): sin tarjetas de
+      // compra, aunque el modelo haya buscado por su cuenta (ver bloque CATÁLOGO).
+      repartirTarjetas(tarjetasParaRespuesta(borrador, catalogoSinTarjetas ? [] : collected, message)),
       message
     );
     const productos = ajustado.productos;
