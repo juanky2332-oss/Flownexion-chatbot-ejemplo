@@ -2350,7 +2350,8 @@ export async function runAgent(
     // 6004 ZZ C3 (71 uds) al pedir "zz de 20 mm" (visto el 03-11-2026).
     const indicePagina = await indiceCatalogo();
     const articulosDe = async (lista: TechInfo[]) => {
-      const bases = new Set(lista.map((o) => partirReferencia(o.referencia).base));
+      // 60/22 (eje de 22) sin la barra es el 6022 (eje de 110): otra pieza.
+      const bases = new Set(lista.filter((o) => !/^\D*\d+\/\d/.test(o.referencia)).map((o) => partirReferencia(o.referencia).base));
       const arts = indicePagina.filter((a) => /^(SNR|NTN|RODAMIENTO)\b/i.test(a.name) && bases.has(partirReferencia(a.name.replace(/\([^)]*\)/g, " ")).base));
       const stock = await stockDeVarios(arts.map((a) => a.id));
       return arts
