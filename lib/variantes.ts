@@ -201,6 +201,11 @@ export function distanciaVariante(pedidos: string[], v: { anade: string[]; quita
   return d;
 }
 
+const SELLADO_EQUIVALENTE: Record<string, string> = {
+  "2RS": "2RS", "2RS1": "2RS", EE: "2RS", LLU: "2RS", DDU: "2RS", "2RSR": "2RS",
+  ZZ: "ZZ", "2Z": "ZZ",
+};
+
 export function analizarVariantes(
   refPedida: string,
   productos: Product[]
@@ -214,9 +219,17 @@ export function analizarVariantes(
     const partida = partidaDelProducto(p, pedida.base);
     if (partida.base !== pedida.base) continue;
 
-    const exacta = partida.completa === pedida.completa;
-    const anade = partida.sufijos.filter((s) => !pedida.sufijos.includes(s));
-    const quita = pedida.sufijos.filter((s) => !partida.sufijos.includes(s));
+    // Misma pieza con la denominación de otra marca: 2RS = EE = LLU (junta de
+    // goma con contacto) y ZZ = 2Z (deflector). Visto el 03-11-2026: «6205 2RS
+    // C3» → «no está disponible», teniendo el SNR 6205 EE C3 con stock.
+    const canon = (s: string) => (SELLADO_EQUIVALENTE[s] ?? s);
+    const sufP = partida.sufijos.map(canon);
+    const sufQ = pedida.sufijos.map(canon);
+    const exacta =
+      partida.completa === pedida.completa ||
+      (sufP.length === sufQ.length && sufP.every((s) => sufQ.includes(s)) && sufQ.every((s) => sufP.includes(s)));
+    const anade = partida.sufijos.filter((s) => !sufQ.includes(canon(s)));
+    const quita = pedida.sufijos.filter((s) => !sufP.includes(canon(s)));
     familia.push({ producto: p, exacta, anade, quita, stock: p.stock });
   }
 
