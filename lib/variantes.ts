@@ -365,7 +365,20 @@ export function tarjetasParaRespuesta(respuesta: string, productos: Product[], m
       String(p.reference ?? "").toUpperCase().replace(/[\s\-/.]/g, "").replace(/^33(?=[A-Z])/, "").replace(/TL$/, ""),
       String(p.name ?? "").toUpperCase().trim().split(/\s+/).pop() ?? "",
     ].map((n) => n.replace(/[\-/.]/g, ""));
-    return nucleos.some((n) => n.length >= 3 && /\d/.test(n) && /[A-Z]/.test(n) && tokensTexto.has(n));
+    if (nucleos.some((n) => n.length >= 3 && /\d/.test(n) && /[A-Z]/.test(n) && tokensTexto.has(n))) return true;
+    // Nombre ENTERO citado ("RODAMIENTO TL 30207", "SNR SNC 512-610"): los
+    // nombres que, quitada la marca, son solo cifras no casaban con nada y su
+    // tarjeta se perdía. Se exige que detrás no venga otro sufijo ("… 30207 C3"
+    // es otra pieza): solo fin, puntuación o una palabra corriente.
+    const piezas = String(p.name ?? "").toUpperCase().replace(/\([^)]*\)/g, " ").split(/[\s\-/.]+/).filter(Boolean);
+    if (piezas.length >= 2 && piezas.join("").length >= 6) {
+      const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(
+        `(^|[^0-9A-ZÁÉÍÓÚÑ])${piezas.map(esc).join("[\\s\\-/.]*")}(?=\\s*([*_|,;:)\\]\\n—–]|$)|\\s+(—|–|-|EUR|CON|DE|A|Y|POR|PARA|EN|ES|SIN|QUE)\\b)`
+      );
+      if (re.test(bruto)) return true;
+    }
+    return false;
   };
   // Entre los que el texto nombra, delante el que se puede comprar: si el bot
   // habla del 6305 y del 6305 C3 y solo el C3 tiene unidades, esa es la ficha

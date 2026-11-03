@@ -1066,6 +1066,12 @@ section("AUDITORÍA 26-10-2026 — fallos vistos en conversaciones reales");
   ok(!cat.pideProductos("¿cómo se monta un soporte?"), "pregunta de montaje: sin bloque de catálogo");
   ok(cat.preguntaGeneralCatalogo("¿qué productos tenéis?") && cat.preguntaGeneralCatalogo("qué vendéis?"), "«¿qué vendéis?» → resumen de todo el catálogo");
   ok(cat.resumenGeneral(indice).length === cat.FAMILIAS.length, "el resumen general tiene todas las familias");
+  const inox = cat.resumirFamilia(indice, cat.consultaDeFamilia("¿tenéis soportes inox?")!).coincidentes;
+  ok(inox.length > 0 && !inox.some((p) => /TERMOPLASTICO/.test(p.name)), "«soportes inox» no mezcla termoplásticos con rodamiento inox");
+  const vt = require("../lib/variantes") as typeof import("../lib/variantes");
+  const PT = (name: string, reference: string) => ({ id: name.length, name, reference, price: 1, stock: 5, link: "", cartLink: "", checkoutLink: "" });
+  ok(vt.tarjetasParaRespuesta("- **RODAMIENTO TL 30207** — 2.09 EUR", [PT("RODAMIENTO TL 30207", "3330207TL")] as any[]).length === 1, "tarjeta de un nombre solo numérico (TL 30207) ya no se pierde");
+  ok(vt.tarjetasParaRespuesta("el **RODAMIENTO TL 6205 2RS**", [PT("RODAMIENTO TL 6205", "336205TL")] as any[]).length === 0, "… pero «TL 6205» no se cuela si el texto habla del 6205 2RS");
 }
 console.log(`\n${fails === 0 ? "TODO OK" : fails + " FALLOS"}\n`);
 process.exit(fails === 0 ? 0 : 1);

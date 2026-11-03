@@ -424,7 +424,9 @@ export function cumpleConsulta(p: ArticuloIndice, c: ConsultaFamilia): boolean {
   if (c.tipos.length) {
     const ok = c.tipos.some((t) => {
       const def = c.familia.tipos.find((x) => x.id === t);
-      return clase.tipo === t || (def ? def.re.test(n) : false);
+      // Manda la clasificación: "SOPORTE TERMOPLASTICO … + ROD INOX" lleva
+      // INOX en el nombre pero NO es un soporte inoxidable.
+      return clase.tipo ? clase.tipo === t : def ? def.re.test(n) : false;
     });
     if (!ok) return false;
   }
@@ -496,7 +498,18 @@ export function elegirMuestra(coincidentes: ArticuloIndice[], stock: Record<numb
   const vistos = new Set<string>();
   const out: ArticuloIndice[] = [];
   const ordenados = [...base].sort((a, b) => (stock[b.id] ?? 0) - (stock[a.id] ?? 0));
+  // Primero uno de cada TIPO (fundición, inox, termoplástico…), luego formas.
+  const tiposVistos = new Set<string>();
   for (const p of ordenados) {
+    const t = clasificarProducto(p.name)?.tipo ?? "";
+    if (tiposVistos.has(t) || t === "cuerpo" || t === "tapa") continue;
+    tiposVistos.add(t);
+    vistos.add(clave(p));
+    out.push(p);
+    if (out.length >= max) return out;
+  }
+  for (const p of ordenados) {
+    if (out.includes(p)) continue;
     const k = clave(p);
     if (vistos.has(k)) continue;
     vistos.add(k);
@@ -596,6 +609,24 @@ export function buscarEnIndice(indice: ArticuloIndice[], query: string): Articul
     indice.filter((p) => cumpleConsulta(p, c) && (resto.length === 0 || nombreTienePalabras(p.name, resto))),
     plano
   );
+}
+
+/**
+ * De una lista ya filtrada por familia, los que llevan en el nombre MÁS
+ * palabras o medidas del mensaje ("electroválvulas 5/2" → las 5/2). Si
+ * ninguno lleva ninguna, la lista tal cual.
+ */
+export function mejoresPorPalabras(lista: ArticuloIndice[], texto: string): ArticuloIndice[] {
+  const plano = minus(texto);
+  const pal = Array.from(new Set([...palabrasDeConsulta(plano), ...(plano.match(/\b\d+([.,/]\d+)?\b/g) ?? [])]));
+  if (!pal.length || !lista.length) return lista;
+  const nota = (p: ArticuloIndice) => {
+    const toks = minus(p.name).split(/[^a-z0-9ñ/.,-]+/).flatMap((t) => [t, ...t.split(/[-]/)]).map(raiz);
+    return pal.filter((w) => toks.some((t) => t === w || (w.length >= 4 && t.startsWith(w)))).length;
+  };
+  const notas = lista.map((p) => ({ p, s: nota(p) }));
+  const max = Math.max(...notas.map((x) => x.s));
+  return max > 0 ? notas.filter((x) => x.s === max).map((x) => x.p) : lista;
 }
 
 /** Delante los que llevan en el nombre más palabras (o números) de la consulta: "racor codo 8" → los CODO de 8. */

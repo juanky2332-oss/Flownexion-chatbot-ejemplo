@@ -18,6 +18,7 @@ import {
   resumenGeneral,
   preguntaPorTipoDeProducto,
   buscarEnIndice,
+  mejoresPorPalabras,
   type ConsultaFamilia,
 } from "./catalogo";
 import {
@@ -1903,7 +1904,7 @@ export async function runAgent(
         let muestra: Product[] = [];
         let conStock: number | null = null;
         if (entera.total > 0 && pedido.total > 0 && convieneMuestra(consultaCat)) {
-          const pool = pedido.coincidentes.slice(0, 400);
+          const pool = (consultaCat.familia.id === "neumatica" ? mejoresPorPalabras(pedido.coincidentes, message) : pedido.coincidentes).slice(0, 400);
           const stock = await stockDeVarios(pool.map((p) => p.id));
           conStock = pool.filter((p) => (stock[p.id] ?? 0) > 0).length;
           const elegidos = elegirMuestra(pool, stock, 3).map((p) => ({ id: p.id, name: p.name }));
@@ -1939,7 +1940,7 @@ export async function runAgent(
             muestra.length
               ? `Tarjetas de muestra que YA salen bajo tu respuesta (artículos reales con stock):\n${muestra
                   .map((p) => `- ${p.name} — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}${unidadDeVenta(p)}`)
-                  .join("\n")}\nPreséntalas como ejemplos de la gama, no como las únicas que hay.`
+                  .join("\n")}\nPreséntalas como ejemplos de la gama, no como las únicas que hay, nombrando cada una con su nombre EXACTO tal como aparece aquí (si no la nombras, su tarjeta no sale).`
               : `No se enseñan tarjetas todavía: hace falta afinar antes de proponer una pieza concreta.`
           );
           partes.push(
@@ -1976,7 +1977,7 @@ export async function runAgent(
                 `🔒 CATÁLOGO DE LA PÁGINA — SÍ hay ${hallados.length} artículos que encajan con «${palabras.join(" ")}» (comprobado ahora). Ejemplos:\n` +
                 hallados.slice(0, 6).map((p) => `- ${p.name}`).join("\n") +
                 (muestra.length ? `\nTarjetas que ya salen: ${muestra.map((p) => `${p.name} (stock ${p.stock ?? "?"})`).join("; ")}.` : "") +
-                `\nPROHIBIDO decir que no lo tenemos. Preséntalo y pregunta UNA cosa para afinar (medida o modelo).`,
+                `\nPROHIBIDO decir que no lo tenemos. Preséntalo (nombra las tarjetas con su nombre exacto) y pregunta UNA cosa para afinar (medida o modelo).`,
             });
             catalogoResuelto = true;
           } else {
