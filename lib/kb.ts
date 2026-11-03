@@ -1630,6 +1630,8 @@ export interface CriterioMedidas {
   an?: number;
   /** "ambas" = el cliente dice "tapa/tapado/cerrado" sin precisar metálica o de goma. */
   proteccion?: Proteccion;
+  /** Juego interno pedido expresamente ("C3"). */
+  juego?: string;
 }
 
 const esRadialDeBolas = (c: Record<string, string | number>) =>
@@ -1707,7 +1709,12 @@ export function medidasDelMensaje(mensaje: string): CriterioMedidas | null {
     // "rodamiento con diámetro 25", "rodamientos de 25 mm": en un rodamiento,
     // el diámetro a secas es el del eje (el exterior se dice "exterior").
     new RegExp(String.raw`\bdiametro\b(?!\s+(?:exterior|externo))\D{0,6}?` + num + mm).exec(m) ??
-    new RegExp(String.raw`\brodamientos?\s+(?:de|para)\s+(?:un\s+)?` + num + String.raw`\s*(?:mm|mms|milimetros)\b`).exec(m);
+    new RegExp(String.raw`\brodamientos?\s+(?:de|para)\s+(?:un\s+)?` + num + String.raw`\s*(?:mm|mms|milimetros)\b`).exec(m) ??
+    // "rodamientos c3 con 23 mms": con otras palabras por medio (visto el
+    // 03-11-2026: no se leía la medida y el bot contestaba "no tenemos").
+    (/\brodamiento/.test(m)
+      ? new RegExp(String.raw`\b(?:con|de|para)\s+` + num + String.raw`\s*(?:mm|mms|milimetros)\b(?!\s+(?:de\s+)?(?:ancho|anchura|exterior|espesor|grosor))`).exec(m)
+      : null);
   if (!interior) return null;
   const di = Number(interior[1].replace(",", "."));
   if (!Number.isFinite(di) || di <= 0 || di > 600) return null;
@@ -1720,12 +1727,75 @@ export function medidasDelMensaje(mensaje: string): CriterioMedidas | null {
   else if (/(metalic|chapa|\bzz\b|deflector)/.test(m)) proteccion = "deflector";
   else if (/(tapa|tapad|cerrad|blindad|protegid|proteccion)/.test(m)) proteccion = "ambas";
   else if (/(abierto|sin tapa|sin proteccion)/.test(m)) proteccion = "abierto";
+  const juego = /\bc([2-5])\b/.exec(m)?.[0].toUpperCase();
   return {
     di,
     ...(ext ? { de: Number(ext[1].replace(",", ".")) } : {}),
     ...(anc ? { an: Number(anc[1].replace(",", ".")) } : {}),
     ...(proteccion ? { proteccion } : {}),
+    ...(juego ? { juego } : {}),
   };
+}
+
+/**
+ * Medidas del mensaje teniendo en cuenta la conversación: "y de 55?" después
+ * de "rodamientos c3 con 23 mms" es un C3 de 55 mm. Lo que el cliente diga
+ * ahora manda; lo demás (juego, protección) sigue de su mensaje anterior.
+ */
+export function medidasConContexto(mensaje: string, anterioresCliente: string[] = []): CriterioMedidas | null {
+  const propias = medidasDelMensaje(mensaje);
+  if (propias) return propias;
+  const corto = /^\s*(?:y\s+)?(?:(?:de|con|para|en)\s+)?(\d+(?:[.,]\d+)?)\s*(?:mm|mms|milimetros)?\b(.{0,30})$/i.exec(mensaje.trim());
+  if (!corto) return null;
+  const di = Number(corto[1].replace(",", "."));
+  if (!Number.isFinite(di) || di <= 0 || di > 600) return null;
+  for (let i = anterioresCliente.length - 1; i >= 0; i--) {
+    const previas = medidasDelMensaje(anterioresCliente[i]);
+    if (!previas) continue;
+    const ahora = medidasDelMensaje(`rodamiento de ${di} mm ${corto[2]}`);
+    const proteccion = ahora?.proteccion ?? previas.proteccion;
+    const juego = ahora?.juego ?? previas.juego;
+    return { di, ...(proteccion ? { proteccion } : {}), ...(juego ? { juego } : {}) };
+  }
+  return null;
+}
+
+/** Diámetros de eje de rodamientos rígidos más próximos al pedido, del más cercano al más lejano. */
+export function boresCercanos(di: number, limite = 4): number[] {
+  const todos = new Set<number>();
+  for (const r of loadTech()) {
+    const d = Number(r.campos.di);
+    if (Number.isFinite(d) && d !== di && esRadialDeBolas(r.campos)) todos.add(d);
+  }
+  return [...todos].sort((a, b) => Math.abs(a - di) - Math.abs(b - di) || b - a).slice(0, limite);
+}
+
+/**
+ * Lo más parecido a una pieza que no se puede comprar: el mismo tipo, con el
+ * mismo agujero, y de menos a más diferencia de exterior y ancho, con delante
+ * la misma protección. Es otra referencia, no una variante de la misma.
+ */
+export function parecidosPorMedidas(ficha: TechInfo, limite = 8): TechInfo[] {
+  const filas = loadTech();
+  const propia = filas.find((r) => r.marca === ficha.marca && r.refNorm === norm(ficha.referencia))?.campos;
+  if (!propia || propia.di === undefined) return [];
+  const distancia = (c: Record<string, string | number>) =>
+    Math.abs(Number(c.de ?? 0) - Number(propia.de ?? 0)) + Math.abs(Number(c.an ?? 0) - Number(propia.an ?? 0));
+  const candidatas = filas
+    .filter(
+      (r) =>
+        Number(r.campos.di) === Number(propia.di) &&
+        r.campos.clase === propia.clase &&
+        r.campos.clase2 === propia.clase2 &&
+        r.refNorm !== norm(ficha.referencia)
+    )
+    .sort(
+      (a, b) =>
+        Number(tipoJunta(b.campos) === tipoJunta(propia)) - Number(tipoJunta(a.campos) === tipoJunta(propia)) ||
+        distancia(a.campos) - distancia(b.campos) ||
+        a.ref.length - b.ref.length
+    );
+  return candidatas.slice(0, limite).map((r) => ({ ...labelTech(r), coincidencia: "exacta" as const }));
 }
 
 /**

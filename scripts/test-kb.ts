@@ -439,9 +439,67 @@ if (bloque) {
   ok(/AÑADE el\/los sufijo\(s\): C3/.test(bloque), "dice cual es el sufijo que cambia");
   ok(/juego/i.test(bloque), "incluye la explicacion VERIFICADA del glosario, no una de memoria");
   ok(/PROHIBIDO.*a.adir al carrito la referencia sin stock/s.test(bloque), "prohibe ofrecer la que no hay");
-  ok(/compare_products/.test(bloque), "pide la comparativa de diferencias");
+  ok(/FORMATO DE ESTA RESPUESTA/.test(bloque), "pide respuesta breve: la comparación la pone el código");
 }
 ok(bloqueVariantes(a2) === null, "NO genera bloque cuando la exacta si tiene stock");
+
+section("LO MÁS PARECIDO — diferencias calculadas, no redactadas");
+{
+  const alt = require("../lib/alternativa") as typeof import("../lib/alternativa");
+  const fi = require("../lib/ficha") as typeof import("../lib/ficha");
+  const kbm = require("../lib/kb") as typeof import("../lib/kb");
+  const ficha = (ref: string, marca = "SNR") => {
+    const t = kbm.findTechnicalInfo(`${marca} ${ref}`).find((x) => x.marca.startsWith(marca) && x.referencia.replace(/\s/g, "") === ref.replace(/\s/g, ""));
+    if (!t) throw new Error("sin ficha " + ref);
+    return fi.fichaDesdeKb(t);
+  };
+  // La conversación real del 03-11-2026.
+  const abierto = ficha("6011 C3");
+  const ee = ficha("6011 EE C3");
+  const zz = ficha("6011 ZZ C3");
+  const de = alt.diferenciaFrente(abierto, ee);
+  const todoEE = JSON.stringify(de);
+  ok(/29,8 kN frente a 31,9 kN/.test(todoEE), "carga dinámica con las cifras reales de las fichas", todoEE.slice(0, 200));
+  ok(/4400 rpm frente a 12\.?000 rpm/.test(todoEE), "velocidad límite con las cifras reales");
+  ok(de.ventajas.some((v) => /estanco/.test(v)), "ventaja de la junta: estanco");
+  ok(de.inconvenientes.some((v) => /roce/.test(v)), "inconveniente de la junta: roce");
+  const dz = alt.diferenciaFrente(ee, zz);
+  ok(dz.ventajas.some((v) => /menos roce/.test(v)) && dz.inconvenientes.some((v) => /no es estanco/.test(v)), "de EE a ZZ: gana velocidad, pierde estanqueidad");
+  const juego = alt.diferenciaFrente(ficha("6004 ZZ"), ficha("6004 ZZ C3"));
+  ok(juego.cambios.some((c) => /juego C3 en lugar de juego normal/.test(c)) && juego.ventajas.some((v) => /holgura/.test(v)), "CN a C3");
+  const virtual = alt.diferenciaFrente(alt.fichaDeReferencia("6205 ZZ C2"), ficha("6205 ZZ C3"));
+  ok(virtual.cambios.some((c) => /juego C3 en lugar de juego C2/.test(c)), "referencia sin ficha: C2 frente a C3");
+  const medida = alt.diferenciaFrente(ficha("6004 ZZ"), ficha("6204 ZZ"));
+  ok(medida.inconvenientes.some((c) => /no entra en el mismo alojamiento/.test(c)), "otra serie: avisa del alojamiento");
+  ok(alt.sonParecidas([abierto, ee, zz]), "las tres 6011 C3 son parecidas");
+  ok(!alt.sonParecidas([ficha("6004 ZZ"), ficha("6011 C3")]), "distinto eje no es 'parecido'");
+  const txt = alt.textoComparativa([abierto, ee, zz], alt.diferenciasDe([abierto, ee, zz]), true);
+  ok(/Todas coinciden en:.*dØ55 × DØ90 × B18.*juego C3/.test(txt), "dice en qué coinciden", txt.slice(0, 120));
+  ok(!/Información técnica completa/.test(txt) && txt.length < 1400, "resumen corto, sin fichas", String(txt.length));
+  const bruto =
+    "Aquí tienes la comparativa de los dos:\n\n---\n**SNR 6011 C3**\n\n**Ref: SNR 6011 C3**\n\n- 60 → Serie\n\n**Medidas:** dØ55 × DØ90 × B18 mm\n\n**Información técnica completa:**\n- Peso: 362 g\n- Junta: No\n\n**Precio:** 6,66 EUR\n\n**Stock:** 🟢 10 uds disponibles\n\n**Diferencias:**\n- Peso: 1 g menos\n\n**Coincidencias:**\n- Medidas iguales\n\nPuedes añadir las unidades al carrito.";
+  const limpio = fi.sinFichasNiDiferencias(bruto);
+  ok(/^Aquí tienes/.test(limpio) && /al carrito\.$/.test(limpio), "conserva la entrada y el cierre", limpio);
+  ok(!/Ref:|Peso|Stock|1 g menos|Coincidencias/.test(limpio), "quita fichas y diferencias del modelo");
+  const compuesto = alt.componerRespuesta(limpio + "\n\nNota final.", "BLOQUE", "Nota final.");
+  ok(/^Aquí tienes[^\n]*\n\nBLOQUE\n\n.*\n\nNota final\.$/s.test(compuesto), "orden: entrada, bloque, nota", compuesto);
+
+  section("MEDIDAS — frases del cliente");
+  ok(kbm.medidasDelMensaje("y rodamientos c3 con 23 mms?")?.di === 23, "«rodamientos c3 con 23 mms» = eje 23");
+  ok(kbm.medidasDelMensaje("y rodamientos c3 con 23 mms?")?.juego === "C3", "...y juego C3");
+  ok(kbm.medidasDelMensaje("rodamiento con 20 mm de ancho") === null, "«20 mm de ancho» no es el eje");
+  const ctx = kbm.medidasConContexto("y de 55?", ["dime zz de 20 mm", "y rodamientos c3 con 23 mms?"]);
+  ok(ctx?.di === 55 && ctx?.juego === "C3", "«y de 55?» sigue siendo C3", JSON.stringify(ctx));
+  ok(kbm.medidasConContexto("y de 55?", []) === null, "sin antecedente no se inventa una medida");
+
+  const bc = kbm.boresCercanos(23, 4);
+  ok(bc.includes(22) && bc.includes(25), "ejes más cercanos a 23", bc.join(","));
+  const fp = kbm.findTechnicalInfo("SNR 6011").find((t) => t.marca === "SNR" && t.referencia === "6011");
+  const par = fp ? kbm.parecidosPorMedidas(fp, 6) : [];
+  ok(par.length > 0 && par.every((t) => t.datos["Diámetro interior dØ (mm)"] === 55), "parecidos: mismo eje", par.map((t) => t.referencia).slice(0, 4).join(", "));
+  const con = kbm.findTechnicalInfo("NTN 30205").find((t) => t.referencia.startsWith("30205") || /30205/.test(t.referencia));
+  if (con) ok(kbm.parecidosPorMedidas(con, 6).every((t) => /cónic/i.test(String(t.datos["Clase de producto"] ?? ""))), "un cónico solo trae cónicos", String(con.datos["Clase de producto"]));
+}
 
 section("DIRECCION DE TAMANO — 'mas grande' no puede devolver algo mas pequeno");
 // Fallo real visto en produccion: partiendo del 6205, ante "ensename uno mas

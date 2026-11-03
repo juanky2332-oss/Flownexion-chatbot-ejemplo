@@ -40,6 +40,9 @@ import {
   extractQueryCandidates,
   findByDimensions,
   medidasDelMensaje,
+  medidasConContexto,
+  boresCercanos,
+  parecidosPorMedidas,
   sinCantidades,
 } from "./kb";
 import {
@@ -69,6 +72,7 @@ import {
 import { searchOfficialSource } from "./websearch";
 import { pideComparar } from "./ficha";
 import { piezasAComparar, piezasDelMensaje } from "./comparar";
+import { MODO_BREVE } from "./alternativa";
 import { limpiarCierreVacio } from "./guardrails";
 import { busquedaDeFamilia, rpmDelMensaje, variantesMasRapidas, asegurarRespuestaIva } from "./familias";
 import { completar, completarEnStreaming } from "./llm";
@@ -228,7 +232,13 @@ PROHIBIDO poner en la ficha de un producto datos de otra referencia distinta sin
 
 **Comparar vale para TODO lo que vendemos** (rodamientos, correas, soportes, cadenas...): cuando el cliente pida comparar, pon los datos de ambos lado a lado con sus diferencias (en correas: perfil, paso, longitudes, ancho, dientes, sección, peso), sin dejarte ninguno de los que tengas.
 
-**UN producto pedido = UNA ficha.** Si el cliente pide un rodamiento, presenta ESE (o, si no está, la variante disponible que lo sustituye). No añadas otros productos ni comparativas que no ha pedido. La comparativa va solo cuando el cliente pide comparar, pregunta por diferencias o nombra dos referencias.
+**UN producto pedido = UNA ficha.** Si el cliente pide un rodamiento, presenta ESE (o, si no está, lo más parecido disponible). No añadas otros productos que no ha pedido.
+
+# NUNCA UN "NO" A SECAS: LO MÁS PARECIDO, CON SUS PROS Y SUS CONTRAS
+Vale para TODO lo que vendemos (rodamientos, soportes, correas, retenes, cadenas, taper, Bondioli, neumática). Si lo que pide está sin stock o no está en la página, tu trabajo no termina en mandarle a ESGAS: busca lo más parecido que SÍ se pueda comprar y preséntalo: "esto no lo tenemos ahora; lo más parecido es esto, que es igual salvo tal". Di qué cambia y, en una línea, qué gana y qué pierde con ese cambio. Después ofrece llamar o escribir a ESGAS por si necesita justo la pedida.
+- Sé honesto con lo que cambia: una medida distinta (agujero, exterior, ancho, perfil o longitud de correa, paso de cadena, medidas de retén, rosca o diámetro de racor) NO es un sustituto directo. Se ofrece como lo más cercano y se avisa de que hay que comprobar si encaja; nunca digas que "le vale" o que es "equivalente".
+- Si varias opciones se parecen mucho, o el cliente duda entre ellas, no le escribas varias fichas enteras: el sistema le añade un resumen de diferencias y la comparativa en PDF.
+- Si un bloque 🔒 trae "FORMATO DE ESTA RESPUESTA", ese formato manda.
 
 **Si lo pedido no existe en la página** (una variante que no está, como un "6205 ZZ C2" cuando solo hay C3, que muchas veces es una errata del cliente): dilo en una frase y ofrece la que SÍ hay, con toda su información, preguntando si es esa la que necesita. Nunca des datos de la que no existe como si existiera, ni la compares como si la tuviéramos.
 
@@ -1435,7 +1445,17 @@ export type AgentResult = {
   uso?: UsoTokens;
   /** Fichas verificadas del KB consultadas en esta respuesta (red de seguridad del PDF, ver lib/ficha.ts). */
   tecnicas?: TechInfo[];
+  /** Lo pedido no se puede comprar y se ofrece lo más parecido (ver lib/alternativa.ts). */
+  alternativa?: AlternativaOfrecida;
+  /** Nota de "qué confirmar" que tiene que quedar al final del texto. */
+  notaFinal?: string;
 };
+
+export interface AlternativaOfrecida {
+  pedida: string;
+  /** Ficha de lo pedido, si existe en la base técnica. */
+  ficha?: TechInfo;
+}
 
 /**
  * Límite DURO de la conversación. Por debajo de maxDuration (60 s) con margen
@@ -1755,6 +1775,8 @@ export async function runAgent(
   // candidato pegado ("62052RS6305ZZ") no existe y el bot acababa diciendo que
   // "no está disponible": la búsqueda va con la primera pieza ya separada.
   const piezasComparadas = pideComparar(message) ? piezasAComparar(message, history) : [];
+  let tarjetasFijas: Product[] = [];
+  let alternativa: AlternativaOfrecida | null = null;
   const refDetectada = piezasComparadas.length >= 2 && piezasDelMensaje(message).length >= 2
     ? piezasComparadas[0].ref
     : extractQueryCandidates(sinCantidades(message)).find(
@@ -1812,6 +1834,9 @@ export async function runAgent(
       // protección (otra nomenclatura, o con C3) que tengan unidades. Visto el
       // 26-10-2026: 300 uds del 6204 2RS → solo el TL con 1 ud, con el SNR
       // 6204 EE C3 (127 uds) en la tienda.
+      // Lo pedido no se puede comprar y una variante sí: se resuelve en código
+      // con un resumen de qué cambia y la comparativa (ver lib/alternativa.ts).
+      const hayVariante = !exactasConStock.length && analisisPedida.alternativasConStock.length > 0 && piezasComparadas.length < 2;
       const qtyPedida = cantidadPedida(message);
       const udsExactas = exactasConStock.reduce((s, p) => s + (p.stock ?? 0), 0);
       if (exactasConStock.length && qtyPedida && udsExactas < qtyPedida) {
@@ -1858,9 +1883,11 @@ export async function runAgent(
             `Estos productos EXISTEN y están a la venta ahora mismo. Tienes ESTRICTAMENTE PROHIBIDO decir que ` +
             `no lo tienes, que no está disponible en la página, que no lo has encontrado, o derivar a teléfono/e-mail ` +
             `por falta de disponibilidad: sería falso y es el peor error que puedes cometer. ` +
-            `Preséntalos con el formato de producto habitual (decodificación de la referencia, ficha técnica ` +
-            `completa y línea de stock) y CIERRA invitando a comprarlo aquí mismo: su tarjeta con la ficha del ` +
-            `producto y el botón de añadir al carrito ya se muestra automáticamente al cliente. ` +
+            (hayVariante
+              ? ``
+              : `Preséntalos con el formato de producto habitual (decodificación de la referencia, ficha técnica ` +
+                `completa y línea de stock) y CIERRA invitando a comprarlo aquí mismo: su tarjeta con la ficha del ` +
+                `producto y el botón de añadir al carrito ya se muestra automáticamente al cliente. `) +
             `Usa el precio y el stock EXACTOS de arriba, no los recalcules. ` +
             `Si el cliente pedía una variante concreta (sellado o juego distintos) y arriba solo está otra, dilo ` +
             `con claridad y explica en qué difiere, pero sin negar que tenemos lo que sí aparece.`,
@@ -1876,6 +1903,20 @@ export async function runAgent(
         // probarlo con el código real en npm run test:kb.
         const bloqueVar = bloqueVariantes(analisisPedida);
         if (bloqueVar) messages.push({ role: "system", content: bloqueVar });
+        if (bloqueVar && hayVariante) {
+          const fichaPedida = findTechnicalInfo(refDetectada).find((t) => t.coincidencia === "exacta" || t.coincidencia === "equivalente");
+          const exacta = analisisPedida.exactas[0]?.producto;
+          alternativa = {
+            pedida: String(exacta?.name ?? refDetectada).replace(/^RODAMIENTOS?\s+/i, ""),
+            ...(fichaPedida ? { ficha: fichaPedida } : {}),
+          };
+          const propuestas = analisisPedida.alternativasConStock.slice(0, 2).map((v) => v.producto);
+          tarjetasFijas = [...propuestas, ...(exacta ? [exacta] : [])];
+          for (const p of tarjetasFijas) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+          escalation.needsHuman = true;
+          escalation.reason ??= "alternativa_ofrecida";
+          escalation.context ??= message.slice(0, 150);
+        }
 
         // "Compáralo con X" con X que no existe en la página: la comparativa
         // es entre el producto del que se venía hablando y la variante que SÍ
@@ -1886,9 +1927,8 @@ export async function runAgent(
             role: "system",
             content:
               `COMPARATIVA PEDIDA: el cliente quiere comparar el producto del turno anterior (Ref: ${previa.referencia}) con la referencia ` +
-              `que acaba de escribir, que NO está en la página. Haz la comparativa entre el producto anterior y la variante DISPONIBLE ` +
-              `de arriba (llama a compare_products con esas dos, la anterior primero), después de decir en una frase que la ` +
-              `pedida no está y que esa es la que hay. Nada de comparar con la que no existe.`,
+              `que acaba de escribir, que NO está en la página. La comparativa es entre el producto anterior y la variante DISPONIBLE ` +
+              `de arriba: di en una frase que la pedida no está y que esa es la que hay. ${MODO_BREVE}`,
           });
         }
 
@@ -1932,6 +1972,42 @@ export async function runAgent(
     }
   }
 
+  // Lo más parecido cuando no hay nada de la misma referencia base: otra serie
+  // del mismo tipo y el mismo agujero (ver parecidosPorMedidas en lib/kb.ts).
+  if (refDetectada && piezasComparadas.length < 2 && !alternativa && !collected.some((p) => (p.stock ?? 0) > 0)) {
+    try {
+      const fichaPedida = findTechnicalInfo(refDetectada).find((t) => t.coincidencia === "exacta" || t.coincidencia === "equivalente");
+      if (fichaPedida) {
+        onEvento?.({ tipo: "estado", texto: "Buscando lo más parecido…" });
+        const refs = Array.from(new Set(parecidosPorMedidas(fichaPedida, 12).map((t) => `${t.marca} ${t.referencia}`))).slice(0, 6);
+        const halladas: (Product | undefined)[] = await Promise.race([
+          Promise.all(refs.map((r) => productoComprable(r, groupId, customerId).catch(() => undefined))),
+          new Promise<undefined[]>((r) => setTimeout(() => r([]), 7000)),
+        ]);
+        const comprables = halladas.filter((p): p is Product => !!p && (p.stock ?? 0) > 0).slice(0, 2);
+        if (comprables.length) {
+          const pedidaTxt = `${fichaPedida.marca} ${fichaPedida.referencia}`;
+          alternativa = { pedida: pedidaTxt, ficha: fichaPedida };
+          const sinStock = collected.filter((p) => (p.stock ?? 0) <= 0).slice(0, 1);
+          tarjetasFijas = [...comprables, ...sinStock];
+          for (const p of comprables) collected.push(p);
+          escalation.needsHuman = true;
+          escalation.reason ??= "alternativa_ofrecida";
+          escalation.context ??= message.slice(0, 150);
+          messages.push({
+            role: "system",
+            content:
+              `🔒 LO MÁS PARECIDO — ${pedidaTxt} no se puede comprar por la página ahora mismo. Lo más parecido con stock, comprobado en el catálogo real:\n` +
+              comprables.map((p) => `- ${p.name} — ${p.stock} uds`).join("\n") +
+              `\n\nDi en una frase que ${pedidaTxt} no está disponible en la página ahora mismo, que lo más parecido es lo de arriba (con sus unidades) y que no es la misma medida. ${MODO_BREVE}`,
+          });
+        }
+      }
+    } catch {
+      /* refuerzo: si la tienda falla, responde el modelo */
+    }
+  }
+
   // CATÁLOGO POR FAMILIAS — "¿tenéis soportes de fundición?", "¿qué soportes
   // tenéis?", "¿hay rodamientos de rodillos cónicos?", "¿qué vendéis?".
   // Visto el 03-11-2026 (cliente real): contestaba "no tenemos soportes de
@@ -1952,7 +2028,7 @@ export async function runAgent(
   if (!refDetectada) {
     const anterioresCliente = history.filter((m) => m.role === "user").map((m) => String(m.content ?? ""));
     const consultaCat = consultaDeFamilia(message, anterioresCliente);
-    const medidasAqui = medidasDelMensaje(message);
+    const medidasAqui = medidasConContexto(message, anterioresCliente);
     const acotada = (c: ConsultaFamilia) => !!(c.tipos.length || c.forma || c.serie || c.eje || c.marca || c.inox);
     // Pieza concreta = sale de la serie o del eje (soporte UCP 206, taper 1610 eje 25…).
     // Pieza concreta = el cliente ha dado el dato DETERMINANTE de la familia:
@@ -2195,18 +2271,24 @@ export async function runAgent(
   // consulta a un técnico" sin dar nada, teniendo el 625 ZZ / 625 2RS en la
   // base de datos. Ahora se resuelve en código: referencias estándar que
   // cumplen esas medidas (ficha técnica real) y cuáles están en la página.
-  const medidas = !refDetectada ? medidasDelMensaje(message) : null;
+  const medidas = !refDetectada ? medidasConContexto(message, history.filter((m) => m.role === "user").map((m) => String(m.content ?? ""))) : null;
   if (medidas) {
     onEvento?.({ tipo: "estado", texto: "Buscando por medidas en el catálogo…" });
-    const opciones = findByDimensions(medidas, 8);
-    if (opciones.length) {
-      tecnicas.push(...opciones.slice(0, 4));
-      // Una búsqueda en la tienda por cada referencia COMPLETA (625 ZZ, 625 EE…)
-      // y solo su familia (misma base: 625 con cualquier sufijo, nunca otra medida). Visto el 25-10-2026: buscando la base
-      // "625" la tienda devolvía enchufes neumáticos y un SNR 6306 ZZ C3 (eje de
-      // 30 mm), que se colaba como opción para un eje de 5 mm.
-      const refsBuscar = Array.from(new Set(opciones.map((o) => o.referencia))).slice(0, 6);
-      const enPagina = (
+    let opciones = findByDimensions(medidas, 8);
+    // Con esas medidas exactas o esa protección no hay ninguna referencia: las
+    // del mismo eje, diciendo qué cambia.
+    const medidasRelajadas = !opciones.length && !!(medidas.de || medidas.an || medidas.proteccion);
+    if (medidasRelajadas) opciones = findByDimensions({ di: medidas.di }, 8);
+
+    // Una búsqueda en la tienda por cada referencia COMPLETA (625 ZZ, 625 EE…)
+    // y solo su familia (misma base: 625 con cualquier sufijo, nunca otra medida). Visto el 25-10-2026: buscando la base
+    // "625" la tienda devolvía enchufes neumáticos y un SNR 6306 ZZ C3 (eje de
+    // 30 mm), que se colaba como opción para un eje de 5 mm.
+    const enLaPagina = async (lista: TechInfo[], limite = 6): Promise<Product[]> => {
+      const refs = Array.from(new Set(lista.map((o) => o.referencia))).slice(0, limite);
+      // La búsqueda por base no trae toda la familia: con juego pedido se busca con él.
+      const refsBuscar = medidas.juego ? [...refs.slice(0, 4).map((r) => `${r} ${medidas.juego}`), ...refs] : refs;
+      const hallados = (
         await Promise.race([
           Promise.all(
             refsBuscar.map((r) =>
@@ -2218,13 +2300,50 @@ export async function runAgent(
           new Promise<Product[][]>((res) => setTimeout(() => res([]), 8000)),
         ])
       ).flat();
-      const proteccionDe = (nombre: string) =>
-        /(2RS|LLU|LLB|LLH|\bEE\b|DDU|2RZ|\bRS\b|\bVV\b)/i.test(nombre) ? "junta" : /(ZZ|2Z|\bZ\b)/i.test(nombre) ? "deflector" : "abierto";
-      const encaja = (p: Product) =>
-        !medidas.proteccion ||
-        (medidas.proteccion === "ambas" ? proteccionDe(p.name) !== "abierto" : proteccionDe(p.name) === medidas.proteccion);
       const vistos = new Set<number>();
-      const unicos = enPagina.filter((p) => !vistos.has(p.id) && vistos.add(p.id));
+      return hallados.filter((p) => !vistos.has(p.id) && vistos.add(p.id));
+    };
+    const proteccionDe = (nombre: string) =>
+      /(2RS|LLU|LLB|LLH|\bEE\b|DDU|2RZ|\bRS\b|\bVV\b)/i.test(nombre) ? "junta" : /(ZZ|2Z|\bZ\b)/i.test(nombre) ? "deflector" : "abierto";
+    const encaja = (p: Product) =>
+      (!medidas.proteccion ||
+        (medidas.proteccion === "ambas" ? proteccionDe(p.name) !== "abierto" : proteccionDe(p.name) === medidas.proteccion)) &&
+      (!medidas.juego || new RegExp(`\\b${medidas.juego}\\b`, "i").test(p.name));
+    const conStock = (p: Product) => (p.stock ?? 0) > 0;
+
+    const unicos = opciones.length ? await enLaPagina(opciones) : [];
+    // Nada comprable de ese eje (23 mm no es medida estándar): lo más cercano
+    // por encima y por debajo, en vez de "no tenemos". Con esa protección y ese
+    // juego si los hay; si no, lo que haya. Visto el 03-11-2026.
+    if (!unicos.some(conStock)) {
+      const vecinos = await Promise.all(
+        boresCercanos(medidas.di, 4).map(async (d) => {
+          const ps = (await enLaPagina(findByDimensions({ di: d, ...(medidas.proteccion ? { proteccion: medidas.proteccion } : {}) }, 6), 4)).filter(conStock);
+          return { d, mejor: ps.find(encaja) ?? ps[0] };
+        })
+      );
+      const elegidos = vecinos.filter((v) => v.mejor).slice(0, 2);
+      if (elegidos.length) {
+        tarjetasFijas = elegidos.map((v) => v.mejor as Product);
+        for (const p of tarjetasFijas) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+        escalation.needsHuman = true;
+        escalation.reason ??= "alternativa_ofrecida";
+        escalation.context ??= message.slice(0, 150);
+        notaConfirmar =
+          `Comprueba con un calibre la medida real del eje: un agujero distinto no monta en el mismo eje. ` +
+          `Si necesitas exactamente ${medidas.di} mm, ESGAS te lo mira por teléfono o e-mail.`;
+        messages.push({
+          role: "system",
+          content:
+            `🔒 MEDIDA NO DISPONIBLE — de dØ${medidas.di} mm no hay ningún rodamiento a la venta en la página ahora mismo. Lo más cercano con stock, comprobado en el catálogo real:\n` +
+            elegidos.map((v) => `- dØ${v.d} mm: ${(v.mejor as Product).name} — ${(v.mejor as Product).stock} uds`).join("\n") +
+            `\n\nDi en una frase que de ${medidas.di} mm no lo tenemos en la página y que lo más cercano es lo de arriba, nombrando cada pieza con sus unidades. PROHIBIDO decir que son equivalentes o que le valen: es otro diámetro de eje. ${MODO_BREVE}`,
+        });
+      }
+    }
+
+    if (opciones.length && !tarjetasFijas.length) {
+      tecnicas.push(...opciones.slice(0, 4));
       const exactos = unicos.filter(encaja);
       // Con la protección que pide no hay nada en la página, pero sí con otra:
       // se ofrece lo más parecido diciéndolo claro (criterio del cliente, 03-11-2026).
@@ -2239,14 +2358,19 @@ export async function runAgent(
           Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0) || ordenProt(a) - ordenProt(b) || ordenJuego(a) - ordenJuego(b)
       );
       for (const p of candidatos.slice(0, 3)) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+      // Las tarjetas son exactamente las que se proponen: antes la nota final
+      // hablaba del SNR 6204 ZZ C3 y las tarjetas enseñaban el 6004.
+      tarjetasFijas = candidatos.slice(0, 3);
+      const variasOpciones = tarjetasFijas.length >= 2;
       if (!medidas.de || !medidas.proteccion) {
         const falta = [
           ...(!medidas.de ? ["el diámetro exterior y el ancho"] : []),
           ...(!medidas.proteccion ? ["si lleva tapa de goma (2RS), tapa metálica (ZZ) o va abierto"] : []),
         ];
         notaConfirmar =
-          `Te he propuesto la opción más habitual para un eje de ${medidas.di} mm` +
-          (candidatos[0] ? ` (${candidatos[0].name})` : "") +
+          (variasOpciones
+            ? `Te he propuesto las opciones más habituales para un eje de ${medidas.di} mm`
+            : `Te he propuesto la opción más habitual para un eje de ${medidas.di} mm` + (candidatos[0] ? ` (${candidatos[0].name})` : "")) +
           `. Para darte la referencia exacta, comprueba en tu pieza ${falta.join(" y ")}.`;
       }
 
@@ -2269,8 +2393,11 @@ export async function runAgent(
           `🔒 BÚSQUEDA POR MEDIDAS — resuelta en la base de datos técnica y en el catálogo real (${medidasTxt}` +
           `${medidas.proteccion === "ambas" ? ", protegido por ambos lados" : medidas.proteccion === "junta" ? ", con junta de goma" : medidas.proteccion === "deflector" ? ", con tapa metálica" : ""}):\n` +
           `Referencias estándar que cumplen esas medidas:\n${lineasKb}\n\nEn nuestra página:\n${lineasPagina}\n\n` +
-          `OBLIGATORIO: responde con estas opciones reales. Si hay alguna en la página, preséntala (máx. 2-3, primero las que tienen stock) ` +
-          `con su ficha técnica completa, su precio y su stock, y cierra ofreciendo la compra de las unidades que pide si hay stock suficiente. ` +
+          `OBLIGATORIO: responde con estas opciones reales. ` +
+          (variasOpciones
+            ? `${MODO_BREVE} Nombra las piezas de la lista de la página en tu frase. `
+            : `Si hay alguna en la página, preséntala con su ficha técnica completa, su precio y su stock, y cierra ofreciendo la compra de las unidades que pide si hay stock suficiente. `) +
+          (medidasRelajadas ? `Con las medidas exactas o la protección que pide no hay ninguna referencia: dilo en una frase y ofrece estas del mismo eje como lo más parecido, sin decir que le valen. ` : "") +
           // Condición de trabajo que la ficha no acredita ("que aguante
           // temperatura"): visto el 24-10-2026, el bot la ignoraba.
           (/\b(temperatura|calor|caliente|horno|agua|humed|polvo|vibraci)/i.test(message)
@@ -2279,16 +2406,16 @@ export async function runAgent(
               `Solo puedes mencionar lo que consta (tipo de junta, si es reengrasable, material de jaula), sin convertirlo en una cifra. `
             : "") +
           // Explicar ZZ frente a 2RS solo si de verdad hay de los dos tipos entre las opciones.
-          (medidas.proteccion === "ambas" && /junta:\s*(ZZ|2Z|Z\b|deflect)/i.test(lineasKb) && /junta:\s*(?!ZZ|2Z|Z\b|deflect|abierto)\S/i.test(lineasKb)
+          (!variasOpciones && medidas.proteccion === "ambas" && /junta:\s*(ZZ|2Z|Z\b|deflect)/i.test(lineasKb) && /junta:\s*(?!ZZ|2Z|Z\b|deflect|abierto)\S/i.test(lineasKb)
             ? `El cliente dice "tapa" sin precisar: explica en UNA frase que hay dos tipos (ZZ = tapa metálica, sin contacto; 2RS/EE = junta de goma, estanca al agua y al polvo) y, si las dos están, preséntalas y pregúntale UNA cosa: cuál necesita o qué pone grabado en el suyo. `
             : "") +
           (soloParecido
-            ? `Con la protección exacta que pide NO hay nada a la venta en la web ahora mismo: dilo claramente, presenta lo más parecido de la lista de la página explicando en qué se diferencia (tipo de protección), y ofrece llamar o escribir a ESGAS para conseguir la exacta (escalate_to_human). `
+            ? `Con la protección o el juego exactos que pide NO hay nada a la venta en la web ahora mismo: dilo claramente, presenta lo más parecido de la lista de la página y ofrece llamar o escribir a ESGAS para conseguir la exacta (escalate_to_human). `
             : "") +
-          (!medidas.proteccion
+          (!medidas.proteccion && !variasOpciones
             ? `No ha dicho la protección: propón primero la versión con tapa (junta de goma 2RS/EE, la más habitual; si no hay, la ZZ metálica) y dile en una frase que compruebe si el suyo lleva tapa de goma, tapa metálica o va abierto, porque cambia la pieza. `
             : "") +
-          (!medidas.de
+          (!medidas.de && !variasOpciones
             ? `Como solo ha dado el eje y hay varios exteriores y anchos posibles, enseña la más habitual (serie 62) y dile qué ha supuesto y que confirme el diámetro exterior y el ancho para darle la exacta. `
             : "") +
           `Si ninguna está en la página, da igualmente las referencias estándar de arriba con sus medidas y ofrece el contacto al final para conseguirlas. ` +
@@ -2334,9 +2461,13 @@ export async function runAgent(
       ),
       new Promise<undefined[]>((r) => setTimeout(() => r([]), 6000)),
     ]);
+    // Con ficha de todas, el resumen y el PDF los pone el código; sin ella
+    // (retenes, neumática…), el modelo escribe lo que tenga.
+    const conFichas = lista.every((ref) => findTechnicalInfo(ref).some((t) => t.coincidencia !== "base"));
     const lineas = lista.map((ref, i) => {
       const p = enPagina[i];
       if (p && !collected.some((c) => c.id === p.id)) collected.push(p);
+      if (p && conFichas && !tarjetasFijas.some((c) => c.id === p.id)) tarjetasFijas.push(p);
       return p
         ? `- ${ref} → en la página: ${p.name} (Ref: ${p.reference}) — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}`
         : `- ${ref} → no está en la página con esa referencia exacta`;
@@ -2345,13 +2476,15 @@ export async function runAgent(
       role: "system",
       content:
         `🔒 COMPARATIVA PEDIDA entre: ${lista.join(" | ")}. Comprobado en el catálogo real:\n${lineas.join("\n")}\n\n` +
-        `Llama a compare_products con TODAS ellas en este orden (${JSON.stringify(lista)}). En la respuesta presenta ` +
+        (conFichas
+          ? `Di en una frase qué vas a comparar; si una pieza no está en la página o está sin stock, dilo en esa frase. ${MODO_BREVE}`
+          : `Llama a compare_products con TODAS ellas en este orden (${JSON.stringify(lista)}). En la respuesta presenta ` +
         `CADA una con el producto de la página indicado arriba (su nombre, su Ref, su precio y su stock EXACTOS; ` +
         `NUNCA otro de la misma familia sin stock en su lugar) y su ficha (formato de producto, con "Ref:" e ` +
         `"Información técnica completa:"). Si la ficha técnica sale de su equivalente NTN/SNR (p.ej. TL 6205 2RS → ` +
         `datos de SNR 6205 EE), dilo en una línea. Después la comparativa: en qué se DIFERENCIAN, con la diferencia ` +
         `exacta, y en qué COINCIDEN. Todo dato tiene que salir de las fichas; nada de memoria. No dejes ninguna fuera ` +
-        `ni sustituyas una por otra. Si una pieza no está en la página, dilo claro en una frase.`,
+        `ni sustituyas una por otra. Si una pieza no está en la página, dilo claro en una frase.`),
     });
   }
 
@@ -2430,7 +2563,7 @@ export async function runAgent(
       borrador,
       // Pregunta general por una familia ("¿vendéis soportes?"): sin tarjetas de
       // compra, aunque el modelo haya buscado por su cuenta (ver bloque CATÁLOGO).
-      repartirTarjetas(tarjetasParaRespuesta(borrador, catalogoSinTarjetas ? [] : collected, message)),
+      repartirTarjetas(tarjetasFijas.length ? tarjetasFijas : tarjetasParaRespuesta(borrador, catalogoSinTarjetas ? [] : collected, message)),
       message
     );
     const productos = ajustado.productos;
@@ -2494,6 +2627,8 @@ export async function runAgent(
       motivo: escalation.reason,
       uso,
       tecnicas,
+      ...(alternativa ? { alternativa } : {}),
+      ...(productos.length && notaConfirmar ? { notaFinal: notaConfirmar } : {}),
     };
   };
 

@@ -1,6 +1,7 @@
 // Tipos compartidos del chatbot ESGAS
 
 import type { FichaTecnica } from "./ficha";
+import type { DiferenciaPieza } from "./alternativa";
 
 export type Role = "user" | "assistant" | "system";
 
@@ -110,4 +111,6 @@ export interface ChatResponse {
   fichas?: FichaTecnica[];
   /** El cliente pidió comparar: además de cada ficha, el PDF comparativo. */
   comparar?: boolean;
+  /** Ventajas e inconvenientes calculados, para el PDF comparativo. */
+  diferencias?: DiferenciaPieza[];
 }

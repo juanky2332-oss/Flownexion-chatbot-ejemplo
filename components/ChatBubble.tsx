@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Product } from "@/lib/types";
 import type { FichaTecnica } from "@/lib/ficha";
+import type { DiferenciaPieza } from "@/lib/alternativa";
 import ProductCard from "./ProductCard";
 import { abrirVentanaCarrito, anadirConVentana, anadirEnTienda, enTienda, enviarEvento, type LineaCarrito } from "@/lib/carritoTienda";
 import { useCarritoChat } from "./CarritoChat";
@@ -21,6 +22,8 @@ export interface ChatMessage {
   fichas?: FichaTecnica[];
   /** El cliente pidió comparar: se ofrece también el PDF comparativo. */
   comparar?: boolean;
+  /** Ventajas e inconvenientes calculados, para el PDF comparativo. */
+  diferencias?: DiferenciaPieza[];
   /** La respuesta aún se está escribiendo (streaming). */
   enCurso?: boolean;
   /** Qué está haciendo el bot mientras prepara la respuesta. */
@@ -189,7 +192,7 @@ export default function ChatBubble({
         )}
 
         {!isUser && !message.enCurso && message.fichas && message.fichas.length > 0 && (
-          <DescargaFicha fichas={message.fichas} primaryColor={primaryColor} comparar={!!message.comparar} />
+          <DescargaFicha fichas={message.fichas} primaryColor={primaryColor} comparar={!!message.comparar} diferencias={message.diferencias} />
         )}
 
         {!isUser && message.needsHuman && (supportPhone || supportEmail) && (
@@ -233,7 +236,7 @@ export default function ChatBubble({
  * del cliente). El PDF se genera en el propio navegador con la información
  * técnica que acaba de mostrar el chat.
  */
-function DescargaFicha({ fichas, primaryColor, comparar }: { fichas: FichaTecnica[]; primaryColor: string; comparar: boolean }) {
+function DescargaFicha({ fichas, primaryColor, comparar, diferencias }: { fichas: FichaTecnica[]; primaryColor: string; comparar: boolean; diferencias?: DiferenciaPieza[] }) {
   // Qué botón está generando ("comparativa" o el índice de la ficha).
   const [generando, setGenerando] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -292,7 +295,7 @@ function DescargaFicha({ fichas, primaryColor, comparar }: { fichas: FichaTecnic
       <div className="mt-2 flex flex-col items-start gap-1.5">
         {varias
           ? [
-              ...(conComparativa ? [boton("comparativa", "Descargar comparativa en PDF", (m) => m.descargarComparativaPdf(fichas))] : []),
+              ...(conComparativa ? [boton("comparativa", "Descargar comparativa en PDF", (m) => m.descargarComparativaPdf(fichas, diferencias))] : []),
               ...fichas.map((f, i) =>
                 boton(String(i), `PDF · ${f.titulo || f.referencia}`, (m) => m.descargarFichaPdf([f]), conComparativa)
               ),

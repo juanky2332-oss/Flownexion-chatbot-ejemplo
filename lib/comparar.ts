@@ -60,7 +60,23 @@ function piezasDelUltimoTurno(historial: { role?: string; content: string }[]): 
     const marca = MARCA.exec(m[1])?.[1]?.toUpperCase();
     out.push(marca ? { ref: m[2].trim(), marca } : { ref: m[2].trim() });
   }
+  if (out.length) return out;
+  // Sin fichas en el texto (la respuesta fue una comparativa resumida): las
+  // piezas que nombra en negrita ("**SNR 6011 EE C3** frente a **SNR 6011 C3**").
+  for (const m of ultimo.matchAll(/\*\*([^*\n]{3,50})\*\*/g)) {
+    if (!MARCA.test(m[1]) || (m[1].match(/\d/g) ?? []).length < 3) continue;
+    const p = piezaDeNombre(m[1]);
+    if (!out.some((o) => o.ref === p.ref && o.marca === p.marca)) out.push(p);
+  }
   return out;
+}
+
+/** "RODAMIENTO TL 6201 2RS" / "SNR 6011 EE C3" → pieza con su marca. */
+export function piezaDeNombre(nombre: string): PiezaComparada {
+  const limpio = String(nombre ?? "").replace(/\([^)]*\)/g, " ").replace(/^\s*(RODAMIENTO|SOPORTE|CORREA)S?\s+/i, "");
+  const marca = MARCA.exec(limpio)?.[1]?.toUpperCase();
+  const ref = limpio.replace(MARCA, " ").replace(/\s+/g, " ").trim();
+  return marca ? { ref, marca } : { ref };
 }
 
 /**

@@ -4,8 +4,9 @@ import { corsHeaders, preflight, getClientIp, isRateLimited } from "@/lib/http";
 import { verifyIdentityToken } from "@/lib/hmac";
 import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
 import { isPromptExtractionAttempt, IDENTITY_DEFLECTION } from "@/lib/guardrails";
-import { fichasParaPdf, pideComparar } from "@/lib/ficha";
-import { piezasAComparar, fichasDeComparativa, rellenarCoincidencias } from "@/lib/comparar";
+import { fichaDesdeKb, fichasParaPdf, pideComparar, sinFichasNiDiferencias, type FichaTecnica } from "@/lib/ficha";
+import { piezaDeNombre, piezasAComparar, fichasDeComparativa } from "@/lib/comparar";
+import { componerRespuesta, conResumen, diferenciaFrente, diferenciasDe, fichaDeReferencia, sonParecidas, textoComparativa, type DiferenciaPieza } from "@/lib/alternativa";
 import { extractQueryCandidates, sinCantidades } from "@/lib/kb";
 import { MODEL } from "@/lib/llm";
 import { registrarMensaje, registrarError } from "@/lib/registro";
@@ -69,7 +70,7 @@ async function resolverCliente(body: ChatRequest, origen: "tienda" | "web") {
 // Escalados que NO son "el bot no supo": el cliente lo pidió, o es un pedido
 // que hay que ampliar por teléfono. El resto se cuenta como consulta sin
 // respuesta en el panel, que es la lista para mejorar el bot.
-const ESCALADOS_NORMALES = /peticion_cliente|stock_insuficiente|condiciones_comerciales/i;
+const ESCALADOS_NORMALES = /peticion_cliente|stock_insuficiente|condiciones_comerciales|alternativa_ofrecida/i;
 const NEGATIVA = /no (he podido|he encontrado|tengo (informaci|datos|esa)|dispongo|consta|puedo confirmar)/i;
 
 export async function POST(req: NextRequest) {
@@ -169,8 +170,35 @@ export async function POST(req: NextRequest) {
       const deLaComparativa = fichasDeComparativa(piezasAComparar(message, history), fichas, r.tecnicas ?? [], r.output, r.products);
       if (deLaComparativa.length >= 2) fichas = deLaComparativa;
     }
-    const comparar = fichas.length >= 2 && pideCompararMsg;
-    if (comparar) r.output = rellenarCoincidencias(r.output, fichas);
+    let comparar = fichas.length >= 2 && pideCompararMsg;
+    let diferencias: DiferenciaPieza[] = [];
+    let resumen: string | null = null;
+    const fichasTarjetas = (ps: typeof r.products) =>
+      fichasDeComparativa(ps.map((p) => piezaDeNombre(p.name)), [], r.tecnicas ?? [], r.output, r.products);
+    if (r.alternativa && !pideCompararMsg) {
+      // Lo pedido no se puede comprar: lo más parecido frente a lo pedido.
+      const propuestas = fichasTarjetas(r.products.filter((p) => (p.stock ?? 0) > 0));
+      if (propuestas.length) {
+        const pedida: FichaTecnica = r.alternativa.ficha ? fichaDesdeKb(r.alternativa.ficha) : fichaDeReferencia(r.alternativa.pedida);
+        fichas = r.alternativa.ficha ? [pedida, ...propuestas] : propuestas;
+        comparar = fichas.length >= 2;
+        diferencias = propuestas.map((f) => diferenciaFrente(pedida, f));
+        resumen = textoComparativa(comparar ? fichas : [], diferencias, comparar);
+      }
+    } else if (!comparar) {
+      // Varias piezas muy parecidas: mejor la comparativa que tres fichas enteras.
+      const deTarjetas = fichasTarjetas(r.products);
+      if (sonParecidas(deTarjetas)) {
+        fichas = deTarjetas;
+        comparar = true;
+      }
+    }
+    if (comparar && !resumen) {
+      diferencias = diferenciasDe(fichas);
+      resumen = textoComparativa(fichas, diferencias, true);
+    }
+    if (resumen) r.output = componerRespuesta(sinFichasNiDiferencias(r.output), resumen, r.notaFinal);
+    fichas = fichas.map(conResumen);
     const sinRespuesta =
       cortado ||
       (!!r.needsHuman && !ESCALADOS_NORMALES.test(r.motivo ?? "")) ||
@@ -198,7 +226,7 @@ export async function POST(req: NextRequest) {
       needsHuman: r.needsHuman,
       humanContext: r.humanContext,
       ...(fichas.length ? { fichas } : {}),
-      ...(comparar ? { comparar: true } : {}),
+      ...(comparar ? { comparar: true, diferencias } : {}),
     };
   };
 

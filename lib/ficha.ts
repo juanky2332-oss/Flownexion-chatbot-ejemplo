@@ -230,7 +230,9 @@ export function pideComparar(mensaje: string, referenciasEnMensaje: string[] = [
   const m = String(mensaje ?? "");
   // "comp[aá]r": con tilde ("compáralo", "compárame") \w no casa la á y antes
   // no contaba como comparar.
-  if (/\b(comp[aá]r\w*|diferencia\w*|diferencian|diferente\w*|distint\w*|distingue\w*|frente\s+a|vs\.?|versus|cu[aá]l\s+(es\s+)?mejor|cu[aá]l\s+(me\s+)?(conviene|recomiendas|elijo|escojo|cojo)|en\s+qu[eé]\s+se\s+diferencian)\b/i.test(m)) return true;
+  if (/\b(comp[aá]r\w*|diferencia\w*|diferencian|diferente\w*|distint\w*|distingue\w*|frente\s+a|vs\.?|versus|cu[aá]l\s+(es\s+)?mejor|cu[aá]l\s+(me\s+)?(conviene|recomiendas|aconsejas|elijo|escojo|cojo|pillo|compro|quedo)|en\s+qu[eé]\s+se\s+diferencian)\b/i.test(m)) return true;
+  // El cliente duda entre lo que se le ha enseñado.
+  if (/\b(dudo\s+entre|dudando\s+entre|estoy\s+dudando|no\s+s[eé]\s+cu[aá]l|no\s+tengo\s+claro\s+cu[aá]l)\b/i.test(m)) return true;
   // Dos lecturas de la misma referencia ("62012RS" y "1062012RS", con la
   // cantidad pegada) no son dos referencias: solo cuentan las que no están una
   // dentro de otra.
@@ -359,6 +361,51 @@ export function fichasParaPdf(texto: string, consultadas: FichaKb[], comparando 
     if (delTexto.length + extra.length >= MAX_FICHAS_KB) break;
   }
   return [...delTexto, ...extra];
+}
+
+// Apartados que el modelo a veces redacta aunque se le diga que no: en una
+// comparativa los calcula el código, así que los suyos no se conservan.
+const SECCION_COMPARATIVA =
+  /^(diferencias?|en\s+qu[eé]\s+se\s+diferencian|principales\s+diferencias|coincidencias|en\s+qu[eé]\s+coinciden|comparativa|ventajas|inconvenientes|caracter[ií]sticas\s+(comunes|iguales))\b/i;
+const LINEA_DE_FICHA = /^(ref(erencia)?|medidas|precio|stock|disponibilidad)\s*:|→/i;
+
+/**
+ * Quita de la respuesta las fichas escritas y los apartados de diferencias:
+ * en modo comparativa el chat lleva un resumen y el detalle va en el PDF.
+ */
+export function sinFichasNiDiferencias(texto: string): string {
+  const lineas = String(texto ?? "").replace(/\r/g, "").split("\n");
+  const out: string[] = [];
+  let dentro = false;
+  for (let i = 0; i < lineas.length; i++) {
+    const l = lineas[i];
+    const t = l.trim();
+    const plano = limpiar(t.replace(/^#+\s*/, ""));
+    if (!t) {
+      out.push("");
+      continue;
+    }
+    if (esSeparador(t) || t.startsWith("|")) continue;
+    if (esTitulo(t) && !CABECERA_TECNICA.test(plano)) {
+      const sig = lineas.slice(i + 1).find((x) => x.trim()) ?? "";
+      if (esLineaRef(sig) || esLineaMedidas(sig) || CABECERA_TECNICA.test(limpiar(sig))) {
+        dentro = true;
+        continue;
+      }
+    }
+    if (CABECERA_TECNICA.test(plano) || SECCION_COMPARATIVA.test(plano.replace(/[:.]$/, "")) && plano.length < 70) {
+      dentro = true;
+      continue;
+    }
+    if (LINEA_DE_FICHA.test(plano)) {
+      dentro = true;
+      continue;
+    }
+    if (dentro && esViñeta(l)) continue;
+    dentro = false;
+    out.push(t);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /** Nombre del fichero: "Ficha-tecnica-NTN-6812-LLU-5K.pdf". */

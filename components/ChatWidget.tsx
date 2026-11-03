@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Message, Product, CartItem } from "@/lib/types";
 import type { FichaTecnica } from "@/lib/ficha";
+import type { DiferenciaPieza } from "@/lib/alternativa";
 import ChatBubble, { type ChatMessage } from "./ChatBubble";
 import RealisticRobot from "./RealisticRobot";
 import { CarritoChatProvider, MiniCarrito } from "./CarritoChat";
@@ -180,7 +181,7 @@ export default function ChatWidget({
     const actualizar = (cambio: (m: ChatMessage) => ChatMessage) =>
       setMessages((prev) => prev.map((m) => (m.id === botId ? cambio(m) : m)));
 
-    type Final = { output?: string; products?: Product[]; needsHuman?: boolean; humanContext?: string; fichas?: FichaTecnica[]; comparar?: boolean };
+    type Final = { output?: string; products?: Product[]; needsHuman?: boolean; humanContext?: string; fichas?: FichaTecnica[]; comparar?: boolean; diferencias?: DiferenciaPieza[] };
     const cerrar = (data: Final) =>
       actualizar(() => ({
         id: botId,
@@ -194,6 +195,7 @@ export default function ChatWidget({
         products: data.products,
         fichas: data.fichas,
         comparar: data.comparar,
+        diferencias: data.diferencias,
         needsHuman: data.needsHuman ?? !data.output,
         humanContext: data.humanContext ?? (data.output ? undefined : text.slice(0, 150)),
       }));

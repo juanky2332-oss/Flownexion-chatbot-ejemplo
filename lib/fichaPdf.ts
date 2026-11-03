@@ -7,6 +7,7 @@
 // ni un byte de esto hasta que alguien pide el PDF.
 
 import type { FichaTecnica } from "./ficha";
+import type { DiferenciaPieza } from "./alternativa";
 import { nombreFicheroFicha } from "./ficha";
 
 const LOGO_URL = "/esgas-logo-ficha.png";
@@ -295,9 +296,9 @@ export function nombreFicheroComparativa(fichas: FichaTecnica[]): string {
   return `Comparativa-${refs || "ESGAS"}.pdf`.slice(0, 120);
 }
 
-export async function descargarComparativaPdf(fichas: FichaTecnica[]): Promise<void> {
+export async function descargarComparativaPdf(fichas: FichaTecnica[], diferencias: DiferenciaPieza[] = []): Promise<void> {
   if (fichas.length < 2) return;
-  const doc = await construirComparativaPdf(fichas, await cargarLogo());
+  const doc = await construirComparativaPdf(fichas, await cargarLogo(), diferencias);
   const nombre = nombreFicheroComparativa(fichas);
   try {
     doc.save(nombre);
@@ -306,7 +307,7 @@ export async function descargarComparativaPdf(fichas: FichaTecnica[]): Promise<v
   }
 }
 
-export async function construirComparativaPdf(fichas: FichaTecnica[], logo: string | null) {
+export async function construirComparativaPdf(fichas: FichaTecnica[], logo: string | null, diferencias: DiferenciaPieza[] = []) {
   const { jsPDF } = await import("jspdf");
   // Con más de 3 productos la tabla va en horizontal para que quepa holgada.
   const apaisado = fichas.length > 3;
@@ -419,6 +420,34 @@ export async function construirComparativaPdf(fichas: FichaTecnica[], logo: stri
         x += anchos[i];
       });
       y += alto;
+    }
+  }
+
+  // Ventajas e inconvenientes de cada opción frente a la primera: lo que el
+  // cliente necesita para decidir si le vale.
+  const conNotas = diferencias.filter((d) => d.cambios.length + d.ventajas.length + d.inconvenientes.length > 0);
+  if (conNotas.length) {
+    y += 8;
+    seccion("VENTAJAS E INCONVENIENTES");
+    for (const d of conNotas) {
+      const filasNota: [string, string][] = [
+        ...(d.cambios.length ? ([["Cambia", d.cambios.join("; ")]] as [string, string][]) : []),
+        ...(d.ventajas.length ? ([["A favor", d.ventajas.join("; ")]] as [string, string][]) : []),
+        ...(d.inconvenientes.length ? ([["En contra", d.inconvenientes.join("; ")]] as [string, string][]) : []),
+      ];
+      const cabecera = `${d.titulo} frente a ${d.frenteA}`;
+      const altoCab = LIN + PAD * 2;
+      if (y + altoCab * 2 > limite) cabeceraPagina(false);
+      celda(cabecera, MARGEN_X, anchoUtil, altoCab, DIF, true);
+      y += altoCab;
+      for (const [k, v] of filasNota) {
+        const ancho = [colEtiqueta, anchoUtil - colEtiqueta];
+        const alto = altoFila([k, v], ancho);
+        if (y + alto > limite) cabeceraPagina(false);
+        celda(k, MARGEN_X, ancho[0], alto, null, true);
+        celda(v, MARGEN_X + ancho[0], ancho[1], alto, null, false);
+        y += alto;
+      }
     }
   }
   return doc;

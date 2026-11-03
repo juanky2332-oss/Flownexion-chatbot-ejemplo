@@ -2,6 +2,7 @@ import "server-only";
 import type { Product } from "./types";
 import { findTechnicalInfo, findGlossary, extractQueryCandidates, type TechInfo } from "./kb";
 import { boreCodeFor, nextStandardBore } from "./bearingSizes";
+import { MODO_BREVE } from "./alternativa";
 
 /**
  * Análisis de VARIANTES y COMPARATIVAS.
@@ -603,7 +604,7 @@ export function bloqueVariantes(analisis: AnalisisVariantes): string | null {
         .join("\n")
     : `- La referencia exacta pedida (${analisis.pedida.completa}) NO aparece en el catálogo de la página.`;
 
-  const alternativas = analisis.alternativasConStock.slice(0, 3);
+  const alternativas = analisis.alternativasConStock.slice(0, 2);
   const altTxt = alternativas
     .map((v) => {
       const dif = [
@@ -631,15 +632,10 @@ export function bloqueVariantes(analisis: AnalisisVariantes): string | null {
     (glosarioDif
       ? `Glosario verificado del sufijo que cambia (úsalo para explicar la diferencia, no la expliques de memoria):\n${glosarioDif}\n\n`
       : "") +
-    `OBLIGATORIO en esta respuesta, siguiendo VARIANTES DE LA MISMA REFERENCIA: (1) di en UNA frase que la ` +
-    `referencia pedida no se puede servir por la página ahora mismo y que la variante de arriba SÍ está ` +
-    `disponible, con sus unidades; (2) explica en qué se diferencian nombrando el sufijo concreto y qué ` +
-    `implica en el montaje; (3) di si le sirve, o haz UNA sola pregunta que lo decida; (4) cierra ofreciendo ` +
-    `la compra de la variante DISPONIBLE. ` +
-    `Tienes PROHIBIDO presentarlas como dos productos sueltos sin relacionarlas, PROHIBIDO invitar a comprar ` +
-    `o a añadir al carrito la referencia sin stock, y PROHIBIDO decir "puedes añadirlo al carrito cuando haya ` +
-    `stock" o cualquier variante de esa frase. ` +
-    `Llama además a compare_products con las dos referencias para dar las diferencias técnicas exactas.` +
+    `OBLIGATORIO en esta respuesta: di en UNA frase que la referencia pedida no se puede servir por la página ` +
+    `ahora mismo y que lo más parecido disponible es la de arriba, con sus unidades. ${MODO_BREVE} ` +
+    `Tienes PROHIBIDO invitar a comprar o a añadir al carrito la referencia sin stock, y PROHIBIDO decir ` +
+    `"puedes añadirlo al carrito cuando haya stock" o cualquier variante de esa frase.` +
     (analisis.exactas.length
       ? ""
       : ` La referencia pedida NO existe en la página (puede ser una errata del cliente): dilo en una frase y ` +
