@@ -654,7 +654,7 @@ function ordenarPorPalabras(lista: ArticuloIndice[], plano: string): ArticuloInd
 /** ¿Pregunta por disponibilidad o pide productos (y no solo una explicación)? */
 export function pideProductos(message: string): boolean {
   const plano = minus(message);
-  return /\b(teneis|tienes|tienen|tenemos|hay|vendeis|vendes|venden|disponeis|dispones|ofreceis|trabajais|manejais|busco|buscando|necesito|necesitaria|quiero|querria|me interesa|precio|precios|cuanto cuesta|stock|disponible|disponibles|catalogo|opciones|modelos|tipos|que .* (teneis|tienes|hay|vendeis)|ensen|muestr|recomiend|aconsej|cual me|alguno|alguna)\b/.test(plano);
+  return /\b(teneis|tienes|tienen|tenemos|hay|vendeis|vendes|venden|disponeis|dispones|ofreceis|trabajais|manejais|busco|buscando|necesito|necesitaria|quiero|querria|me interesa|precio|precios|cuanto cuesta|stock|disponible|disponibles|catalogo|opciones|modelos|tipos|que .* (teneis|tienes|hay|vendeis)|ensen|muestr|recomiend|aconsej|cual me|alguno|alguna|dame|deme|ponme|pasame|mandame|enviame|quisiera|me hace falta|me haria falta|me hacen falta)\b/.test(plano);
 }
 
 /** "¿Qué vendéis?", "¿qué productos tenéis?", "¿qué hay en el catálogo?" */

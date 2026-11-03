@@ -637,7 +637,14 @@ Cuando search_official_source te devuelva un dato, úsalo como base verificada p
 2. Familia o serie → busca directamente.
 3. Referencia o dato que NO reconoces (marca externa sin match en KB, medida atípica, término técnico desconocido) → search_official_source primero, luego search_products con lo identificado.
 4. Diámetro interior exacto dado, "otras opciones con este diámetro" o "siguiente diámetro arriba/abajo" → search_by_bore (ver BÚSQUEDA POR DIMENSIONES y CUANDO PREGUNTAN POR OTRAS OPCIONES CON EL MISMO DIÁMETRO).
-5. Consulta genérica sin datos → haz UNA pregunta consultiva (bore o aplicación).
+5. Consulta genérica sin datos → haz UNA pregunta consultiva (bore o aplicación). Pero si pregunta por un TIPO de producto ("¿tenéis soportes?", "dame rodamientos C3"), aplica CÓMO ATENDER SEGÚN LO QUE SABE EL CLIENTE.
+
+# CÓMO ATENDER SEGÚN LO QUE SABE EL CLIENTE
+Cada familia tiene un dato DETERMINANTE sin el que no se puede proponer nada con sentido (rodamiento: la referencia o el diámetro del eje; soporte: el eje o la serie; correa: perfil y longitud; retén: sus medidas; cadena: el paso; Taper Lock: el tamaño o el eje; Bondioli: la serie; neumática: la pieza y su medida). Según lo que te dé:
+1. **Lo tiene claro (datos completos)** → dale exactamente eso si está en la web, con su ficha, precio, stock y tarjeta. Si NO está en la web: dilo claramente ("en la web no lo tenemos ahora mismo"), ofrécele lo más parecido que sí tengamos explicando en qué se diferencia, y propón llamar o escribir a ESGAS para conseguir la pieza exacta.
+2. **Da el dato determinante pero faltan detalles** (p. ej. "rodamiento de 25 mm de eje", sin exterior ni protección) → propón lo más habitual con lo que ha dicho (en un rodamiento sin protección indicada, la versión con tapa), dile qué has supuesto y pídele que confirme lo que falta para darle la exacta.
+3. **Falta el dato determinante** (p. ej. "dame rodamientos C3", "¿tenéis soportes?") → no des productos todavía: di qué tipos tenemos y, en una lista breve, qué datos necesitas. Si ya dio algún dato secundario (C3, inox…), reconócelo y explícale que con eso solo no se identifica la pieza.
+Cuando no sepa qué necesita, guíale: pregunta para qué es, dónde va montado o qué lleva grabado la pieza vieja, hasta llegar a la referencia ideal. Y cuando conteste a lo que le pediste, dale la respuesta exacta sin volver a preguntar lo que ya ha dicho.
 6. Fuera de temario → declina brevemente y espera.
 7. Máximo 3 productos presentados por respuesta.
 
@@ -1902,7 +1909,24 @@ export async function runAgent(
     const medidasAqui = medidasDelMensaje(message);
     const acotada = (c: ConsultaFamilia) => !!(c.tipos.length || c.forma || c.serie || c.eje || c.marca || c.inox);
     // Pieza concreta = sale de la serie o del eje (soporte UCP 206, taper 1610 eje 25…).
-    const piezaConcreta = (c: ConsultaFamilia) => !!(c.serie || c.eje);
+    // Pieza concreta = el cliente ha dado el dato DETERMINANTE de la familia:
+    // serie o eje (soportes, taper, cadenas por paso, Bondioli por serie) o,
+    // en neumática, el tipo de pieza con una medida (tubo de 8, 5/2, 1/4").
+    const piezaConcreta = (c: ConsultaFamilia) =>
+      !!(c.serie || c.eje) || (c.familia.id === "neumatica" && c.tipos.length > 0 && /\d/.test(message));
+    // Datos que aún faltan (los que el cliente NO ha dado), para pedirlos o
+    // para que confirme lo que hemos supuesto.
+    const datosPendientes = (c: ConsultaFamilia) =>
+      (DATOS_NECESARIOS[c.familia.id] ?? [c.familia.afinar]).filter((d) => {
+        if ((c.eje || c.serie) && /^(Diámetro del eje|Tamaño del casquillo|Paso de la cadena|Serie de la transmisión)/.test(d)) return false;
+        if (c.eje && /^Diámetro del eje/.test(d)) return false;
+        if (c.forma && /^Forma de montaje/.test(d)) return false;
+        if ((c.tipos.length || c.inox) && /^(Entorno de trabajo|Material)/.test(d)) return false;
+        if (c.tipos.some((t) => ["simple", "doble", "triple"].includes(t)) && /^Hileras/.test(d)) return false;
+        if (c.familia.id === "neumatica" && c.tipos.length && /^Qué pieza/.test(d)) return false;
+        if (c.familia.id === "bondioli" && c.tipos.length && /^Qué pieza/.test(d)) return false;
+        return true;
+      });
     const sinCifras =
       `NO digas cuántos artículos hay de nada (ni totales, ni por tipo, ni "más de X", ni "una amplia gama de N"): al cliente no le aporta. ` +
       `Habla de tipos, no de artículos sueltos.`;
@@ -1914,12 +1938,34 @@ export async function runAgent(
         const entera = acotada(consultaCat)
           ? resumirFamilia(indice, { ...consultaCat, tipos: [], forma: undefined, serie: undefined, eje: undefined, marca: undefined, inox: undefined })
           : pedido;
-        const concreta = piezaConcreta(consultaCat) && pedido.total > 0 && pedido.total <= 40;
+        // Lo que encaja con lo que pide (en neumática, delante lo que lleva sus medidas).
+        const encajan = consultaCat.familia.id === "neumatica" ? mejoresPorPalabras(pedido.coincidentes, message) : pedido.coincidentes;
+        // Ha dado el dato determinante pero de exactamente eso no hay nada en la
+        // web: se busca lo MÁS PARECIDO soltando de uno en uno los filtros
+        // secundarios (material, forma, marca…), nunca el determinante.
+        let parecido: { lista: typeof encajan; cambia: string } | null = null;
+        if (piezaConcreta(consultaCat) && pedido.total === 0) {
+          const pruebas: Array<[Partial<ConsultaFamilia>, string]> = [
+            [{ tipos: [] }, "el material o la variante"],
+            [{ forma: undefined }, "la forma del cuerpo"],
+            [{ inox: undefined }, "el material (no inoxidable)"],
+            [{ marca: undefined }, "la marca"],
+            [{ tipos: [], forma: undefined, marca: undefined, inox: undefined }, "el material y la forma"],
+          ];
+          for (const [cambio, cambia] of pruebas) {
+            const r = resumirFamilia(indice, { ...consultaCat, ...cambio });
+            if (r.total > 0 && r.total <= 60) {
+              parecido = { lista: r.coincidentes, cambia };
+              break;
+            }
+          }
+        }
+        const concreta = piezaConcreta(consultaCat) && ((encajan.length > 0 && encajan.length <= 40) || !!parecido);
         // Ejemplos reales CON stock (uno por tipo) para nombrarlos en el texto.
         let ejemplos: string[] = [];
         let tarjetas: Product[] = [];
-        if (pedido.total > 0) {
-          const pool = (consultaCat.familia.id === "neumatica" ? mejoresPorPalabras(pedido.coincidentes, message) : pedido.coincidentes).slice(0, 400);
+        if (pedido.total > 0 || parecido) {
+          const pool = (parecido ? parecido.lista : encajan).slice(0, 400);
           const stock = await stockDeVarios(pool.map((p) => p.id));
           const elegidos = elegirMuestra(pool, stock, concreta ? 3 : 4);
           ejemplos = elegidos.map((p) => p.name.replace(/\s+/g, " ").trim());
@@ -1935,8 +1981,8 @@ export async function runAgent(
           partes.push(`En la página no hay ningún artículo de ${nombreFam}. Dilo con honestidad (en la tienda online no aparece) y ofrece el contacto.`);
         } else {
           partes.push(`SÍ TENEMOS ${nombreFam.toUpperCase()} en la página.`);
-          if (acotada(consultaCat) && pedido.total === 0) {
-            partes.push(`De exactamente eso (${consultaCat.descripcion}) NO hay nada en la página: dilo así, SIN negar la familia (que sí la tenemos), y ofrece lo más cercano de los tipos de abajo o el contacto.`);
+          if (acotada(consultaCat) && pedido.total === 0 && !parecido) {
+            partes.push(`De exactamente eso (${consultaCat.descripcion}) NO hay nada en la web ahora mismo: dilo así, SIN negar la familia (que sí la tenemos), indica lo más cercano de los tipos de abajo y ofrece llamar o escribir a ESGAS para consultarlo (escalate_to_human).`);
           }
           const tiposPedido = pedido.porTipo.filter((t) => t.id !== "otros").map((t) => t.nombre);
           if (tiposPedido.length) partes.push(`Tipos que hay de lo que pide: ${tiposPedido.join("; ")}.`);
@@ -1950,28 +1996,35 @@ export async function runAgent(
           if (ejemplos.length && tarjetas.length) partes.push(`Opciones reales con stock: ${ejemplos.join(" · ")}.`);
           partes.push(`Cómo se elige (referencia para ti; resúmelo en una frase si ayuda): ${consultaCat.familia.explicacion}`);
           if (tarjetas.length) {
+            const pendientes = datosPendientes(consultaCat);
             partes.push(
-              `Es una pieza concreta: estas son las opciones reales, con su tarjeta de compra debajo de tu respuesta:\n` +
+              (parecido
+                ? `De EXACTAMENTE lo que pide (${consultaCat.descripcion}) no hay nada a la venta en la web ahora mismo. Lo más parecido que SÍ tenemos (cambia ${parecido.cambia}), con su tarjeta de compra debajo de tu respuesta:\n`
+                : `Ha dado el dato determinante: estas son las opciones reales que encajan, con su tarjeta de compra debajo de tu respuesta:\n`) +
                 tarjetas.map((p) => `- ${p.name} — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}${unidadDeVenta(p)}`).join("\n") +
                 `\nPreséntalas nombrando cada una con su nombre EXACTO (si no la nombras, su tarjeta no sale).`
             );
             partes.push(
-              `CÓMO RESPONDER: empieza por "Sí", presenta brevemente estas opciones y, si para cerrar la elección falta algo (forma, material, sellado…), pregúntalo en una frase. ` +
+              `CÓMO RESPONDER (tono profesional de técnico comercial):\n` +
+                (parecido
+                  ? `1) Di claramente que eso exacto no lo tenemos en la web ahora mismo.\n2) Presenta lo más parecido y explica en qué se diferencia de lo que pidió (${parecido.cambia}).\n3) Ofrece llamar o escribir a ESGAS para consultar la pieza exacta, que en la web de momento no está (escalate_to_human).\n`
+                  : `1) Presenta estas opciones, empezando por la más habitual.\n`) +
+                (pendientes.length
+                  ? `${parecido ? "4" : "2"}) Dile qué has supuesto y pídele que confirme, en una lista breve, lo que aún falta para darle la exacta:\n${pendientes.map((d) => `   - ${d}`).join("\n")}\n`
+                  : "") +
                 `No vuelvas a pedir lo que el cliente ya ha dicho${consultaCat.eje ? ` (el eje de ${consultaCat.eje} mm ya lo ha dado)` : ""}${consultaCat.serie ? ` (la serie ${consultaCat.serie} también)` : ""}. ` +
                 `PROHIBIDO decir que no tenemos ${nombreFam}.`
             );
           } else {
             catalogoSinTarjetas = true;
-            const datos = (DATOS_NECESARIOS[consultaCat.familia.id] ?? [consultaCat.familia.afinar]).filter(
-              (d) => !(consultaCat.eje && /eje/i.test(d) && !/forma|montaje/i.test(d)) && !(consultaCat.serie && /serie|paso|tamaño/i.test(d) && !/forma/i.test(d))
-            );
+            const datos = datosPendientes(consultaCat);
             partes.push(
               `CÓMO RESPONDER (tono profesional de técnico comercial, sin relleno):\n` +
                 `1) Empieza por "Sí" y di qué TIPOS tenemos de lo que pregunta: los materiales/variantes de arriba y, si aplica, las formas de cuerpo (de pie UCP, brida cuadrada UCF, brida oval UCFL, brida redonda UCFC, tensor UCT…), en una o dos frases. ` +
                 `NO nombres artículos concretos ni des ejemplos de referencias, precios o stock: todavía no sabemos qué pieza necesita.\n` +
                 `2) Termina indicando, en una lista breve con viñetas, los datos que necesitamos para darle la referencia exacta:\n` +
                 datos.map((d) => `   - ${d}`).join("\n") +
-                `\n   (Si el cliente ya ha dado alguno de estos datos en la conversación, no lo vuelvas a pedir.)\n` +
+                `\n   (Si el cliente ya ha dado alguno de estos datos en la conversación, no lo vuelvas a pedir. Si ha dado un dato secundario —un sufijo como C3 o 2RS, un material—, reconócelo y explícale en una frase que con eso solo no se identifica la pieza.)\n` +
                 `3) No llames a search_products en esta respuesta y no presentes productos para comprar. ` +
                 sinCifras.replace(/ Nombra los tipos y, como mucho, uno o dos ejemplos reales de los de arriba, sin precio\./, "") +
                 ` PROHIBIDO decir que no tenemos ${nombreFam} o cualquiera de los tipos listados: es un hecho comprobado en el catálogo. ` +
@@ -2108,9 +2161,17 @@ export async function runAgent(
         !medidas.proteccion ||
         (medidas.proteccion === "ambas" ? proteccionDe(p.name) !== "abierto" : proteccionDe(p.name) === medidas.proteccion);
       const vistos = new Set<number>();
-      const candidatos = enPagina
-        .filter((p) => !vistos.has(p.id) && vistos.add(p.id) && encaja(p))
-        .sort((a, b) => Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0));
+      const unicos = enPagina.filter((p) => !vistos.has(p.id) && vistos.add(p.id));
+      const exactos = unicos.filter(encaja);
+      // Con la protección que pide no hay nada en la página, pero sí con otra:
+      // se ofrece lo más parecido diciéndolo claro (criterio del cliente, 03-11-2026).
+      const soloParecido = exactos.length === 0 && unicos.length > 0;
+      // Sin protección dicha: delante la que lleva tapa (junta de goma, la más
+      // habitual), luego la metálica y al final la abierta.
+      const ordenProt = (p: Product) => (medidas.proteccion ? 0 : ({ junta: 0, deflector: 1, abierto: 2 } as const)[proteccionDe(p.name)]);
+      const candidatos = (soloParecido ? unicos : exactos).sort(
+        (a, b) => Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0) || ordenProt(a) - ordenProt(b)
+      );
       for (const p of candidatos.slice(0, 3)) if (!collected.some((c) => c.id === p.id)) collected.push(p);
 
       const medidasTxt =
@@ -2145,8 +2206,14 @@ export async function runAgent(
           (medidas.proteccion === "ambas" && /junta:\s*(ZZ|2Z|Z\b|deflect)/i.test(lineasKb) && /junta:\s*(?!ZZ|2Z|Z\b|deflect|abierto)\S/i.test(lineasKb)
             ? `El cliente dice "tapa" sin precisar: explica en UNA frase que hay dos tipos (ZZ = tapa metálica, sin contacto; 2RS/EE = junta de goma, estanca al agua y al polvo) y, si las dos están, preséntalas y pregúntale UNA cosa: cuál necesita o qué pone grabado en el suyo. `
             : "") +
+          (soloParecido
+            ? `Con la protección exacta que pide NO hay nada a la venta en la web ahora mismo: dilo claramente, presenta lo más parecido de la lista de la página explicando en qué se diferencia (tipo de protección), y ofrece llamar o escribir a ESGAS para conseguir la exacta (escalate_to_human). `
+            : "") +
+          (!medidas.proteccion
+            ? `No ha dicho la protección: propón primero la versión con tapa (junta de goma 2RS/EE, la más habitual; si no hay, la ZZ metálica) y dile en una frase que compruebe si el suyo lleva tapa de goma, tapa metálica o va abierto, porque cambia la pieza. `
+            : "") +
           (!medidas.de
-            ? `Como solo ha dado el eje y hay varias anchuras/exteriores posibles, enseña la más habitual y pídele UN dato para confirmarla: el diámetro exterior. `
+            ? `Como solo ha dado el eje y hay varios exteriores y anchos posibles, enseña la más habitual (serie 62) y dile qué ha supuesto y que confirme el diámetro exterior y el ancho para darle la exacta. `
             : "") +
           `Si ninguna está en la página, da igualmente las referencias estándar de arriba con sus medidas y ofrece el contacto al final para conseguirlas. ` +
           `PROHIBIDO responder solo con un escalado, decir que no hay nada o derivar a un técnico sin dar estas opciones.`,

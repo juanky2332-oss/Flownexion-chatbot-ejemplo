@@ -1703,7 +1703,11 @@ export function medidasDelMensaje(mensaje: string): CriterioMedidas | null {
   // "25 mm de eje y 52 de exterior" se leía como eje de 52.
   const interior =
     new RegExp(num + mm + String.raw`\s+(?:de\s+)?(?:eje|diametro\s+interior|interior)`).exec(m) ??
-    new RegExp(String.raw`(?:diametro\s+(?:interior|interno|del?\s+eje)|\beje\b|agujero|\binterior\b|\bd[øo0])\D{0,20}?` + num + mm).exec(m);
+    new RegExp(String.raw`(?:diametro\s+(?:interior|interno|del?\s+eje)|\beje\b|agujero|\binterior\b|\bd[øo0])\D{0,20}?` + num + mm).exec(m) ??
+    // "rodamiento con diámetro 25", "rodamientos de 25 mm": en un rodamiento,
+    // el diámetro a secas es el del eje (el exterior se dice "exterior").
+    new RegExp(String.raw`\bdiametro\b(?!\s+(?:exterior|externo))\D{0,6}?` + num + mm).exec(m) ??
+    new RegExp(String.raw`\brodamientos?\s+(?:de|para)\s+(?:un\s+)?` + num + String.raw`\s*(?:mm|mms|milimetros)\b`).exec(m);
   if (!interior) return null;
   const di = Number(interior[1].replace(",", "."));
   if (!Number.isFinite(di) || di <= 0 || di > 600) return null;
