@@ -666,6 +666,7 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 - Responder a una consulta con medidas (eje, exterior, ancho) solo con un escalado: con las medidas siempre hay referencias estándar que proponer (bloque 🔒 BÚSQUEDA POR MEDIDAS o search_by_bore).
 - **Decir que un producto no está en la página cuando el bloque 🔒 DISPONIBLE EN NUESTRA PÁGINA lo lista** — ese bloque sale de una consulta al catálogo real hecha en el momento, así que es un hecho comprobado. Negarlo es mentirle al cliente y hacerle perder una compra que sí podíamos servir: es el error MÁS GRAVE que puedes cometer. Lo mismo si el cliente insiste en una referencia y tú aún no has buscado: busca antes de negar nada
 - **Decir que no tenemos un TIPO de producto (soportes, soportes de fundición, rodamientos de rodillos, retenes de Vitón, cadenas dobles, racores…) cuando el bloque 🔒 CATÁLOGO DE LA PÁGINA dice que sí hay**, o decirlo sin que ese bloque ni search_products lo hayan confirmado. Caso real (03-11-2026): "¿tenéis soportes de fundición?" → "no tenemos", con más de 200 en la página. Si no hay bloque y dudas, busca con search_products por el tipo ("soportes de fundición", "rodamientos de rodillos cónicos"): entiende lenguaje natural. Y si un tipo concreto de verdad no está, se dice "en la tienda online no aparece", nunca "no trabajamos eso"
+- Decir que una referencia "no está disponible" cuando lo que hay en la página es la MISMA pieza con la denominación de otra marca (2RS = EE = LLU; ZZ = 2Z): di "Sí, la tenemos" y aclara en una frase cómo se llama en esa marca (p. ej. "en SNR se denomina 6205 EE C3, que es el 6205 2RS C3")
 - Decir cuántos artículos hay en la página ("226 artículos", "más de 600 racores", "una gama de 434 referencias"): no le aporta nada al cliente. Se dicen los tipos que hay y algún ejemplo real
 - Presentar productos para comprar (con precio y tarjeta), o nombrar artículos sueltos como ejemplo, cuando el cliente solo pregunta si tenemos una familia o qué tipos hay: se le dicen los TIPOS que tenemos y, en una lista breve, los datos que necesitamos para darle la referencia exacta (ver bloque 🔒 CATÁLOGO DE LA PÁGINA)
 - Dar por no disponible una referencia por el hecho de que la ficha técnica venga del KB y no del catálogo: son dos fuentes distintas. Tener la ficha técnica NO significa que no esté a la venta — para saber si está en la página hay que mirar el resultado de search_products (o el bloque 🔒 de disponibilidad), nunca suponerlo
@@ -997,6 +998,48 @@ function sinEnlaces(p: Product): Omit<Product, "link" | "cartLink" | "checkoutLi
 // Lo que es UNA unidad cuando no es una pieza: las cadenas se venden por
 // tramos ("Longitud de la cadena: 5 metros"). Visto el 26-10-2026: con
 // "necesito 5 metros de 08B-1" el bot no decía que 1 ud ya son 5 m.
+/**
+ * Cierre garantizado en código: quita huecos inventados ("[medidas
+ * específicas del soporte]") y, si hemos supuesto algo y el texto no pide
+ * confirmarlo, lo añade al final.
+ */
+function conNotaFinal(texto: string, nota: string | null): string {
+  let t = String(texto ?? "")
+    .split("\n")
+    .filter((l) => !/\[[^\]\n]*(espec[ií]fic|medidas?|datos?|completar|pendiente|insertar)[^\]\n]*\]/i.test(l))
+    .join("\n");
+  if (nota && !/compru[eé]ba|confirm|dime (tambi[eé]n|el|la|si)|ind[ií]came/i.test(t.slice(-500))) t = `${t.trimEnd()}\n\n${nota}`;
+  return t;
+}
+
+/** Ficha técnica del KB para una tarjeta de la página (solo si es de verdad la misma pieza). */
+function fichaDeTarjeta(p: Product): TechInfo | undefined {
+  const nombre = String(p.name ?? "").replace(/\([^)]*\)/g, " ").toUpperCase();
+  // Los TL termoplásticos/inox no tienen ficha propia: la de fundición NO vale.
+  if (/TERMOPLASTICO|INOX|PLAS\b/.test(nombre) && /\bTL\b/.test(nombre)) return undefined;
+  const marca = /\bTL\b/.test(nombre) ? "TL" : /^NTN\b/.test(nombre) ? "NTN" : /^SNR\b/.test(nombre) ? "SNR" : null;
+  if (!marca) return undefined;
+  const des = nombre
+    .replace(/^(SOPORTE|RODAMIENTO)(\s+(FUNDICION|PARTIDO|CROMO))?\s+/, "")
+    .replace(/\b(NTN|SNR|TL)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const n = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (marca === "TL") {
+    // Las fichas TL se encuentran por la designación (el buscador las devuelve
+    // junto a la NTN/SNR): primero la propia TL; en rodamientos vale la de su
+    // equivalente SNR/NTN exacto (misma pieza ISO), en soportes no.
+    const hits = findTechnicalInfo(`SNR ${des}`);
+    const propia = hits.find((t) => /^TL/i.test(t.marca) && n(t.referencia).replace(/^TL/, "") === n(des));
+    if (propia) return propia;
+    if (/^RODAMIENTO/.test(nombre)) return hits.find((t) => t.coincidencia === "exacta" || t.coincidencia === "equivalente");
+    return undefined;
+  }
+  return findTechnicalInfo(`${marca} ${des}`).find(
+    (t) => t.marca.toUpperCase().startsWith(marca) && (t.coincidencia === "exacta" || t.coincidencia === "equivalente")
+  );
+}
+
 function unidadDeVenta(p: Product): string {
   const m = String(p.description ?? "").match(/longitud[^:]*:\s*([\d.,]+\s*(?:metros|m)\b)/i);
   return m ? ` · cada unidad = ${m[1]} (el precio y el stock son por unidad)` : "";
@@ -1903,6 +1946,9 @@ export async function runAgent(
   // soportes?" y recibir tres botones de carrito al azar no tiene sentido.
   let catalogoResuelto = false;
   let catalogoSinTarjetas = false;
+  // Nota final garantizada en código cuando hemos SUPUESTO algo (el modelo a
+  // veces presenta la pieza y se olvida de decir qué falta confirmar).
+  let notaConfirmar: string | null = null;
   if (!refDetectada) {
     const anterioresCliente = history.filter((m) => m.role === "user").map((m) => String(m.content ?? ""));
     const consultaCat = consultaDeFamilia(message, anterioresCliente);
@@ -1997,6 +2043,23 @@ export async function runAgent(
           partes.push(`Cómo se elige (referencia para ti; resúmelo en una frase si ayuda): ${consultaCat.familia.explicacion}`);
           if (tarjetas.length) {
             const pendientes = datosPendientes(consultaCat);
+            if (pendientes.length && !parecido) {
+              notaConfirmar = `Para confirmarte la referencia exacta, dime también: ${pendientes.map((d) => d.charAt(0).toLowerCase() + d.slice(1)).join("; ")}.`;
+            }
+            // Ficha técnica de cada tarjeta, resuelta en código: visto el
+            // 03-11-2026, sin ella el modelo escribió "[medidas específicas del soporte]".
+            const fichasTarjetas = tarjetas.map((p) => ({ p, f: fichaDeTarjeta(p) }));
+            for (const { f } of fichasTarjetas) if (f && !tecnicas.some((t) => t.marca === f.marca && t.referencia === f.referencia)) tecnicas.push(f);
+            partes.push(
+              `Ficha técnica de cada opción (úsala tal cual; NO inventes datos ni dejes huecos entre corchetes):\n` +
+                fichasTarjetas
+                  .map(({ p, f }) =>
+                    f
+                      ? `- ${p.name}: ${Object.entries(f.datos).map(([k, v]) => `${k}: ${v}`).join("; ")}`
+                      : `- ${p.name}: no hay ficha técnica en la base de datos — da solo lo que dice su nombre (tipo, serie, eje) y no inventes medidas`
+                  )
+                  .join("\n")
+            );
             partes.push(
               (parecido
                 ? `De EXACTAMENTE lo que pide (${consultaCat.descripcion}) no hay nada a la venta en la web ahora mismo. Lo más parecido que SÍ tenemos (cambia ${parecido.cambia}), con su tarjeta de compra debajo de tu respuesta:\n`
@@ -2169,10 +2232,23 @@ export async function runAgent(
       // Sin protección dicha: delante la que lleva tapa (junta de goma, la más
       // habitual), luego la metálica y al final la abierta.
       const ordenProt = (p: Product) => (medidas.proteccion ? 0 : ({ junta: 0, deflector: 1, abierto: 2 } as const)[proteccionDe(p.name)]);
+      // Juego interno no pedido: delante el normal (CN), el C3 después.
+      const ordenJuego = (p: Product) => (/\bc[2-5]\b/i.test(message) ? 0 : /\bC[2-5]\b/.test(p.name) ? 1 : 0);
       const candidatos = (soloParecido ? unicos : exactos).sort(
-        (a, b) => Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0) || ordenProt(a) - ordenProt(b)
+        (a, b) =>
+          Number((b.stock ?? 0) > 0) - Number((a.stock ?? 0) > 0) || ordenProt(a) - ordenProt(b) || ordenJuego(a) - ordenJuego(b)
       );
       for (const p of candidatos.slice(0, 3)) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+      if (!medidas.de || !medidas.proteccion) {
+        const falta = [
+          ...(!medidas.de ? ["el diámetro exterior y el ancho"] : []),
+          ...(!medidas.proteccion ? ["si lleva tapa de goma (2RS), tapa metálica (ZZ) o va abierto"] : []),
+        ];
+        notaConfirmar =
+          `Te he propuesto la opción más habitual para un eje de ${medidas.di} mm` +
+          (candidatos[0] ? ` (${candidatos[0].name})` : "") +
+          `. Para darte la referencia exacta, comprueba en tu pieza ${falta.join(" y ")}.`;
+      }
 
       const medidasTxt =
         `dØ${medidas.di} mm` + (medidas.de ? ` × DØ${medidas.de} mm` : "") + (medidas.an ? ` × B${medidas.an} mm` : "");
@@ -2359,7 +2435,10 @@ export async function runAgent(
     );
     const productos = ajustado.productos;
     // Stock y disponibilidad SIEMPRE los reales de las tarjetas (ver variantes.ts).
-    const texto = asegurarRespuestaIva(quitarDudaDisponibilidad(corregirStock(ajustado.texto, productos, message), productos), message);
+    const texto = conNotaFinal(
+      asegurarRespuestaIva(quitarDudaDisponibilidad(corregirStock(ajustado.texto, productos, message), productos), message),
+      productos.length ? notaConfirmar : null
+    );
     // Al comparar con el producto del turno anterior ("compáralo con..."), su
     // ficha también hace falta para el PDF comparativo.
     if (pideComparar(message)) {
