@@ -482,7 +482,18 @@ section("LO MÁS PARECIDO — diferencias calculadas, no redactadas");
   ok(/^Aquí tienes/.test(limpio) && /al carrito\.$/.test(limpio), "conserva la entrada y el cierre", limpio);
   ok(!/Ref:|Peso|Stock|1 g menos|Coincidencias/.test(limpio), "quita fichas y diferencias del modelo");
   const compuesto = alt.componerRespuesta(limpio + "\n\nNota final.", "BLOQUE", "Nota final.");
-  ok(/^Aquí tienes[^\n]*\n\nBLOQUE\n\n.*\n\nNota final\.$/s.test(compuesto), "orden: entrada, bloque, nota", compuesto);
+  ok(/^Aquí tienes[^\n]*\n\nBLOQUE\n\nNota final\.$/.test(compuesto), "orden: entrada, bloque, nota", compuesto);
+
+  section("MÁS CERCANOS — correa, retén y taper");
+  const cer = require("../lib/cercanos") as typeof import("../lib/cercanos");
+  const idx = ["CORREA TL PRO SERIES SPB3550", "CORREA CONTINENTAL SPB3750", "CORREA TL PRO SERIES SPA3600", "CORREA CONTINENTAL C136", "RETEN DL 22X40X7", "RETEN DL 25X40X7", "TAPER 1610 EJE 22MM TL", "TAPER 1610 EJE 24MM TL", "TAPER 2012 EJE 23MM TL"].map((name, i) => ({ id: i + 1, name }));
+  const c1 = cer.consultaDeMedida("necesito una correa SPB 3622")?.cercanos(idx).map((c) => c.articulo.name) ?? [];
+  ok(c1.length === 2 && c1[0].endsWith("SPB3550"), "correa: solo su perfil y la más cercana primero", c1.join(" | "));
+  const c2 = cer.consultaDeMedida("reten 23x41x7")?.cercanos(idx) ?? [];
+  ok(c2[0]?.articulo.name === "RETEN DL 22X40X7", "retén: primero el eje más cercano", c2[0]?.articulo.name);
+  const c3 = cer.consultaDeMedida("taper 1610 eje 23")?.cercanos(idx).map((c) => c.articulo.name) ?? [];
+  ok(c3.length === 2 && c3.every((n) => /1610/.test(n)), "taper: mismo tamaño", c3.join(" | "));
+  ok(cer.consultaDeMedida("quiero un 6205 zz") === null, "un rodamiento no entra aquí");
 
   section("MEDIDAS — frases del cliente");
   ok(kbm.medidasDelMensaje("y rodamientos c3 con 23 mms?")?.di === 23, "«rodamientos c3 con 23 mms» = eje 23");

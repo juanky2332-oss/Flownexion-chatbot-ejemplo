@@ -73,6 +73,7 @@ import { searchOfficialSource } from "./websearch";
 import { pideComparar } from "./ficha";
 import { piezasAComparar, piezasDelMensaje } from "./comparar";
 import { MODO_BREVE } from "./alternativa";
+import { consultaDeMedida } from "./cercanos";
 import { limpiarCierreVacio } from "./guardrails";
 import { busquedaDeFamilia, rpmDelMensaje, variantesMasRapidas, asegurarRespuestaIva } from "./familias";
 import { completar, completarEnStreaming } from "./llm";
@@ -1910,7 +1911,10 @@ export async function runAgent(
             pedida: String(exacta?.name ?? refDetectada).replace(/^RODAMIENTOS?\s+/i, ""),
             ...(fichaPedida ? { ficha: fichaPedida } : {}),
           };
-          const propuestas = analisisPedida.alternativasConStock.slice(0, 2).map((v) => v.producto);
+          // Un agujero cónico (K) se monta distinto: no se propone por uno cilíndrico si hay otra.
+          const conStock = analisisPedida.alternativasConStock.map((v) => v.producto);
+          const noCambiaAgujero = (p: Product) => /\bK\b/.test(refDetectada) || !/\bK\b/.test(p.name);
+          const propuestas = (conStock.some(noCambiaAgujero) ? conStock.filter(noCambiaAgujero) : conStock).slice(0, 2);
           tarjetasFijas = [...propuestas, ...(exacta ? [exacta] : [])];
           for (const p of tarjetasFijas) if (!collected.some((c) => c.id === p.id)) collected.push(p);
           escalation.needsHuman = true;
@@ -2087,8 +2091,27 @@ export async function runAgent(
         let ejemplos: string[] = [];
         let tarjetas: Product[] = [];
         if (pedido.total > 0 || parecido) {
-          const pool = (parecido ? parecido.lista : encajan).slice(0, 400);
-          const stock = await stockDeVarios(pool.map((p) => p.id));
+          let pool = (parecido ? parecido.lista : encajan).slice(0, 400);
+          let stock = await stockDeVarios(pool.map((p) => p.id));
+          // Existe pero sin stock (soporte inox de brida eje 30): lo más parecido
+          // que SÍ se pueda comprar, soltando igual los filtros secundarios.
+          if (!parecido && concreta && !pool.some((p) => (stock[p.id] ?? 0) > 0)) {
+            for (const [cambio, cambia] of [
+              [{ forma: undefined }, "la forma del cuerpo"],
+              [{ tipos: [], inox: undefined }, "el material (no inoxidable)"],
+              [{ tipos: [], forma: undefined, marca: undefined, inox: undefined }, "el material y la forma"],
+            ] as Array<[Partial<ConsultaFamilia>, string]>) {
+              const r = resumirFamilia(indice, { ...consultaCat, ...cambio });
+              if (!r.total || r.total > 60) continue;
+              const st = await stockDeVarios(r.coincidentes.map((p) => p.id));
+              if (r.coincidentes.some((p) => (st[p.id] ?? 0) > 0)) {
+                parecido = { lista: r.coincidentes, cambia };
+                pool = r.coincidentes;
+                stock = st;
+                break;
+              }
+            }
+          }
           const elegidos = elegirMuestra(pool, stock, concreta ? 3 : 4);
           ejemplos = elegidos.map((p) => p.name.replace(/\s+/g, " ").trim());
           if (concreta) {
@@ -2271,7 +2294,44 @@ export async function runAgent(
   // consulta a un técnico" sin dar nada, teniendo el 625 ZZ / 625 2RS en la
   // base de datos. Ahora se resuelve en código: referencias estándar que
   // cumplen esas medidas (ficha técnica real) y cuáles están en la página.
-  const medidas = !refDetectada ? medidasConContexto(message, history.filter((m) => m.role === "user").map((m) => String(m.content ?? ""))) : null;
+  // Correa, retén o taper de una medida que no hay: los más cercanos de verdad.
+  if (!tarjetasFijas.length) {
+    const cerca = consultaDeMedida(message);
+    if (cerca) {
+      try {
+        const indice = await indiceCatalogo();
+        const candidatos = cerca.cercanos(indice).slice(0, 12);
+        if (candidatos.length) {
+          const stock = await stockDeVarios(candidatos.map((c) => c.articulo.id));
+          const hayExacta = candidatos.some((c) => c.distancia === 0 && (stock[c.articulo.id] ?? 0) > 0);
+          const conStock = candidatos.filter((c) => (stock[c.articulo.id] ?? 0) > 0);
+          if (!hayExacta && conStock.length) {
+            const elegidos = [conStock[0], conStock.find((c) => Math.sign(c.lado) !== Math.sign(conStock[0].lado))].filter(Boolean) as typeof conStock;
+            tarjetasFijas = await hidratarProductos(elegidos.map((c) => ({ id: c.articulo.id, name: c.articulo.name })), groupId, customerId, 2);
+            for (const p of tarjetasFijas) if (!collected.some((c) => c.id === p.id)) collected.push(p);
+            escalation.needsHuman = true;
+            escalation.reason ??= "alternativa_ofrecida";
+            escalation.context ??= message.slice(0, 150);
+            notaConfirmar = cerca.nota;
+            messages.push({
+              role: "system",
+              content:
+                `🔒 MEDIDA NO DISPONIBLE — ${cerca.pedido} no está a la venta con stock en la página. Lo más cercano, comprobado en el catálogo real:\n` +
+                tarjetasFijas.map((p) => `- ${p.name} — ${p.stock} uds`).join("\n") +
+                `\n\nDi en una frase que ${cerca.pedido} no lo tenemos ahora en la página y que lo más cercano es lo de arriba, nombrando cada pieza con sus unidades. PROHIBIDO decir que son equivalentes o que le valen: es otra medida. ${MODO_BREVE}`,
+            });
+          }
+        }
+      } catch {
+        /* refuerzo: si la tienda falla, responde el modelo */
+      }
+    }
+  }
+
+  const anterioresDelCliente = history.filter((m) => m.role === "user").map((m) => String(m.content ?? ""));
+  // "soporte de brida eje 30": el eje es del soporte, no se busca un rodamiento.
+  const otraFamilia = consultaDeFamilia(message, anterioresDelCliente);
+  const medidas = !refDetectada && !tarjetasFijas.length && (!otraFamilia || otraFamilia.familia.id === "rodamientos") ? medidasConContexto(message, anterioresDelCliente) : null;
   if (medidas) {
     onEvento?.({ tipo: "estado", texto: "Buscando por medidas en el catálogo…" });
     let opciones = findByDimensions(medidas, 8);
@@ -2284,47 +2344,48 @@ export async function runAgent(
     // y solo su familia (misma base: 625 con cualquier sufijo, nunca otra medida). Visto el 25-10-2026: buscando la base
     // "625" la tienda devolvía enchufes neumáticos y un SNR 6306 ZZ C3 (eje de
     // 30 mm), que se colaba como opción para un eje de 5 mm.
-    const enLaPagina = async (lista: TechInfo[], limite = 6): Promise<Product[]> => {
-      const refs = Array.from(new Set(lista.map((o) => o.referencia))).slice(0, limite);
-      // La búsqueda por base no trae toda la familia: con juego pedido se busca con él.
-      const refsBuscar = medidas.juego ? [...refs.slice(0, 4).map((r) => `${r} ${medidas.juego}`), ...refs] : refs;
-      const hallados = (
-        await Promise.race([
-          Promise.all(
-            refsBuscar.map((r) =>
-              searchProducts(r, groupId, customerId)
-                .then((ps) => analizarVariantes(r, ps).familia.map((v) => v.producto))
-                .catch(() => [] as Product[])
-            )
-          ),
-          new Promise<Product[][]>((res) => setTimeout(() => res([]), 8000)),
-        ])
-      ).flat();
-      const vistos = new Set<number>();
-      return hallados.filter((p) => !vistos.has(p.id) && vistos.add(p.id));
+    // Sobre el índice completo de la tienda, no con búsquedas: la búsqueda por
+    // referencia trae solo unos pocos de cada familia y se quedaba sin el SNR
+    // 6004 ZZ C3 (71 uds) al pedir "zz de 20 mm" (visto el 03-11-2026).
+    const indicePagina = await indiceCatalogo();
+    const articulosDe = async (lista: TechInfo[]) => {
+      const bases = new Set(lista.map((o) => partirReferencia(o.referencia).base));
+      const arts = indicePagina.filter((a) => /^(SNR|NTN|RODAMIENTO)\b/i.test(a.name) && bases.has(partirReferencia(a.name.replace(/\([^)]*\)/g, " ")).base));
+      const stock = await stockDeVarios(arts.map((a) => a.id));
+      return arts
+        .map((a) => ({ ...a, stock: stock[a.id] ?? 0 }))
+        .sort((a, b) => Number(b.stock > 0) - Number(a.stock > 0) || Number(encaja(b)) - Number(encaja(a)));
     };
     const proteccionDe = (nombre: string) =>
       /(2RS|LLU|LLB|LLH|\bEE\b|DDU|2RZ|\bRS\b|\bVV\b)/i.test(nombre) ? "junta" : /(ZZ|2Z|\bZ\b)/i.test(nombre) ? "deflector" : "abierto";
-    const encaja = (p: Product) =>
+    const encaja = (p: { name: string }) =>
       (!medidas.proteccion ||
         (medidas.proteccion === "ambas" ? proteccionDe(p.name) !== "abierto" : proteccionDe(p.name) === medidas.proteccion)) &&
       (!medidas.juego || new RegExp(`\\b${medidas.juego}\\b`, "i").test(p.name));
-    const conStock = (p: Product) => (p.stock ?? 0) > 0;
+    const conStock = (p: { stock?: number | null }) => (p.stock ?? 0) > 0;
 
-    const unicos = opciones.length ? await enLaPagina(opciones) : [];
+    const articulos = opciones.length ? await articulosDe(opciones) : [];
+    // Delante lo que encaja con lo pedido y tiene stock; hasta 6 para elegir.
+    const preferidos = [...articulos.filter((a) => encaja(a) && a.stock > 0), ...articulos.filter((a) => !encaja(a) && a.stock > 0), ...articulos.filter((a) => a.stock <= 0)];
+    const unicos = preferidos.length ? await hidratarProductos(preferidos.slice(0, 6).map((a) => ({ id: a.id, name: a.name })), groupId, customerId, 6) : [];
     // Nada comprable de ese eje (23 mm no es medida estándar): lo más cercano
     // por encima y por debajo, en vez de "no tenemos". Con esa protección y ese
     // juego si los hay; si no, lo que haya. Visto el 03-11-2026.
     if (!unicos.some(conStock)) {
       const vecinos = await Promise.all(
-        boresCercanos(medidas.di, 4).map(async (d) => {
-          const ps = (await enLaPagina(findByDimensions({ di: d, ...(medidas.proteccion ? { proteccion: medidas.proteccion } : {}) }, 6), 4)).filter(conStock);
+        boresCercanos(medidas.di, 8).map(async (d) => {
+          const lista = findByDimensions({ di: d, ...(medidas.proteccion ? { proteccion: medidas.proteccion } : {}) }, 6);
+          const ps = (await articulosDe(lista.length ? lista : findByDimensions({ di: d }, 6))).filter(conStock);
           return { d, mejor: ps.find(encaja) ?? ps[0] };
         })
       );
-      const elegidos = vecinos.filter((v) => v.mejor).slice(0, 2);
+      const hay = vecinos.filter((v) => v.mejor);
+      // Uno por debajo y otro por encima de la medida pedida.
+      const bajo = hay.find((v) => v.d < medidas.di);
+      const alto = hay.find((v) => v.d > medidas.di);
+      const elegidos = [bajo, alto].filter(Boolean) as typeof hay;
       if (elegidos.length) {
-        tarjetasFijas = elegidos.map((v) => v.mejor as Product);
+        tarjetasFijas = await hidratarProductos(elegidos.map((v) => ({ id: v.mejor!.id, name: v.mejor!.name })), groupId, customerId, 2);
         for (const p of tarjetasFijas) if (!collected.some((c) => c.id === p.id)) collected.push(p);
         escalation.needsHuman = true;
         escalation.reason ??= "alternativa_ofrecida";
@@ -2336,7 +2397,7 @@ export async function runAgent(
           role: "system",
           content:
             `🔒 MEDIDA NO DISPONIBLE — de dØ${medidas.di} mm no hay ningún rodamiento a la venta en la página ahora mismo. Lo más cercano con stock, comprobado en el catálogo real:\n` +
-            elegidos.map((v) => `- dØ${v.d} mm: ${(v.mejor as Product).name} — ${(v.mejor as Product).stock} uds`).join("\n") +
+            elegidos.map((v) => `- dØ${v.d} mm: ${v.mejor!.name} — ${v.mejor!.stock} uds`).join("\n") +
             `\n\nDi en una frase que de ${medidas.di} mm no lo tenemos en la página y que lo más cercano es lo de arriba, nombrando cada pieza con sus unidades. PROHIBIDO decir que son equivalentes o que le valen: es otro diámetro de eje. ${MODO_BREVE}`,
         });
       }

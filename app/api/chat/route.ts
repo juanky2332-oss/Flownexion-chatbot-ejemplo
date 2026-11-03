@@ -173,20 +173,26 @@ export async function POST(req: NextRequest) {
     let comparar = fichas.length >= 2 && pideCompararMsg;
     let diferencias: DiferenciaPieza[] = [];
     let resumen: string | null = null;
+    // Con el nombre de la página ("SNR 6011 EE C3"), no el de la base técnica ("SNR 6011EEC3").
     const fichasTarjetas = (ps: typeof r.products) =>
-      fichasDeComparativa(ps.map((p) => piezaDeNombre(p.name)), [], r.tecnicas ?? [], r.output, r.products);
+      fichasDeComparativa(ps.map((p) => piezaDeNombre(p.name)), [], r.tecnicas ?? [], r.output, r.products).map((f) => {
+        const n = (s: string) => s.toUpperCase().replace(/^RODAMIENTOS?\s+/, "").replace(/\([^)]*\)/g, "").replace(/[^A-Z0-9]/g, "");
+        const p = ps.find((x) => n(x.name) === n(f.titulo));
+        return p ? { ...f, titulo: p.name.replace(/^RODAMIENTOS?\s+/i, "").replace(/\s+/g, " ").trim() } : f;
+      });
     if (r.alternativa && !pideCompararMsg) {
       // Lo pedido no se puede comprar: lo más parecido frente a lo pedido.
       const propuestas = fichasTarjetas(r.products.filter((p) => (p.stock ?? 0) > 0));
       if (propuestas.length) {
-        const pedida: FichaTecnica = r.alternativa.ficha ? fichaDesdeKb(r.alternativa.ficha) : fichaDeReferencia(r.alternativa.pedida);
+        const pedida: FichaTecnica = r.alternativa.ficha ? fichaDesdeKb(r.alternativa.ficha) : fichaDeReferencia(r.alternativa.pedida.replace(/[¿?¡!.,]+/g, ""));
         fichas = r.alternativa.ficha ? [pedida, ...propuestas] : propuestas;
         comparar = fichas.length >= 2;
         diferencias = propuestas.map((f) => diferenciaFrente(pedida, f));
         resumen = textoComparativa(comparar ? fichas : [], diferencias, comparar);
       }
-    } else if (!comparar) {
+    } else if (!comparar && !/\b(ficha|caracter[ií]sticas|datos\s+t[eé]cnicos)\b/i.test(message)) {
       // Varias piezas muy parecidas: mejor la comparativa que tres fichas enteras.
+      // Salvo que haya pedido la ficha: entonces se le da la ficha.
       const deTarjetas = fichasTarjetas(r.products);
       if (sonParecidas(deTarjetas)) {
         fichas = deTarjetas;

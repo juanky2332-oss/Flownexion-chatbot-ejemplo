@@ -170,7 +170,7 @@ function prosContrasJuego(a: number, b: number, d: DiferenciaPieza): void {
 // Campos que ya cuentan arriba o que no ayudan a decidir: no se repiten como
 // "cambio" genérico (siguen estando en el PDF).
 const NO_GENERICO =
-  /^(Diámetro interior|Diámetro exterior|Ancho B|Junta|Tolerancia|Capacidad de carga|Velocidad|Peso|Serie|Clase de producto|Criterio|Sistema|EAN|Tipo de agujero|Número de hileras|Material de los anillos)/i;
+  /^(Diámetro interior|Diámetro exterior|Ancho B|Junta|Tolerancia|Capacidad de carga|Velocidad|Peso|Serie|Clase de producto|Criterio|Sistema|EAN|Descripción)/i;
 
 /** Qué cambia la pieza `alt` frente a `base`, con sus pros y contras. */
 export function diferenciaFrente(base: FichaTecnica, alt: FichaTecnica): DiferenciaPieza {
@@ -265,8 +265,9 @@ export function textoComparativa(fichas: FichaTecnica[], diferencias: Diferencia
 export function componerRespuesta(texto: string, bloque: string, nota?: string | null): string {
   const limpio = nota ? texto.replace(nota, "") : texto;
   const parrafos = limpio.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  const [primero, ...resto] = parrafos;
-  return [primero ?? "Aquí tienes la comparación:", bloque, ...resto, nota].filter(Boolean).join("\n\n");
+  // Solo la entrada del modelo: visto el 03-11-2026, detrás del resumen seguía
+  // escribiendo otra explicación y frases sueltas de la ficha que se le quitó.
+  return [parrafos[0] ?? "Aquí tienes la comparación:", bloque, nota].filter(Boolean).join("\n\n");
 }
 
 /** Instrucción común: lo que escribe el modelo cuando la comparación la pone el código. */
