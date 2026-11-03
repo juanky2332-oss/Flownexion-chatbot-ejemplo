@@ -697,3 +697,58 @@ export function convieneMuestra(c: ConsultaFamilia): boolean {
   if (c.tipos.length || c.forma || c.serie || c.eje || c.inox) return true;
   return ["soportes", "cadenas", "taper", "bondioli", "accesorios-montaje"].includes(c.familia.id) || (!!c.marca && c.familia.id !== "rodamientos");
 }
+
+/**
+ * Lo que necesitamos saber para dar la referencia exacta, por familia. Es lo
+ * que el chat le pide al cliente cuando pregunta "¿tenéis…?" o "¿qué tipos
+ * de… tenéis?" (criterio del cliente, 03-11-2026: tipos + datos necesarios,
+ * sin nombrar artículos sueltos ni cifras).
+ */
+export const DATOS_NECESARIOS: Record<string, string[]> = {
+  soportes: [
+    "Diámetro del eje (o la serie del rodamiento: 204, 205, 206…)",
+    "Forma de montaje: de pie sobre base horizontal, brida contra pared (4 o 2 agujeros), tensor o partido",
+    "Entorno de trabajo: estándar (fundición) o humedad, lavados o alimentaria (inoxidable o termoplástico)",
+    "Si la tiene, la referencia grabada en el soporte actual",
+  ],
+  rodamientos: [
+    "La referencia grabada en el anillo, con sus sufijos (p. ej. 6205 2RS C3)",
+    "Si no se lee: medidas de eje × diámetro exterior × ancho en mm",
+    "Protección: abierto, con deflectores metálicos (ZZ) o con juntas de goma (2RS)",
+    "Condiciones especiales si las hay: velocidad alta, temperatura, agua o polvo",
+  ],
+  correas: [
+    "Perfil y longitud marcados en el flanco (p. ej. A 1250, SPZ 1000, 600-8M-30)",
+    "Si es dentada: paso, número de dientes o longitud, y ancho",
+    "Si no se lee: tipo (trapecial, dentada o Poly-V) y medida aproximada",
+  ],
+  retenes: [
+    "Medidas: eje × alojamiento × ancho en mm (p. ej. 25x40x7)",
+    "Material: NBR (estándar, hasta unos 100 °C) o Vitón/FKM (alta temperatura o productos químicos)",
+    "Tipo: con muelle, doble labio (con guardapolvo) o exterior metálico",
+  ],
+  cadenas: [
+    "Paso de la cadena (06B, 08B, 10B, 12B, 16B… o su medida en pulgadas)",
+    "Hileras: simple, doble o triple",
+    "Material: acero estándar o inoxidable",
+    "Si necesita eslabones de unión (rectos o acodados)",
+  ],
+  taper: [
+    "Tamaño del casquillo (1008, 1108, 1210, 1610, 2012, 2517…), que va grabado en la polea o el piñón",
+    "Diámetro del eje en mm",
+  ],
+  "accesorios-montaje": [
+    "Qué pieza necesita: manguito de fijación o desmontaje, tuerca, arandela, anillo o tapa ciega",
+    "La referencia del rodamiento o del soporte en el que va montada",
+  ],
+  bondioli: [
+    "Serie de la transmisión (G1, G2, G4, G5, G7, G8, G9 u homocinética)",
+    "Qué pieza: transmisión completa, cruceta, horquilla, tubo, protección, limitador o rueda libre",
+    "Medidas de la pieza si las tiene (cruceta, tubo, longitud de la transmisión)",
+  ],
+  neumatica: [
+    "Qué pieza necesita (racor, tubo, cilindro, válvula, electroválvula, filtro o regulador…)",
+    "Diámetro del tubo (4, 6, 8, 10, 12 mm) y rosca de conexión (M5, 1/8\", 1/4\", 3/8\", 1/2\")",
+    "En cilindros: diámetro y carrera; en válvulas: vías y posiciones (3/2, 5/2), accionamiento y tensión de la bobina",
+  ],
+};

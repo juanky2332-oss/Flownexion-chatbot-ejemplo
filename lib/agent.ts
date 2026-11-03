@@ -18,6 +18,7 @@ import {
   preguntaPorTipoDeProducto,
   buscarEnIndice,
   mejoresPorPalabras,
+  DATOS_NECESARIOS,
   type ConsultaFamilia,
 } from "./catalogo";
 import {
@@ -659,7 +660,7 @@ Cuando el cliente quiera ver su cesta, confirmar o pagar:
 - **Decir que un producto no está en la página cuando el bloque 🔒 DISPONIBLE EN NUESTRA PÁGINA lo lista** — ese bloque sale de una consulta al catálogo real hecha en el momento, así que es un hecho comprobado. Negarlo es mentirle al cliente y hacerle perder una compra que sí podíamos servir: es el error MÁS GRAVE que puedes cometer. Lo mismo si el cliente insiste en una referencia y tú aún no has buscado: busca antes de negar nada
 - **Decir que no tenemos un TIPO de producto (soportes, soportes de fundición, rodamientos de rodillos, retenes de Vitón, cadenas dobles, racores…) cuando el bloque 🔒 CATÁLOGO DE LA PÁGINA dice que sí hay**, o decirlo sin que ese bloque ni search_products lo hayan confirmado. Caso real (03-11-2026): "¿tenéis soportes de fundición?" → "no tenemos", con más de 200 en la página. Si no hay bloque y dudas, busca con search_products por el tipo ("soportes de fundición", "rodamientos de rodillos cónicos"): entiende lenguaje natural. Y si un tipo concreto de verdad no está, se dice "en la tienda online no aparece", nunca "no trabajamos eso"
 - Decir cuántos artículos hay en la página ("226 artículos", "más de 600 racores", "una gama de 434 referencias"): no le aporta nada al cliente. Se dicen los tipos que hay y algún ejemplo real
-- Presentar productos para comprar (con precio y tarjeta) cuando el cliente solo pregunta si tenemos una familia o qué tipos hay: primero se averigua qué pieza necesita
+- Presentar productos para comprar (con precio y tarjeta), o nombrar artículos sueltos como ejemplo, cuando el cliente solo pregunta si tenemos una familia o qué tipos hay: se le dicen los TIPOS que tenemos y, en una lista breve, los datos que necesitamos para darle la referencia exacta (ver bloque 🔒 CATÁLOGO DE LA PÁGINA)
 - Dar por no disponible una referencia por el hecho de que la ficha técnica venga del KB y no del catálogo: son dos fuentes distintas. Tener la ficha técnica NO significa que no esté a la venta — para saber si está en la página hay que mirar el resultado de search_products (o el bloque 🔒 de disponibilidad), nunca suponerlo
 - Explicar de memoria un concepto de sellado, juego interno, jaula, precisión, sufijo o perfil de correa sin haber llamado antes a explain_technical_term (o sin usar el bloque 🔒 GLOSARIO TÉCNICO VERIFICADO si ya aparece en la conversación) — es la causa de errores técnicos que llevan al cliente a montar una pieza equivocada (ver CONCEPTOS TÉCNICOS)
 - Contradecir, matizar o "completar" el contenido del glosario con datos que no vengan de él: si lo que recuerdas no coincide con lo que devuelve explain_technical_term, el glosario tiene razón
@@ -1904,7 +1905,7 @@ export async function runAgent(
     const piezaConcreta = (c: ConsultaFamilia) => !!(c.serie || c.eje);
     const sinCifras =
       `NO digas cuántos artículos hay de nada (ni totales, ni por tipo, ni "más de X", ni "una amplia gama de N"): al cliente no le aporta. ` +
-      `Nombra los tipos y, como mucho, uno o dos ejemplos reales de los de arriba, sin precio.`;
+      `Habla de tipos, no de artículos sueltos.`;
     try {
       if (consultaCat && !(consultaCat.familia.id === "rodamientos" && medidasAqui) && (pideProductos(message) || acotada(consultaCat))) {
         onEvento?.({ tipo: "estado", texto: "Revisando el catálogo…" });
@@ -1946,27 +1947,37 @@ export async function runAgent(
           if (formas.length) partes.push(`Formas de cuerpo disponibles: ${formas.join(", ")}.`);
           const marcas = (pedido.total ? pedido : entera).marcas.map((m) => m.marca);
           if (marcas.length) partes.push(`Marcas: ${marcas.join(", ")}.`);
-          if (ejemplos.length) partes.push(`Ejemplos reales con stock (para nombrar, sin precio): ${ejemplos.join(" · ")}.`);
-          partes.push(`Cómo se elige (explícaselo en 1-2 frases): ${consultaCat.familia.explicacion}`);
+          if (ejemplos.length && tarjetas.length) partes.push(`Opciones reales con stock: ${ejemplos.join(" · ")}.`);
+          partes.push(`Cómo se elige (referencia para ti; resúmelo en una frase si ayuda): ${consultaCat.familia.explicacion}`);
           if (tarjetas.length) {
             partes.push(
               `Es una pieza concreta: estas son las opciones reales, con su tarjeta de compra debajo de tu respuesta:\n` +
                 tarjetas.map((p) => `- ${p.name} — ${p.price.toFixed(2)} EUR · stock: ${p.stock ?? "?"}${unidadDeVenta(p)}`).join("\n") +
                 `\nPreséntalas nombrando cada una con su nombre EXACTO (si no la nombras, su tarjeta no sale).`
             );
+            partes.push(
+              `CÓMO RESPONDER: empieza por "Sí", presenta brevemente estas opciones y, si para cerrar la elección falta algo (forma, material, sellado…), pregúntalo en una frase. ` +
+                `No vuelvas a pedir lo que el cliente ya ha dicho${consultaCat.eje ? ` (el eje de ${consultaCat.eje} mm ya lo ha dado)` : ""}${consultaCat.serie ? ` (la serie ${consultaCat.serie} también)` : ""}. ` +
+                `PROHIBIDO decir que no tenemos ${nombreFam}.`
+            );
           } else {
             catalogoSinTarjetas = true;
+            const datos = (DATOS_NECESARIOS[consultaCat.familia.id] ?? [consultaCat.familia.afinar]).filter(
+              (d) => !(consultaCat.eje && /eje/i.test(d) && !/forma|montaje/i.test(d)) && !(consultaCat.serie && /serie|paso|tamaño/i.test(d) && !/forma/i.test(d))
+            );
             partes.push(
-              `Aún NO es una pieza concreta: en esta respuesta NO presentes productos para comprar, NO des precios ni stock y NO llames a search_products. ` +
-                `Primero hay que saber qué pieza necesita.`
+              `CÓMO RESPONDER (tono profesional de técnico comercial, sin relleno):\n` +
+                `1) Empieza por "Sí" y di qué TIPOS tenemos de lo que pregunta: los materiales/variantes de arriba y, si aplica, las formas de cuerpo (de pie UCP, brida cuadrada UCF, brida oval UCFL, brida redonda UCFC, tensor UCT…), en una o dos frases. ` +
+                `NO nombres artículos concretos ni des ejemplos de referencias, precios o stock: todavía no sabemos qué pieza necesita.\n` +
+                `2) Termina indicando, en una lista breve con viñetas, los datos que necesitamos para darle la referencia exacta:\n` +
+                datos.map((d) => `   - ${d}`).join("\n") +
+                `\n   (Si el cliente ya ha dado alguno de estos datos en la conversación, no lo vuelvas a pedir.)\n` +
+                `3) No llames a search_products en esta respuesta y no presentes productos para comprar. ` +
+                sinCifras.replace(/ Nombra los tipos y, como mucho, uno o dos ejemplos reales de los de arriba, sin precio\./, "") +
+                ` PROHIBIDO decir que no tenemos ${nombreFam} o cualquiera de los tipos listados: es un hecho comprobado en el catálogo. ` +
+                `Si el cliente pregunta además otra cosa (montaje, diferencias, una duda técnica), contéstala también.`
             );
           }
-          partes.push(
-            `CÓMO RESPONDER: corto y natural. Empieza por "Sí", di qué tipos tenemos (con algún ejemplo) y pregunta UNA sola cosa para afinar: ${consultaCat.familia.afinar} (sin volver a pedir lo que el cliente ya ha dicho${consultaCat.eje ? `: el eje de ${consultaCat.eje} mm ya lo ha dado` : ""}${consultaCat.serie ? `; la serie ${consultaCat.serie} también` : ""}). ` +
-              sinCifras +
-              ` PROHIBIDO decir que no tenemos ${nombreFam} o cualquiera de los tipos listados: es un hecho comprobado en el catálogo. ` +
-              `Si el cliente pregunta además otra cosa (montaje, diferencias, una duda técnica), contéstala también.`
-          );
         }
         messages.push({ role: "system", content: partes.join("\n\n") });
         catalogoResuelto = true;
@@ -1994,8 +2005,8 @@ export async function runAgent(
             messages.push({
               role: "system",
               content:
-                `🔒 CATÁLOGO DE LA PÁGINA — SÍ hay artículos que encajan con «${palabras.join(" ")}» (comprobado ahora). Ejemplos reales: ${ejemplos.join(" · ")}.\n` +
-                `PROHIBIDO decir que no lo tenemos. Dilo, nombra algún ejemplo y pregunta UNA cosa para afinar (medida o modelo). ` +
+                `🔒 CATÁLOGO DE LA PÁGINA — SÍ hay artículos que encajan con «${palabras.join(" ")}» (comprobado ahora; p. ej. ${ejemplos.join(" · ")}, solo para que sepas qué son: no los nombres).\n` +
+                `PROHIBIDO decir que no lo tenemos. Di que sí, qué tipo de artículo es y, en una lista breve, qué datos necesitamos para darle la referencia exacta (medidas, rosca, modelo…). Sin productos para comprar. ` +
                 sinCifras,
             });
             catalogoResuelto = true;
