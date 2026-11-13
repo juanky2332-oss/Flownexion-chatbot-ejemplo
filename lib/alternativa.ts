@@ -244,16 +244,56 @@ export function diferenciasDe(fichas: FichaTecnica[]): DiferenciaPieza[] {
   return fichas.slice(1, 4).map((f) => diferenciaFrente(fichas[0], f));
 }
 
-/** Bloque corto para el chat; el detalle va en el PDF comparativo. */
-export function textoComparativa(fichas: FichaTecnica[], diferencias: DiferenciaPieza[], hayPdf: boolean): string {
+/** Lo mínimo de cada tarjeta para el esquema de opciones (precio y stock reales). */
+export interface OpcionTienda {
+  name: string;
+  price?: number;
+  stock?: number | null;
+}
+
+const normNombre = (s: string) => s.toUpperCase().replace(/^RODAMIENTOS?\s+/, "").replace(/\([^)]*\)/g, "").replace(/[^A-Z0-9]/g, "");
+const euros = (n: number) => n.toFixed(2).replace(".", ",") + " €";
+
+/**
+ * Esquema de arriba del todo (petición del cliente, 13-11-2026): lo primero
+ * que lee el cliente es la solución, una opción por línea, con medidas,
+ * unidades y precio. Debajo van las diferencias, las fichas y los PDF.
+ */
+export function esquemaOpciones(fichas: FichaTecnica[], productos: OpcionTienda[] = []): string {
   const lineas: string[] = [];
+  for (const f of fichas) {
+    const p = productos.find((x) => normNombre(x.name) === normNombre(f.titulo));
+    const partes = [`**${f.titulo}**`];
+    if (f.medidas) partes.push(f.medidas);
+    if (p) {
+      if (typeof p.stock === "number") partes.push(p.stock > 0 ? `${p.stock} uds en stock` : "sin stock");
+      if (typeof p.price === "number" && p.price > 0) partes.push(`${euros(p.price)} sin IVA`);
+    } else if (productos.length) {
+      partes.push("no disponible en la página");
+    }
+    lineas.push(`- ${partes.join(" · ")}`);
+  }
+  return lineas.length >= 2 ? `**Opciones:**\n${lineas.join("\n")}` : "";
+}
+
+/** Bloque corto para el chat; el detalle va en el PDF comparativo. */
+export function textoComparativa(fichas: FichaTecnica[], diferencias: DiferenciaPieza[], hayPdf: boolean, productos: OpcionTienda[] = []): string {
+  const lineas: string[] = [];
+  const esquema = esquemaOpciones(fichas, productos);
+  if (esquema) lineas.push(esquema, "");
   const iguales = fichas.length >= 2 ? enQueCoinciden(fichas) : [];
   if (iguales.length) lineas.push(`**${fichas.length > 2 ? "Todas coinciden" : "Coinciden"} en:** ${iguales.join(", ")}.`, "");
+  // Cada cambio, pro o contra en su propia línea: nada de frases encadenadas con ";".
+  const sublista = (etiqueta: string, xs: string[]) => {
+    if (!xs.length) return;
+    if (xs.length === 1) lineas.push(`- **${etiqueta}:** ${xs[0]}.`);
+    else lineas.push(`- **${etiqueta}:**`, ...xs.map((x) => `  - ${x}`));
+  };
   for (const d of diferencias) {
     lineas.push(`**${d.titulo}** frente a **${d.frenteA}**:`);
-    if (d.cambios.length) lineas.push(`- **Cambia:** ${d.cambios.join("; ")}.`);
-    if (d.ventajas.length) lineas.push(`- **A favor:** ${d.ventajas.join("; ")}.`);
-    if (d.inconvenientes.length) lineas.push(`- **En contra:** ${d.inconvenientes.join("; ")}.`);
+    sublista("Cambia", d.cambios);
+    sublista("A favor", d.ventajas);
+    sublista("En contra", d.inconvenientes);
     if (!d.cambios.length && !d.ventajas.length && !d.inconvenientes.length) lineas.push("- Es la misma pieza con otra nomenclatura: en su ficha no hay diferencias técnicas.");
     lineas.push("");
   }
@@ -267,12 +307,16 @@ export function componerRespuesta(texto: string, bloque: string, nota?: string |
   const parrafos = limpio.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
   // Solo la entrada del modelo: visto el 03-11-2026, detrás del resumen seguía
   // escribiendo otra explicación y frases sueltas de la ficha que se le quitó.
-  return [parrafos[0] ?? "Aquí tienes la comparación:", bloque, nota].filter(Boolean).join("\n\n");
+  // Si el modelo enumeró las piezas en lista bajo su frase, se quita: el
+  // esquema de opciones del bloque ya las pone, una por línea.
+  const entrada = (parrafos[0] ?? "").split("\n").filter((l) => !/^\s*([-*•]|\d+[.)])\s/.test(l)).join("\n").trim();
+  return [entrada || "Aquí tienes las opciones:", bloque, nota].filter(Boolean).join("\n\n");
 }
 
 /** Instrucción común: lo que escribe el modelo cuando la comparación la pone el código. */
 export const MODO_BREVE =
-  `FORMATO DE ESTA RESPUESTA (manda sobre cualquier otra regla de formato): escribe SOLO una o dos frases, en un único párrafo. ` +
+  `FORMATO DE ESTA RESPUESTA (manda sobre cualquier otra regla de formato): escribe SOLO una frase corta de entrada que vaya al grano (la solución). ` +
+  `Si nombras dos o más piezas, NO las encadenes con comas en la frase: ponlas debajo en lista, una por línea ("- **nombre** — N uds"). ` +
   `NADA de fichas técnicas, ni "Ref:", ni "Información técnica completa", ni líneas de precio o stock, ni listas de diferencias o coincidencias, ` +
   `ni ventajas o inconvenientes, ni cifras técnicas: justo debajo de tu texto el sistema añade la comparación calculada y los PDF, y las tarjetas ya llevan precio y stock. ` +
   `No llames a compare_products. No digas que son "iguales" ni "equivalentes".`;

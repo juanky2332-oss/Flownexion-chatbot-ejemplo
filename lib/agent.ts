@@ -179,6 +179,17 @@ Un rodamiento tiene DOS diámetros distintos y usar el mismo símbolo Ø para am
 - **B** = anchura/espesor
 Nunca escribas un Ø suelto sin su letra (d o D) delante cuando puedan confundirse ambos diámetros en la misma frase. Excepción: cuando solo existe un diámetro en juego y no hay ambigüedad posible (p.ej. "el Ø del eje" al pedirle un solo dato al cliente), puedes usar Ø solo.
 
+# ESTRUCTURA DE TODA RESPUESTA — PRIMERO LA SOLUCIÓN, EN ESQUEMA
+Es un chat: el cliente lee lo primero y decide. Vale para CUALQUIER respuesta.
+1. **Arriba del todo, la solución, esquematizada.** Una frase corta que conteste directamente ("Sí, lo tenemos", "Lo más parecido es…", "Tenemos estos tipos:"). Si en la respuesta hay VARIOS elementos —productos, tipos, categorías, familias, opciones, resultados, pasos o datos que pedimos—, van en lista con viñetas, **UNO POR LÍNEA**, con el nombre en **negrita** y, como mucho, el dato clave detrás de un guion (medida, unidades, precio). PROHIBIDO encadenarlos en una frase separada por comas o por "y" ("racores, cilindros, válvulas y tubos…"): eso es lo que más feo queda en un chat.
+2. **Debajo, el detalle**: la ficha técnica completa de cada pieza, la comparativa, las explicaciones técnicas, etc., cada bloque separado por una línea en blanco. Las tarjetas con el botón de añadir al carrito, el botón de descargar el PDF y la comparativa en PDF las añade la interfaz sola, debajo de tu texto.
+3. Párrafos cortos (una idea cada uno, dos o tres líneas como mucho), nunca un bloque de texto seguido.
+Ejemplo de arranque con varias opciones:
+"Para eje de 25 mm con tapa a ambos lados tenemos estas opciones:
+- **SNR 6205 EE C3** — 59 uds
+- **SNR 6205 ZZ** — 120 uds"
+y después, separado, lo demás.
+
 # PRESENTACIÓN DE PRODUCTO — FORMATO VISUAL
 
 Cuando muestres un producto, usa SIEMPRE esta estructura (cada bloque separado por línea en blanco):
@@ -2185,9 +2196,11 @@ export async function runAgent(
             const datos = datosPendientes(consultaCat);
             partes.push(
               `CÓMO RESPONDER (tono profesional de técnico comercial, sin relleno):\n` +
-                `1) Empieza por "Sí" y di qué TIPOS tenemos de lo que pregunta: los materiales/variantes de arriba y, si aplica, las formas de cuerpo (de pie UCP, brida cuadrada UCF, brida oval UCFL, brida redonda UCFC, tensor UCT…), en una o dos frases. ` +
+                `1) Empieza con UNA frase corta que empiece por "Sí" (p. ej. "Sí, tenemos neumática, principalmente de la marca Aignep. Estos son los tipos que tenemos:"). ` +
+                `Después pon los TIPOS que tenemos de lo que pregunta (los materiales/variantes de arriba y, si aplica, las formas de cuerpo: de pie UCP, brida cuadrada UCF, brida oval UCFL, brida redonda UCFC, tensor UCT…) como lista con viñetas, UN TIPO POR LÍNEA, con el nombre del tipo en **negrita** y, si aporta, una aclaración muy corta tras un guion. ` +
+                `PROHIBIDO juntarlos todos en una frase separada por comas. Deja una línea en blanco entre la frase inicial, la lista de tipos y la lista de datos.\n` +
                 `NO nombres artículos concretos ni des ejemplos de referencias, precios o stock: todavía no sabemos qué pieza necesita.\n` +
-                `2) Termina indicando, en una lista breve con viñetas, los datos que necesitamos para darle la referencia exacta:\n` +
+                `2) Termina con una frase como "Para darte la referencia exacta, necesito:" y, en una lista breve con viñetas (un dato por línea), los datos que necesitamos:\n` +
                 datos.map((d) => `   - ${d}`).join("\n") +
                 `\n   (Si el cliente ya ha dado alguno de estos datos en la conversación, no lo vuelvas a pedir. Si ha dado un dato secundario —un sufijo como C3 o 2RS, un material—, reconócelo y explícale en una frase que con eso solo no se identifica la pieza.)\n` +
                 `3) No llames a search_products en esta respuesta y no presentes productos para comprar. ` +
@@ -2400,7 +2413,7 @@ export async function runAgent(
           content:
             `🔒 MEDIDA NO DISPONIBLE — de dØ${medidas.di} mm no hay ningún rodamiento a la venta en la página ahora mismo. Lo más cercano con stock, comprobado en el catálogo real:\n` +
             elegidos.map((v) => `- dØ${v.d} mm: ${v.mejor!.name} — ${v.mejor!.stock} uds`).join("\n") +
-            `\n\nDi en una frase que de ${medidas.di} mm no lo tenemos en la página y que lo más cercano es lo de arriba, nombrando cada pieza con sus unidades. PROHIBIDO decir que son equivalentes o que le valen: es otro diámetro de eje. ${MODO_BREVE}`,
+            `\n\nDi en una frase que de ${medidas.di} mm no lo tenemos en la página y que lo más cercano es lo de arriba, con cada pieza debajo en lista, una por línea y con sus unidades. PROHIBIDO decir que son equivalentes o que le valen: es otro diámetro de eje. ${MODO_BREVE}`,
         });
       }
     }
@@ -2458,7 +2471,7 @@ export async function runAgent(
           `Referencias estándar que cumplen esas medidas:\n${lineasKb}\n\nEn nuestra página:\n${lineasPagina}\n\n` +
           `OBLIGATORIO: responde con estas opciones reales. ` +
           (variasOpciones
-            ? `${MODO_BREVE} Nombra las piezas de la lista de la página en tu frase. `
+            ? `${MODO_BREVE} Pon las piezas de la lista de la página debajo de tu frase, una por línea. `
             : `Si hay alguna en la página, preséntala con su ficha técnica completa, su precio y su stock, y cierra ofreciendo la compra de las unidades que pide si hay stock suficiente. `) +
           (medidasRelajadas ? `Con las medidas exactas o la protección que pide no hay ninguna referencia: dilo en una frase y ofrece estas del mismo eje como lo más parecido, sin decir que le valen. ` : "") +
           // Condición de trabajo que la ficha no acredita ("que aguante

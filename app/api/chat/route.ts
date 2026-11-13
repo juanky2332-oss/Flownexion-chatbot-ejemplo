@@ -188,7 +188,7 @@ export async function POST(req: NextRequest) {
         fichas = r.alternativa.ficha ? [pedida, ...propuestas] : propuestas;
         comparar = fichas.length >= 2;
         diferencias = propuestas.map((f) => diferenciaFrente(pedida, f));
-        resumen = textoComparativa(comparar ? fichas : [], diferencias, comparar);
+        resumen = textoComparativa(comparar ? fichas : [], diferencias, comparar, r.products);
       }
     } else if (!comparar && !/\b(ficha|caracter[ií]sticas|datos\s+t[eé]cnicos)\b/i.test(message)) {
       // Varias piezas muy parecidas: mejor la comparativa que tres fichas enteras.
@@ -201,7 +201,7 @@ export async function POST(req: NextRequest) {
     }
     if (comparar && !resumen) {
       diferencias = diferenciasDe(fichas);
-      resumen = textoComparativa(fichas, diferencias, true);
+      resumen = textoComparativa(fichas, diferencias, true, r.products);
     }
     if (resumen) r.output = componerRespuesta(sinFichasNiDiferencias(r.output), resumen, r.notaFinal);
     fichas = fichas.map(conResumen);
