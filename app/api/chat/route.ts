@@ -6,7 +6,7 @@ import { psGetCustomer, psGetCustomerById } from "@/lib/prestashop";
 import { isPromptExtractionAttempt, IDENTITY_DEFLECTION } from "@/lib/guardrails";
 import { fichaDesdeKb, fichasParaPdf, pideComparar, sinFichasNiDiferencias, type FichaTecnica } from "@/lib/ficha";
 import { piezaDeNombre, piezasAComparar, fichasDeComparativa } from "@/lib/comparar";
-import { componerRespuesta, conResumen, diferenciaFrente, diferenciasDe, fichaDeReferencia, sonParecidas, textoComparativa, type DiferenciaPieza } from "@/lib/alternativa";
+import { cantidadPedida, componerRespuesta, conResumen, lineaProductoUnico, diferenciaFrente, diferenciasDe, fichaDeReferencia, sonParecidas, textoComparativa, type DiferenciaPieza } from "@/lib/alternativa";
 import { extractQueryCandidates, sinCantidades } from "@/lib/kb";
 import { MODEL } from "@/lib/llm";
 import { registrarMensaje, registrarError } from "@/lib/registro";
@@ -204,6 +204,15 @@ export async function POST(req: NextRequest) {
       resumen = textoComparativa(fichas, diferencias, true, r.products);
     }
     if (resumen) r.output = componerRespuesta(sinFichasNiDiferencias(r.output), resumen, r.notaFinal);
+    else if (r.products.length === 1 && /\*\*Ref:/.test(r.output) && !r.alternativa) {
+      // Un solo producto: la respuesta (stock, precio, si cubre la cantidad)
+      // arriba del todo; la ficha completa debajo. Se quita la frase de
+      // entrada del modelo si es solo una presentación sin datos.
+      const p = r.products[0];
+      const parrafos = r.output.split(/\n{2,}/);
+      if (parrafos.length > 1 && parrafos[0].length < 220 && !/\*\*Ref:|\d+\s*uds/.test(parrafos[0])) parrafos.shift();
+      r.output = [lineaProductoUnico(p, cantidadPedida(message)), ...parrafos].join("\n\n");
+    }
     fichas = fichas.map(conResumen);
     const sinRespuesta =
       cortado ||

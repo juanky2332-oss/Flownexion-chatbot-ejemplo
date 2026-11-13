@@ -276,6 +276,32 @@ export function esquemaOpciones(fichas: FichaTecnica[], productos: OpcionTienda[
   return lineas.length >= 2 ? `**Opciones:**\n${lineas.join("\n")}` : "";
 }
 
+/** Cantidad que pide el cliente en el mensaje ("quiero 4 unidades", "20 rodamientos 6205", "dame 3 del 6205"). */
+export function cantidadPedida(mensaje: string): number | null {
+  const m =
+    String(mensaje ?? "").match(/\b(\d{1,5})\s*(?:uds?\.?|unidades|piezas|rodam[a-záéíóú]*|correa[a-záéíóú]*|soportes?|juegos?|retenes|cadenas?)\b/i) ??
+    String(mensaje ?? "").match(/\b(\d{1,3})\s+del?\s+\S*\d{3}/i);
+  const n = m ? Number(m[1]) : NaN;
+  return n > 0 ? n : null;
+}
+
+/**
+ * Primera línea cuando la respuesta presenta UN solo producto (cliente,
+ * 13-11-2026): lo que ha preguntado —si lo hay, cuántas, a qué precio— va
+ * arriba, y la ficha completa debajo. Sale de los datos de la tarjeta.
+ */
+export function lineaProductoUnico(p: OpcionTienda, cantidad: number | null): string {
+  const stock = typeof p.stock === "number" ? p.stock : null;
+  const precio = typeof p.price === "number" && p.price > 0 ? ` · ${euros(p.price)} sin IVA` : "";
+  if (stock === 0) return `**${p.name}** — sin stock en la página ahora mismo${precio}.`;
+  const uds = stock !== null ? ` — ${stock} uds en stock` : "";
+  let cubre = "";
+  if (cantidad && stock !== null) {
+    cubre = cantidad <= stock ? ` Tienes las ${cantidad} que necesitas.` : ` De las ${cantidad} que pides, por la página hay ${stock}.`;
+  }
+  return `Sí, lo tenemos: **${p.name}**${uds}${precio}.${cubre}`;
+}
+
 /** Bloque corto para el chat; el detalle va en el PDF comparativo. */
 export function textoComparativa(fichas: FichaTecnica[], diferencias: DiferenciaPieza[], hayPdf: boolean, productos: OpcionTienda[] = []): string {
   const lineas: string[] = [];
