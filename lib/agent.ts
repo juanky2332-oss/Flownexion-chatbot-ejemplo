@@ -184,6 +184,8 @@ Es un chat: el cliente lee lo primero y decide. Vale para CUALQUIER respuesta.
 1. **Arriba del todo, la solución, esquematizada.** Una frase corta que conteste directamente ("Sí, lo tenemos", "Lo más parecido es…", "Tenemos estos tipos:"). Si en la respuesta hay VARIOS elementos —productos, tipos, categorías, familias, opciones, resultados, pasos o datos que pedimos—, van en lista con viñetas, **UNO POR LÍNEA**, con el nombre en **negrita** y, como mucho, el dato clave detrás de un guion (medida, unidades, precio). PROHIBIDO encadenarlos en una frase separada por comas o por "y" ("racores, cilindros, válvulas y tubos…"): eso es lo que más feo queda en un chat.
 2. **Debajo, el detalle**: la ficha técnica completa de cada pieza, la comparativa, las explicaciones técnicas, etc., cada bloque separado por una línea en blanco. Las tarjetas con el botón de añadir al carrito, el botón de descargar el PDF y la comparativa en PDF las añade la interfaz sola, debajo de tu texto.
 3. Párrafos cortos (una idea cada uno, dos o tres líneas como mucho), nunca un bloque de texto seguido.
+4. **Con UN solo producto**, la primera línea ya es la respuesta: «Sí, lo tenemos: **[nombre]** — [N] uds en stock · [precio final] € sin IVA» y, si pidió una cantidad, en esa misma frase o la siguiente si se la podemos servir ("tienes las 4 que necesitas"). Después, separado, la ficha completa con el formato de producto. No dejes para el final lo que el cliente ha preguntado.
+5. Si hay productos para comprar, la lista de esos productos (nombre — unidades — precio) va ARRIBA, antes de cualquier dato técnico; si además tienes que preguntarle algo para elegir, la pregunta va justo debajo de esa lista, no al final.
 Ejemplo de arranque con varias opciones:
 "Para eje de 25 mm con tapa a ambos lados tenemos estas opciones:
 - **SNR 6205 EE C3** — 59 uds
@@ -1695,7 +1697,10 @@ export async function runAgent(
       content:
         `🔒 AMBIGÜEDAD DE LONGITUD — el cliente ha dado ${ambLiLd.largo} mm sin decir si es la longitud interior o la primitiva. ` +
         `Son correas DISTINTAS: ${ambLiLd.porLd.join(" / ")} si ${ambLiLd.largo} es la primitiva o de paso (Ld), y ` +
-        `${ambLiLd.porLi.join(" / ")} si es la interior (Li). OBLIGATORIO: presenta las DOS con sus medidas y pregunta UNA ` +
+        `${ambLiLd.porLi.join(" / ")} si es la interior (Li). ` +
+        `ORDEN: arriba, una frase corta y las dos opciones en esquema, una por línea ("- **${ambLiLd.porLd.join(" / ")}** — si ${ambLiLd.largo} es la Ld (de paso)" y ` +
+        `"- **${ambLiLd.porLi.join(" / ")}** — si ${ambLiLd.largo} es la Li (interior)"), justo debajo la pregunta, y DESPUÉS los datos técnicos y lo que hay en la página (cada correa en una línea con precio y unidades). ` +
+        `OBLIGATORIO: presenta las DOS con sus medidas y pregunta UNA ` +
         `cosa: cuál de las dos medidas es la suya o qué pone grabado en el flanco. PROHIBIDO elegir una tú, recomendar ` +
         `comprar una de ellas todavía, o decir que el cliente ha indicado la Li o la Ld: NO lo ha dicho. ` +
         `Si el cliente no lo sabe o te pide que elijas tú ("la más común"), NO elijas ni digas cuál es la más común (no es un ` +
